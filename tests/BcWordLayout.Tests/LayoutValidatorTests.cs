@@ -6,14 +6,15 @@ namespace BcWordLayout.Tests;
 
 public class LayoutValidatorTests
 {
+    // PaymentPracticeByPeriod and SubcontractorDispatchList are deliberately absent: both carry
+    // foreign-namespace bindings, an Error since the 2026-08-02 sandbox verification (issue #1) —
+    // see the two dedicated tests below.
     [Theory]
     [InlineData(Corpus.SalesInvoice)]
     [InlineData(Corpus.InventoryOrderDetails)]
     [InlineData(Corpus.StandardStatement)]
     [InlineData(Corpus.SalespersonCommission)]
     [InlineData(Corpus.JobQuote)]
-    [InlineData(Corpus.PaymentPracticeByPeriod)]
-    [InlineData(Corpus.SubcontractorDispatchList)]
     public void All_corpus_layouts_quick_validate_with_zero_errors(string fileName)
     {
         var result = LayoutValidator.Quick(Corpus.Path(fileName));
@@ -47,15 +48,31 @@ public class LayoutValidatorTests
 
         var nsFindings = result.Findings.Where(f => f.Check == "binding-namespace").ToList();
         Assert.Equal(20, nsFindings.Count);
-        Assert.All(nsFindings, f => Assert.Equal(FindingSeverity.Warning, f.Severity));
+        Assert.All(nsFindings, f => Assert.Equal(FindingSeverity.Error, f.Severity));
         Assert.All(nsFindings, f => Assert.Contains("Payment_Practice/590", f.Message));
 
         Assert.Contains(result.Findings, f => f.Check == "single-bc-part"
                                               && f.Severity == FindingSeverity.Warning);
 
-        // All warnings: the layout is Microsoft's own and BC prints it, so it must not be called invalid.
-        Assert.Equal(0, result.ErrorCount);
-        Assert.True(result.Passed);
+        // Errors, not warnings, since the 2026-08-02 sandbox rounds (issue #1): BC rejected THIS capture
+        // at upload with InvalidPrefixMapping per mismatched binding, and accepted it once re-pointed to
+        // 685 — the embedded stock copy prints only because it never passes through upload validation.
+        Assert.Equal(20, result.ErrorCount);
+        Assert.False(result.Passed);
+    }
+
+    [Fact]
+    public void SubcontractorDispatchList_fails_for_its_38_foreign_namespace_bindings()
+    {
+        // Not a stock witness: the part claims Subcontractor_Dispatch_List/99000789 but 38 of its 43
+        // bindings name 50000-range namespaces from a customized tenant (see Corpus.cs). Same upload fate
+        // as any foreign-namespace binding, so same Error severity.
+        var result = LayoutValidator.Quick(Corpus.Path(Corpus.SubcontractorDispatchList));
+
+        var nsFindings = result.Findings.Where(f => f.Check == "binding-namespace").ToList();
+        Assert.Equal(38, nsFindings.Count);
+        Assert.All(nsFindings, f => Assert.Equal(FindingSeverity.Error, f.Severity));
+        Assert.False(result.Passed);
     }
 
     [Fact]

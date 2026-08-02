@@ -175,22 +175,25 @@ public static class LayoutValidator
     //     namespace Payment_Practice/590 while the embedded part is Payment_Practice/685, and both other
     //     checks pass it.
     //
-    //     WARNING, deliberately not an error. In Word's own model the mismatch is fatal for that control:
-    //     w:storeItemID selects the data-store part and the prefixMappings URI must then match that part's
-    //     namespace for the XPath to match any node, so it would render blank. But BC does not render through
-    //     Word, and TWO base-app layouts ship this way (PaymentPracticeByPeriod 20/25 bindings,
-    //     SubcontractorDispatchList 38, several naming a namespace with no part in the package at all) —
-    //     stock layouts Microsoft ships and customers print. Either BC matches bindings structurally by
-    //     element-name path the way CheckXPathsResolve does, or it re-points them on upload. Calling this an
-    //     error would declare stock base-app layouts invalid on an unverified rendering claim.
+    //     ERROR, settled by sandbox evidence (2026-08-02, GitHub issue #1). BC validates every binding's
+    //     prefixMappings against the target report's CURRENT namespace at upload and rejects the layout
+    //     with one InvalidPrefixMapping per offending binding. Three uploads of PaymentPracticeByPeriod
+    //     against its own report 685 proved it: rejected as captured (20 bindings on the superseded 590);
+    //     rejected even with the WHOLE package internally consistent on 590 (so no re-pointing and no
+    //     structural matching on the upload path — bindings must name the report's current namespace);
+    //     accepted the moment every binding was re-pointed to 685, which clears the file of any other
+    //     defect. Stock base-app layouts do ship mismatched and customers print those reports — but the
+    //     embedded copies never pass through upload validation, so "BC tolerates it" was only ever true
+    //     of a path this tool's callers cannot use. (Whether the embedded copies RENDER those controls
+    //     with data or silently blank remains unobserved; nothing here rests on it.) In Word's own model
+    //     the mismatch is fatal regardless: w:storeItemID selects the data-store part and the
+    //     prefixMappings URI must match that part's namespace for the XPath to match any node.
     //
-    //     A third layout (QuantityExplosionofBOM, 21 such bindings) used to be cited here and has been struck:
-    //     BC rejected it on upload with InvalidPrefixMapping, but it turned out to be a corrupted/customized
-    //     capture — its bindings name report ids 50000/50013 while claiming to be 99000753, and the report
-    //     does not run in a sandbox even with Microsoft's own layout. That rejection therefore proves nothing
-    //     about how BC treats a foreign-namespace binding in a layout that is otherwise sound, and the
-    //     warning-not-error decision does NOT rest on it either way. Settling this still needs one of the two
-    //     remaining layouts uploaded and rendered — GitHub issue #1, still open.
+    //     Witness hygiene: SubcontractorDispatchList (38 such bindings) was once cited here as a second
+    //     stock witness, but it carries the same contamination signature as the long-struck
+    //     QuantityExplosionofBOM — its part claims Subcontractor_Dispatch_List/99000789 while its bindings
+    //     name 50000-range namespaces (incl. FS_YSC_SubcontractorDispatch/50030), i.e. a customized-tenant
+    //     capture, not a base-app one. It stays in the corpus for merge-depth coverage only (Corpus.cs).
     private static void CheckBindingNamespaces(LayoutInventory inventory, DatasetTree? schema, List<ValidationFinding> findings)
     {
         if (schema is null)
@@ -213,15 +216,14 @@ public static class LayoutValidator
             findings.Add(new ValidationFinding
             {
                 Check = "binding-namespace",
-                Severity = FindingSeverity.Warning,
+                Severity = FindingSeverity.Error,
                 Message = $"Binding names dataset namespace '{control.BindingNamespace}', but this layout's "
-                          + $"BC part declares '{expected}'. The binding is orphaned against its own package: "
-                          + "in Word this control would render blank. Business Central appears to tolerate it "
-                          + "(several stock base-app layouts ship this way), so this is reported as a warning "
-                          + "rather than an error. To repair it, rebuild the control (remove_control then "
-                          + "insert_field/insert_label), which binds against this layout's own namespace; note "
-                          + "refresh_xml_part will NOT re-point it, as it only rewrites bindings that already "
-                          + "name the layout's current namespace.",
+                          + $"BC part declares '{expected}'. Business Central rejects the layout at upload "
+                          + "with InvalidPrefixMapping for every such binding (sandbox-verified 2026-08-02), "
+                          + "and in Word's model the control would render blank. To repair it, rebuild the "
+                          + "control (remove_control then insert_field/insert_label), which binds against "
+                          + "this layout's own namespace; note refresh_xml_part will NOT re-point it, as it "
+                          + "only rewrites bindings that already name the layout's current namespace.",
                 Location = $"{control.Part}: {control.Alias ?? control.XPath}",
             });
         }
@@ -398,7 +400,7 @@ public static class LayoutValidator
     //    passed insert_repeater_table's tableStyle parameter (or hand-authored a w:tblStyle) believes they
     //    styled the table, and every renderer silently falls back to its own defaults instead (GitHub
     //    issue #3's knock-on finding). WARNING, not an error: the layout renders fine, the reference just
-    //    does nothing — same severity philosophy as binding-namespace. Layouts this tool creates from
+    //    does nothing, and BC's upload validation does not police style references. Layouts this tool creates from
     //    scratch ship a styles part defining TableGrid (see DefaultStylesScaffold), so the documented
     //    tableStyle example resolves; this check covers everything else — typo'd style names, bare
     //    externally-authored layouts, and templates whose styles part lacks the referenced style.
