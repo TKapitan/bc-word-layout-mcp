@@ -40,10 +40,6 @@ section is **done** (2026-08-01 — all five pack items passed; the recorded res
 live in [`FIDELITY-CHECKLIST.md`](FIDELITY-CHECKLIST.md)), which leaves one open question it did not
 settle.
 
-| Id | Item | Why / what to do |
-|---|---|---|
-| B42 | **Confirm how BC resolves a foreign-namespace binding** | **Still open — the first attempt produced no usable evidence.** The reason `validate_layout`'s `binding-namespace` finding is a warning rather than an error. In Word's model the mismatch is fatal for that control — `w:storeItemID` picks the data-store part, then the `prefixMappings` URI must match that part's namespace for the XPath to match any node — yet two stock base-app layouts ship this way in bulk and BC prints them, so BC either matches bindings structurally by element-name path or re-points them on upload. The 2026-08-01 sandbox round tested `QuantityExplosionofBOM.docx` and BC rejected it on upload (`InvalidPrefixMapping`, nine bindings) — but that file was a corrupted/customized capture naming report ids 50000/50013 while claiming 99000753, and report 99000753 does not run in the sandbox even with Microsoft's own layout, so the rejection says nothing about a sound layout. The file has been removed from the corpus. **Retry with `PaymentPracticeByPeriod.docx` (685) or `SubcontractorDispatchList.docx` (99000789)**, both of which must first be confirmed to run in the sandbox with their built-in layouts. Only then: if the foreign-namespace controls render blank, promote the finding to an error; if they render, drop the "would render blank" wording. |
-
 ## P2 — Cleanup
 
 Real but non-blocking. Batch these as one or two cleanup passes.
