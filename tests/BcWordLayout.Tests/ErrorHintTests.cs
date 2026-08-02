@@ -542,14 +542,15 @@ public class ErrorHintTests
 
     // ---- internal_error: an internal-bug-shaped InvalidOperationException must NOT surface as not_found ----
 
-    [Fact]
+    [WindowsOnlyFact]
     public void CreateLayout_with_a_bare_drive_root_as_outputPath_returns_internal_error_not_not_found()
     {
         // LayoutBuilder.Create's "Could not determine the directory of ..." throw is a plain
         // InvalidOperationException (an internal invariant, not a lookup failure) - a bare drive root is the
         // one input that reaches it via the real public tool surface without any file ever being written
         // (the throw fires before Directory.CreateDirectory/any write). Confirms Guard's generic
-        // catch (Exception) - not a not_found branch - is what handles it post-B11.
+        // catch (Exception) - not a not_found branch - is what handles it post-B11. Windows-only: on POSIX
+        // "C:\" is an ordinary relative file name, so the drive-root input shape does not exist there.
         var response = LifecycleTools.CreateLayout(Corpus.Path(Corpus.SalesInvoice), "C:\\");
 
         Assert.False(response.Ok);

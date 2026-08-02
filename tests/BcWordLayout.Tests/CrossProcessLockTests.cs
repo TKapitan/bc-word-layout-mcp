@@ -300,7 +300,7 @@ public class CrossProcessLockTests
 
     // ---- sharing violation (the layout open in another program, e.g. Word) -> file_locked ----
 
-    [Fact]
+    [WindowsOnlyFact]
     public void InsertField_when_the_layout_is_exclusively_open_elsewhere_returns_file_locked_with_a_close_it_in_word_hint()
     {
         var path = CopyOfCorpus(Corpus.SalesInvoice);
@@ -328,7 +328,7 @@ public class CrossProcessLockTests
         }
     }
 
-    [Fact]
+    [WindowsOnlyFact]
     public void GetLayoutInfo_when_the_layout_is_exclusively_open_elsewhere_returns_file_locked()
     {
         var path = CopyOfCorpus(Corpus.SalesInvoice);
@@ -353,7 +353,7 @@ public class CrossProcessLockTests
         }
     }
 
-    [Fact]
+    [WindowsOnlyFact]
     public void ValidateLayout_when_the_layout_is_exclusively_open_elsewhere_returns_file_locked()
     {
         var path = CopyOfCorpus(Corpus.SalesInvoice);

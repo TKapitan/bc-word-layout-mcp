@@ -248,8 +248,11 @@ public class McpHostToolTests
     [Fact]
     public void DefaultPreviewOutputDirName_two_layouts_sharing_a_basename_produce_different_dir_names()
     {
-        var dirNameA = LifecycleTools.DefaultPreviewOutputDirName(@"C:\appA\SalesInvoice.docx");
-        var dirNameB = LifecycleTools.DefaultPreviewOutputDirName(@"C:\appB\SalesInvoice.docx");
+        // Path.Combine (not a hardcoded C:\ literal) so the same-basename-different-directory shape
+        // holds on every OS - backslashes are not separators on POSIX.
+        var root = Path.GetTempPath();
+        var dirNameA = LifecycleTools.DefaultPreviewOutputDirName(Path.Combine(root, "appA", "SalesInvoice.docx"));
+        var dirNameB = LifecycleTools.DefaultPreviewOutputDirName(Path.Combine(root, "appB", "SalesInvoice.docx"));
 
         Assert.NotEqual(dirNameA, dirNameB);
         Assert.StartsWith("SalesInvoice-", dirNameA);
@@ -765,7 +768,7 @@ public class McpHostToolTests
         }
     }
 
-    [Fact]
+    [WindowsOnlyFact]
     public void PreviewLayout_succeeds_even_when_a_stale_sibling_dir_fails_to_delete()
     {
         var defaultRoot = Path.Combine(Path.GetTempPath(), "bc-word-layout-mcp");
