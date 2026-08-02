@@ -46,7 +46,8 @@ situation actually occurs, no standing hotfix machinery exists — that is delib
 1. **Start from an issue.** The backlog lives in
    [GitHub issues](https://github.com/TKapitan/bc-word-layout-mcp/issues); anything non-trivial
    (new behavior, design changes, corpus additions) gets an issue first so scope is agreed before
-   code exists. Typo-grade fixes may go straight to a PR.
+   code exists. Typo-grade fixes may go straight to a PR. Label the issue per
+   [Issue classification](#issue-classification) below.
 2. **Branch** from fresh `main` using the naming above.
 3. **Make the change** following [`CONTRIBUTING.md`](../CONTRIBUTING.md): one functionality per
    branch, tests asserting the resulting OOXML, `CHANGELOG.md` *Unreleased* entry for anything
@@ -54,12 +55,11 @@ situation actually occurs, no standing hotfix machinery exists — that is delib
 4. **Open a PR against `main`.** The template checklist is the review contract. The PR title
    becomes the commit subject on `main` (squash merge), so write it in the imperative mood, like
    the existing history.
-5. **Gates.** CI must be green on both legs (`build-and-test (windows-latest)` and
-   `build-and-test (ubuntu-latest)`), the branch must be current with `main`, and every review
-   conversation must be resolved. A Markdown-only change skips both build legs by design
-   ([`ci.yml`](../.github/workflows/ci.yml)'s `changes` job): the required checks report as
-   *skipped*, which GitHub counts as satisfied — documentation PRs merge without spending
-   build minutes. External PRs are reviewed by the code owner
+5. **Gates.** CI must be green — the required check is the single `ci-result` gate, which passes
+   only when both build legs (`windows-latest` and `ubuntu-latest`) succeeded or were skipped
+   because the change touched only Markdown ([`ci.yml`](../.github/workflows/ci.yml)'s `changes`
+   job) — documentation PRs merge without spending build minutes. The branch must be current with
+   `main`, and every review conversation must be resolved. External PRs are reviewed by the code owner
    ([`CODEOWNERS`](../.github/CODEOWNERS)); maintainer PRs merge on green CI — the required-check
    gate, not self-review theater, is what protects `main` while there is one maintainer.
 6. **Squash-merge.** One PR → one commit on `main`. The head branch is deleted automatically.
@@ -68,6 +68,77 @@ situation actually occurs, no standing hotfix machinery exists — that is delib
 **Dependabot PRs** ([`dependabot.yml`](../.github/dependabot.yml)) follow the same path: CI gates
 them, the maintainer merges them. No auto-merge — a dependency bump that changes emitted OOXML or
 converter behavior deserves eyes.
+
+## Issue classification
+
+Labels are the prioritization mechanism — there are no priority numbers. Every issue carries one
+**type** label; an **impact** label and any applicable **blocked** labels are added as soon as
+they are knowable, and priority falls out of impact × blockage at pick-time (rules below).
+
+### Type — what kind of work it is (exactly one)
+
+| Label | Meaning |
+| --- | --- |
+| `bug` | Shipped behavior is wrong. |
+| `enhancement` | A new capability, or the widening of an existing one. |
+| `documentation` | Documentation-only — no shipped code changes. |
+| `research` | The deliverable is evidence or a decision — a BC-sandbox probe, a Word behaviour check, a reference fixture — not code (e.g. [#1](https://github.com/TKapitan/bc-word-layout-mcp/issues/1)). An implementation issue that is merely *gated on* such evidence keeps its own type and gets `blocked: evidence` instead. |
+| `question` | Further information is requested. |
+
+### Impact — how bad it is (at most one)
+
+Ordered most → least severe; this order is the tie-breaker when picking what to fix next:
+
+| Label | Meaning |
+| --- | --- |
+| `impact: corrupted-layout` | The produced layout is invalid — BC rejects the upload or Word cannot open the result. Drop-everything severity: emitting layouts BC accepts is the tool's one job. |
+| `impact: wrong-output` | BC accepts the layout but the rendered document is wrong — content, typography, pagination (e.g. [#3](https://github.com/TKapitan/bc-word-layout-mcp/issues/3)). |
+| `impact: tool-usability` | A documented workflow or tool contract misleads or fails; no bad artifact is produced, but callers lose real time — [#5](https://github.com/TKapitan/bc-word-layout-mcp/issues/5) cost a whole sandbox round to diagnose. |
+| `impact: mock-only` | Only the mock preview diverges from BC's render; the emitted layout and the BC output are correct (e.g. [#19](https://github.com/TKapitan/bc-word-layout-mcp/issues/19)). |
+
+Issues whose only impact is on documentation need no impact label — the `documentation` type
+already says it. Leave impact off while it is genuinely unknown (e.g.
+[#6](https://github.com/TKapitan/bc-word-layout-mcp/issues/6) until the Word behaviour check runs).
+
+### Blocked — why it is parked (any that apply)
+
+| Label | Meaning |
+| --- | --- |
+| `blocked: decision` | Parked on a maintainer design decision, not on code (e.g. [#2](https://github.com/TKapitan/bc-word-layout-mcp/issues/2)). |
+| `blocked: evidence` | Needs real-world evidence first — a captured fixture, BC-sandbox probe, or Word behaviour check — per the "emit only observed OOXML" rule ([ADR 0005](adr/0005-emit-only-observed-ooxml.md)); e.g. [#8](https://github.com/TKapitan/bc-word-layout-mcp/issues/8), [#9](https://github.com/TKapitan/bc-word-layout-mcp/issues/9). |
+| `blocked: environment` | Needs an environment or tool not currently to hand — a LibreOffice install ([#7](https://github.com/TKapitan/bc-word-layout-mcp/issues/7)), BC add-in access ([#8](https://github.com/TKapitan/bc-word-layout-mcp/issues/8)). |
+
+### Roadmap
+
+`roadmap` marks parked ideas with no design or schedule yet (e.g.
+[#15](https://github.com/TKapitan/bc-word-layout-mcp/issues/15),
+[#16](https://github.com/TKapitan/bc-word-layout-mcp/issues/16)) — the pool revisited when picking
+post-release work, ordered by expected community value.
+
+### Triage rules
+
+- A new issue gets its type label immediately; impact/blocked labels as soon as they are knowable.
+- **Pick-next order:** unblocked before blocked, then by impact severity top-to-bottom; `roadmap`
+  last. A `blocked: *` label is also a to-do — the fastest way to unblock is usually a small
+  `research` issue or a sandbox-round line item.
+- GitHub's stock labels (`duplicate`, `invalid`, `wontfix`, `not planned`, `good first issue`,
+  `help wanted`) keep their stock meanings.
+
+### Appendix: recreating the labels
+
+Like the rulesets, the label set is kept as executable configuration so it survives repo moves:
+
+```pwsh
+gh label create "research"               --color 1d76db --description "The deliverable is evidence or a decision (sandbox probe, Word behaviour check, fixture), not code"
+gh label create "impact: corrupted-layout" --color b60205 --description "Produces an invalid layout: BC rejects the upload or Word cannot open the result"
+gh label create "impact: wrong-output"   --color d93f0b --description "BC accepts the layout but the rendered document is wrong (content, typography, pagination)"
+gh label create "impact: tool-usability" --color f9d0c4 --description "A documented workflow or tool contract misleads or fails; no bad artifact is produced"
+gh label create "impact: mock-only"      --color fbca04 --description "Only the mock preview diverges from BC's render; the emitted layout and BC output are correct"
+gh label create "blocked: decision"      --color 5319e7 --description "Parked on a maintainer design decision, not on code"
+gh label create "blocked: evidence"      --color 8a63d2 --description "Needs real-world evidence first: a captured fixture, BC sandbox probe, or Word behaviour check"
+gh label create "blocked: environment"   --color d4c5f9 --description "Needs an environment or tool not currently to hand (LibreOffice install, BC add-in access)"
+gh label create "roadmap"                --color c5def5 --description "Parked idea on the feature roadmap: no design or schedule yet; ordered by expected community value"
+```
 
 ## Branch protection rules
 
@@ -82,7 +153,7 @@ repo; apply them via the appendix below or Settings → Rules → Rulesets → I
 | --- | --- | --- |
 | Require a pull request | required approvals: **0** | A solo maintainer cannot approve their own PR; requiring 1 would dead-lock every merge. Raise to 1 + require code-owner review the day a second maintainer joins. |
 | Allowed merge methods | **squash only** | One functionality per PR → one commit per functionality on `main`; PR titles feed `--generate-notes` in the release workflow. |
-| Required status checks | `build-and-test (windows-latest)`, `build-and-test (ubuntu-latest)`, **strict** (branch must be up to date) | Both CI legs are load-bearing: Windows is the supported platform, Linux is the rot-guard (see [`ci.yml`](../.github/workflows/ci.yml)). Strict mode means the merged result is exactly what CI tested. Markdown-only changes skip both legs via a job-level `if:` — a skipped required job counts as passing, so docs PRs still merge. |
+| Required status checks | `ci-result`, **strict** (branch must be up to date) | `ci-result` is an always-run gate that passes only when both CI legs succeeded or were skipped by the Markdown-only rule (see [`ci.yml`](../.github/workflows/ci.yml)). Both legs are load-bearing — Windows is the supported platform, Linux is the rot-guard — but they cannot be required directly: a matrix job skipped by `if:` never expands, so `build-and-test (windows-latest)` would stay "Expected" forever on a docs PR and block the merge. Strict mode means the merged result is exactly what CI tested. |
 | Require conversation resolution | on | Review threads are part of the record. |
 | Require linear history | on | Squash-only already guarantees it; the rule keeps it true if merge settings ever drift. |
 | Block force pushes / deletions | on | `main` is the release source of truth. |
