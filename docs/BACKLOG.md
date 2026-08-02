@@ -58,6 +58,3 @@ Ordered by expected community value.
 
 Not closable once — tracked so no release silently skips them.
 
-- **Re-run the sandbox pack when the tool surface changes.** `tools/e2e/sandbox_pack.py` +
-  `tools/e2e/bc_compare.py` make a full round mechanical; the standing cost is one sandbox session per
-  release, not a project. Answering "is preview fidelity good enough?" once does not keep it answered.
