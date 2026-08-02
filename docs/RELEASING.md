@@ -18,8 +18,9 @@ reporting "no leaks found" — always check the "commits scanned" line before tr
 
 ## 1. Version bump — every release, release candidates included
 
-Bump the version in **all of these** (the suite fails via `PackagingMetadataTests` if any is
-missed):
+Direct pushes to `main` are blocked ([`BRANCHING.md`](BRANCHING.md)), so steps 1–2 happen on a
+`chore/release-vX.Y.Z` branch that merges via a normal PR. Bump the version in **all of these**
+(the suite fails via `PackagingMetadataTests` if any is missed):
 
 1. `Directory.Build.props` — `<Version>` and `<InformationalVersion>` (keep `AssemblyVersion` /
    `FileVersion` at the numeric `X.Y.Z.0` — they cannot carry a `-rc.N` suffix).
@@ -37,13 +38,20 @@ free).
 
 ## 2. Changelog
 
-Move the *Unreleased* section of [`CHANGELOG.md`](../CHANGELOG.md) to the new version and date it.
+In the same release PR, move the *Unreleased* section of [`CHANGELOG.md`](../CHANGELOG.md) to the
+new version and date it.
 
 ## 3. Tag
 
+Once the release PR is merged, tag the squash commit on `main` and push **only the tag** —
+`git push origin main --follow-tags` would be rejected by branch protection; the tag push itself
+passes the `release-tags` ruleset via the admin bypass:
+
 ```pwsh
+git switch main
+git pull
 git tag -a v1.2.3 -m "v1.2.3"
-git push origin main --follow-tags
+git push origin v1.2.3
 ```
 
 The tag must be `v` + the exact `<Version>` from `Directory.Build.props` — `release.yml` verifies

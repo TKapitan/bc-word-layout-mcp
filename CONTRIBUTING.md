@@ -61,6 +61,8 @@ They are evidence, not fixtures of convenience:
 
 ## Pull requests
 
+- Branch from `main` (`feature/…`, `fix/…`, `docs/…`, `chore/…`) — branch naming, the change
+  lifecycle, and how PRs merge are in [`docs/BRANCHING.md`](docs/BRANCHING.md).
 - One functionality per PR; keep the build warning-free.
 - Update [`CHANGELOG.md`](CHANGELOG.md) (add an *Unreleased* section if there isn't one) for anything
   user-visible.
