@@ -10,6 +10,7 @@ actually starts a working server (release plan R3/G8).
 Keeps stdin open until the responses arrive (stdio EOF race - see the pilot-harness notes).
 """
 import json
+import shutil
 import subprocess
 import sys
 import threading
@@ -27,6 +28,13 @@ def main() -> int:
         print("usage: verify_server.py [--expect-tools N] -- <command> [args...]", file=sys.stderr)
         return 2
     command = argv[1:]
+    # Resolve through PATH like a shell would: on Windows, CreateProcess only finds `dnx` if the
+    # `.cmd` extension is spelled out, so `-- dnx ...` (the documented invocation) needs this.
+    resolved = shutil.which(command[0])
+    if resolved is None:
+        print(f"command not found: {command[0]}", file=sys.stderr)
+        return 2
+    command[0] = resolved
 
     proc = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                             stderr=subprocess.PIPE)
