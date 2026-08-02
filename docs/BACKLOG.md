@@ -46,7 +46,6 @@ Real but non-blocking. Batch these as one or two cleanup passes.
 
 | Id | Item | Why / what to do |
 |---|---|---|
-| B37 | **`w16sdtdh:storeItemChecksum` survivability on edited bindings** | Word 2021+ stamps a `w16sdtdh:storeItemChecksum` attribute on `w15:dataBinding` elements; `JobQuote.docx` and `StandardSalesInvoiceVatSpec.docx` carry them (5 and 2 respectively). `LayoutRefresher` rewrites `prefixMappings` in place and the table tools clone whole `sdtPr` blocks, so a stale checksum can ride along on a binding whose target changed. Confirm what Word does with a mismatched checksum (ignore vs "the content control's data is out of date"), then either drop the attribute on any binding the tools rewrite or leave it with a comment recording the evidence. Purely defensive — no observed failure yet. |
 
 ## P3 — Feature roadmap (post-launch)
 
