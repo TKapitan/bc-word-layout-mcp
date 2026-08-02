@@ -13,14 +13,14 @@ public static class Corpus
     /// <summary><c>Standard_Purchase_Order/1322</c> — the purchase-side counterpart, with 6 header/footer parts.</summary>
     public const string StandardPurchaseOrder = "StandardPurchaseOrder.docx";
 
-    // ---- 2026-08-01 base-app additions (captured from the Microsoft base app; see docs/BACKLOG.md B36-B39
-    // for what each one is here to cover). Each carries a shape no pre-existing corpus file has.
+    // ---- 2026-08-01 base-app additions (captured from the Microsoft base app). Each carries a shape no
+    // pre-existing corpus file has; the per-file docs below say what each one is here to cover.
 
     /// <summary>
     /// <c>Salesperson_Commission/115</c> — a TRUE base-app layout carrying the dedicated
     /// <c>&lt;Labels&gt;</c> data item whose label columns are suffixed <c>Label</c>/<c>Caption</c> rather than
     /// <c>Lbl</c>: the same shape <see cref="InventoryOrderDetails"/> covers, but without its custom-report
-    /// provenance (backlog B1). Also one of the corpus's two <b>UTF-8</b>-encoded BC custom XML parts (the
+    /// provenance. Also one of the corpus's two <b>UTF-8</b>-encoded BC custom XML parts (the
     /// other is <see cref="SubcontractorDispatchList"/>; every other file is UTF-16 LE + BOM) and its only
     /// <c>w:tblHeader</c> repeat-header row on a repeater table.
     /// Validates clean (0 errors, 0 warnings).
@@ -30,7 +30,7 @@ public static class Corpus
     /// <summary>
     /// <c>Standard_Sales_Invoice/1306</c> (VAT-spec variant) — the corpus's ONLY <c>w:gridAfter</c> table,
     /// and it is the line-items repeater table itself (11 grid columns, 7 <c>gridSpan</c>, 3 <c>gridAfter</c>).
-    /// This is the fixture backlog B25 said did not exist — it is what LIFTED the blanket gridAfter
+    /// This is the fixture long believed not to exist (see GitHub issue #9's history) — it is what LIFTED the blanket gridAfter
     /// refusal (see <c>TableStructureEditorTests</c>' gridAfter suite; <c>w:vMerge</c> remains the
     /// refused shape). Also carries two Microsoft-shipped defects: bindings whose <c>storeItemID</c>
     /// names a part that is not in the package, and a <c>w15:dataBinding</c> whose <c>w:prefixMappings</c>

@@ -532,8 +532,8 @@ public class RepeaterTableTests
 
     // ---- Follow-up review (post-Phase-4.3): a repeater TABLE is v1-scoped to the body ONLY - unlike
     // insert_field/insert_label, which fully support layoutPart='header'/'footer', insert_repeater_table
-    // must reject Location.Part != Body outright (repeaters in headers/footers are explicitly deferred to
-    // the backlog, item B27). ----
+    // must reject Location.Part != Body outright (repeaters in headers/footers are explicitly deferred -
+    // GitHub issue #10). ----
 
     [Fact]
     public void InsertRepeaterTable_targeting_LayoutPart_Header_is_rejected_and_leaves_the_document_unmodified()

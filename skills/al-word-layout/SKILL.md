@@ -170,7 +170,8 @@ every tool here except `set_cell_borders`.
   sample data (or your override), converted outside the real BC report engine. The outer loop — AL
   build → publish to dev sandbox → run the report — is unchanged and is the only real verification.
 - **Don't try to create a repeater table in a header or footer.** `insert_repeater_table` only accepts
-  `layoutPart='body'`; this is a v1.1+ backlog gap, not something to work around by hand-authoring one.
+  `layoutPart='body'`; this is a known deferred gap (GitHub issue #10), not something to work around by
+  hand-authoring one.
 - **Don't ignore a failure's `error.hint`/`error.code`.** Every failure is agent-actionable — it names
   the exact argument to fix or the inspection tool to call first (typically `get_layout_info` /
   `list_dataset_fields`), not a generic "something went wrong."

@@ -24,7 +24,7 @@ namespace BcWordLayout.Domain;
 /// <c>insert_field</c>/<c>insert_label</c> territory. The cell (and thus the table column) is always
 /// preserved: a set/clear only ever rewrites the cell's own paragraph content, never removes the
 /// <c>w:tc</c>. Deleting or collapsing a whole column (its cell in every row + the <c>w:tblGrid</c>) is a
-/// TABLE-STRUCTURE change, deliberately out of scope here (see <c>docs/BACKLOG.md</c>).
+/// TABLE-STRUCTURE change, deliberately out of scope here (see <see cref="TableStructureEditor"/>).
 /// </remarks>
 public static class CellTextEditor
 {

@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Before proposing, skim [`docs/BACKLOG.md`](../../blob/main/docs/BACKLOG.md) — many gaps are
+        Before proposing, skim the [open issues](../../issues) — many gaps are
         already tracked there with a reason they are deferred — and
         [`docs/adr/`](../../blob/main/docs/adr) for the design rules proposals need to fit
         (especially ADR-0005: new OOXML shapes need a **real captured layout** as evidence, not just

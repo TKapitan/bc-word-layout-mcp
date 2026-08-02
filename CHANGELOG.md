@@ -61,17 +61,19 @@ Business Central through deterministic, typed tools instead of free-hand OOXML e
   — all five passed ([`docs/FIDELITY-CHECKLIST.md`](docs/FIDELITY-CHECKLIST.md) records the run).
   That establishes that BC accepts and renders what the tools author; it does not make the mock
   preview authoritative, and other BC versions/localizations carry no validation yet.
-- **The LibreOffice conversion path is unverified end to end** (backlog **B4**); the Word COM path is the
+- **The LibreOffice conversion path is unverified end to end**
+  ([#7](https://github.com/TKapitan/bc-word-layout-mcp/issues/7)); the Word COM path is the
   tested one.
 - **BC add-in conditional controls are not supported** — *Hide Field if Zero*, *Hide Empty Table*, *Hide
-  Empty Table Row*, layout comments (backlog **B24**).
-- **Tables using vertical merges (`w:vMerge`) are refused** by every column operation (backlog **B25**).
+  Empty Table Row*, layout comments ([#8](https://github.com/TKapitan/bc-word-layout-mcp/issues/8)).
+- **Tables using vertical merges (`w:vMerge`) are refused** by every column operation
+  ([#9](https://github.com/TKapitan/bc-word-layout-mcp/issues/9)).
 - **Creating a repeater in a header or footer is refused**; reading and merging a pre-existing one works,
-  with a warning (backlog **B27**).
+  with a warning ([#10](https://github.com/TKapitan/bc-word-layout-mcp/issues/10)).
 - **Preview captions match only when you supply real data** — with generated sample data, labels come
   from the dataset's own label columns or a humanized element name, so they read differently from a real
   BC render; pass a real exported dataset via `dataOverridesPath` and they match. Reading captions from
   the AL project's XLF files is not planned.
 
-See [`docs/BACKLOG.md`](docs/BACKLOG.md) for the full list of what is deferred and what each item is
-blocked on.
+See the [issue tracker](https://github.com/TKapitan/bc-word-layout-mcp/issues) for the full list of
+what is deferred and what each item is blocked on.

@@ -509,7 +509,7 @@ def s09(ctx: Ctx):
     # bound cells - remove_column's documented drop-the-binding behavior - and must add no NEW
     # findings beyond this layout's pre-existing storeItemID errors and attachedTemplate warning.
     # Deliberately NOT the widest table: this layout's lines table uses w:gridAfter, which every
-    # table-structure tool still refuses (backlog B25).
+    # table-structure tool still refuses (see GitHub issue #9's history).
     info = ctx.info()
     candidates = [(i, t) for i, t in enumerate(info["tables"])
                   if t["part"] == "document.xml" and t["columnCount"] == 3

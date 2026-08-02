@@ -34,7 +34,7 @@
          top-level BcWordLayout.Mcp package plus one framework-dependent package per RID below, and
          dnx fetches only the caller's platform. Windows-only per release-plan D8 - a non-Windows dnx
          resolve fails up front instead of shipping ~100 MB of native payload for platforms this
-         release does not support. Widening support later (B4) = adding a RID here. -->
+         release does not support. Widening support later (GitHub issue #7) = adding a RID here. -->
     <RuntimeIdentifiers>win-x64;win-arm64</RuntimeIdentifiers>
     <PackageId>BcWordLayout.Mcp</PackageId>
     <PackageType>McpServer</PackageType>

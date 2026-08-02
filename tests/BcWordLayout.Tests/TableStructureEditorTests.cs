@@ -234,7 +234,7 @@ public class TableStructureEditorTests
         }
     }
 
-    // ---- B25: interior (non-append) positions ----
+    // ---- interior (non-append) positions ----
 
     [Fact]
     public void InsertColumn_at_an_interior_boundary_inserts_the_new_cell_in_position_in_every_row()
@@ -879,7 +879,7 @@ public class TableStructureEditorTests
             File.Delete(path);
         }
     }
-    // ---- w:gridBefore/w:gridAfter rows (backlog B25): supported, not rejected ----
+    // ---- w:gridBefore/w:gridAfter rows (GitHub issue #9's history): supported, not rejected ----
     //
     // These rows cover fewer physical cells than the table has grid columns, so their first cell starts at
     // grid column `Before` and a target column may land in a run no cell reaches. Every operation below used
@@ -1040,7 +1040,8 @@ public class TableStructureEditorTests
     [Fact]
     public void InsertColumn_append_on_the_corpus_gridAfter_line_table_places_the_field_in_every_content_row()
     {
-        // The headline B25 case, against the stock layout that motivated it. VatSpec's line-items table is
+        // The headline gridAfter case (GitHub issue #9's history), against the stock layout that motivated
+        // it. VatSpec's line-items table is
         // 11 grid columns: three rows of ten cells plus one skipped column, and one row of eleven cells.
         // Before this change every column operation refused the table outright.
         var path = CopyOfCorpus(Corpus.SalesInvoiceVatSpec);

@@ -231,7 +231,7 @@ internal static class ToolGuards
                                 + "documented input to the table tools, so it likely indicates a bug in the tool "
                                 + "rather than your call; the file on disk is unchanged. If you were targeting a "
                                 + "table that uses vertical merges (vMerge), that shape is not supported yet "
-                                + "(backlog B25).");
+                                + "(GitHub issue #9).");
                         }
 
                         var afterErrors = new OpenXmlValidator(FileFormatVersions.Office2021).Validate(doc).ToList();
@@ -918,7 +918,7 @@ internal static class ToolGuards
     /// <see cref="TemplateNotUnboundException"/> - <c>create_layout</c>'s <c>templatePath</c> already carried
     /// its own BC dataset part AND bound content controls that go stale the moment that part is replaced (see
     /// that type's own remarks for why this refuses rather than reports a warning on an otherwise successful
-    /// result, as it did before this backlog item). Caught explicitly, ahead of the generic
+    /// result, as it originally did). Caught explicitly, ahead of the generic
     /// <see cref="InvalidDataException"/>/<c>catch (Exception)</c> branches, exactly like
     /// <see cref="ResourceLimitExceededException"/> above - keyed off the TYPE, never <c>ex.Message</c> text.
     /// </para>

@@ -312,8 +312,8 @@ internal static class SyntheticLayout
     /// A plain paragraph containing ONLY a <c>w:bookmarkStart</c> (no matching end anywhere in this
     /// fragment) — for pairing with <see cref="RepeaterWithBookmarkEndOnly"/> to build a bookmark whose
     /// range SPANS a repeater boundary: this paragraph sits BEFORE the repeater in the body, while the
-    /// matching <c>w:bookmarkEnd</c> lives inside the row template that gets cloned. Reproduces the backlog
-    /// B32 follow-up shape (reviewer-identified): a <c>BookmarkEnd</c> whose matching <c>BookmarkStart</c>
+    /// matching <c>w:bookmarkEnd</c> lives inside the row template that gets cloned. Reproduces the
+    /// reviewer-identified follow-up shape to the cloned-row id-uniqueness fix: a <c>BookmarkEnd</c> whose matching <c>BookmarkStart</c>
     /// is OUTSIDE the cloned row is never reached by a walk that only iterates the clone's own
     /// <c>BookmarkStart</c> elements, so without special handling every clone would repeat the SAME
     /// (unmatched) end id.

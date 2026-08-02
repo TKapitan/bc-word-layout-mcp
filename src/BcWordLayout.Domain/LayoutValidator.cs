@@ -189,7 +189,7 @@ public static class LayoutValidator
     //     does not run in a sandbox even with Microsoft's own layout. That rejection therefore proves nothing
     //     about how BC treats a foreign-namespace binding in a layout that is otherwise sound, and the
     //     warning-not-error decision does NOT rest on it either way. Settling this still needs one of the two
-    //     remaining layouts uploaded and rendered — backlog B42, still open.
+    //     remaining layouts uploaded and rendered — GitHub issue #1, still open.
     private static void CheckBindingNamespaces(LayoutInventory inventory, DatasetTree? schema, List<ValidationFinding> findings)
     {
         if (schema is null)

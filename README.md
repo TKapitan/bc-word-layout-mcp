@@ -269,7 +269,7 @@ Error `message`/`hint` texts are not part of the contract — never parse them.
   columns via `w:gridBefore`/`w:gridAfter` are handled). Still deferred and refused with a clear
   message, pending real-add-in OOXML capture: any table using **vertical merges** (`w:vMerge`) —
   except `set_cell_borders`, which is cosmetic and accepts them. See
-  [`docs/BACKLOG.md`](docs/BACKLOG.md) item B25.
+  [issue #9](https://github.com/TKapitan/bc-word-layout-mcp/issues/9).
 - **Cosmetic formatting** (fonts, colors, margins, styles/branding) — no dedicated tool beyond the
   bold/size/alignment knobs on the cell and insert tools and `set_cell_borders`' per-cell rules;
   hand-edit the OOXML directly, then run `validate_layout` to confirm the edit didn't break structure
@@ -364,8 +364,9 @@ Or write the requests to a file of your own and pipe it (`Get-Content requests.j
 - [`skills/al-word-layout/SKILL.md`](skills/al-word-layout/SKILL.md) — the companion skill: intended
   agent workflow, full tool reference, v1 supported matrix, anti-patterns, and error handling.
 - [`docs/SOLUTION-DESIGN.md`](docs/SOLUTION-DESIGN.md) — architecture, tool surface, design risks.
-- [`docs/BACKLOG.md`](docs/BACKLOG.md) — the prioritized backlog: what is deferred, why, and what each
-  remaining item is blocked on.
+- [GitHub issues](https://github.com/TKapitan/bc-word-layout-mcp/issues) — the prioritized backlog
+  (labels `P1-hardening` … `P4-standing`): what is deferred, why, and what each remaining item is
+  blocked on.
 - [`docs/FIDELITY-CHECKLIST.md`](docs/FIDELITY-CHECKLIST.md) — per-release mock-preview fidelity
   regression procedure, and the record of the BC-sandbox validation.
 - [`CHANGELOG.md`](CHANGELOG.md) — release notes.

@@ -1067,8 +1067,8 @@ public static class TableStructureEditor
     }
 
     /// <summary>
-    /// Rejects the one remaining table shape whose column arithmetic is deferred pending real capture (plan
-    /// backlog B25): vertical merges (<c>w:vMerge</c>). Still absent from every layout reviewed, so this never
+    /// Rejects the one remaining table shape whose column arithmetic is deferred pending real capture
+    /// (GitHub issue #9): vertical merges (<c>w:vMerge</c>). Still absent from every layout reviewed, so this never
     /// blocks a real BC table; it stops the tools from guessing on a shape nobody has verified.
     /// </summary>
     /// <remarks>
@@ -1097,7 +1097,7 @@ public static class TableStructureEditor
                         $"{op} does not support tables that use vertical cell merges (w:vMerge); this shape is "
                         + "absent from every layout reviewed, so there is no fixture to implement the span "
                         + "arithmetic against; author a reference vertical-merge table in Word first "
-                        + "(backlog B25).");
+                        + "(GitHub issue #9).");
                 }
             }
         }

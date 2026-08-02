@@ -266,7 +266,7 @@ public static class EditTools
                  + "the cell - and its table column - is preserved (only its text is removed). If the cell "
                  + "contains a content control, this is REJECTED (use remove_control instead). NOTE: this "
                  + "does NOT delete the column; removing a whole column (its cell in every row + the table "
-                 + "grid) is a table-structure change that is out of scope (see the project backlog). Same "
+                 + "grid) is a table-structure change that is out of scope here (see remove_column). Same "
                  + "write/validate/save-or-reject safety as insert_field.")]
     public static ToolResponse ClearCellText(
         [Description("Absolute path to the .docx layout file.")] string layoutPath,

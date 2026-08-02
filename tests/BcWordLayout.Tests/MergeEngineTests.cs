@@ -1094,7 +1094,7 @@ public class MergeEngineTests
     [Fact]
     public void Repeater_row_with_a_picture_and_a_bookmark_gets_distinct_ids_per_clone_and_validates_clean()
     {
-        // Backlog B32: a repeater row containing a wp:docPr (picture) and a bookmarkStart/End pair used to
+        // Regression: a repeater row containing a wp:docPr (picture) and a bookmarkStart/End pair used to
         // leave every cloned row's ids identical - a real Sem_UniqueAttributeValue OOXML validation error
         // once Rows > 1. This is the focused regression test for the fix (see also the corpus-level
         // Corpus_layouts_merge_and_validate_with_zero_errors and Corpus_picture_controls_are_filled_with_a_

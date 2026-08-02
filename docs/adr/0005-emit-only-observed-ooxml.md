@@ -25,7 +25,7 @@ guesses are expensive to un-ship.
 
 ## Consequences
 
-- A feature request for a new shape (e.g. hide-if-empty conditional controls, backlog B24) is
+- A feature request for a new shape (e.g. hide-if-empty conditional controls, issue [#8](https://github.com/TKapitan/bc-word-layout-mcp/issues/8)) is
   research-gated: author it with the real BC add-in, capture the OOXML, add the fixture — then
   implement against evidence.
 - PRs implementing a shape "per the ECMA-376 spec" without a captured BC-produced fixture will be

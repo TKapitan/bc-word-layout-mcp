@@ -324,7 +324,7 @@ public static class MergeEngine
         using var doc = WordprocessingDocument.Open(stagingPath, true);
         var schema = SchemaProvider.FromLayout(doc);
 
-        // Backlog B23: pre-scan the (already-open) layout for every repeating section's own row binding
+        // Pre-scan the (already-open) layout for every repeating section's own row binding
         // BEFORE generating sample data, so generation can multiply rows only for the data items the
         // document actually repeats - see ScanRepeaterConsumedPaths and SampleDataOptions.RepeaterConsumedPaths.
         var repeaterConsumedPaths = ScanRepeaterConsumedPaths(doc.MainDocumentPart!, schema);

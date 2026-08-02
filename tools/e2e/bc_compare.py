@@ -28,7 +28,7 @@ exports via *Send to > XML* is a generic
 whereas dataOverridesPath requires the layout's own data-store part shape - a NavWordReportXmlPart
 root in the report's urn:microsoft-dynamics-nav namespace, with each column as an ELEMENT named after the
 column. Both carry the same information; only the encoding differs. Until the server accepts the
-export shape directly (backlog item), this conversion is the bridge.
+export shape directly (GitHub issue #4), this conversion is the bridge.
 """
 
 from __future__ import annotations

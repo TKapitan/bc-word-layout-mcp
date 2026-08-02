@@ -177,7 +177,7 @@ public class LayoutValidatorNegativeTests
             Assert.Contains(SyntheticLayout.DatasetNamespace, nsFindings[0].Message);
 
             // Warning, not error: stock base-app layouts ship this way and BC evidently tolerates it, so
-            // the layout must still pass. Promoting this to an error is gated on backlog B17.
+            // the layout must still pass. Promoting this to an error is gated on GitHub issue #1.
             Assert.Equal(FindingSeverity.Warning, nsFindings[0].Severity);
             Assert.True(result.Passed);
 

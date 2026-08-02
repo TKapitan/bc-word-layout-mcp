@@ -23,8 +23,8 @@ namespace BcWordLayout.Domain;
 /// or wrong namespace — accurate for most <see cref="InvalidDataException"/>s, but MISLEADING for a
 /// size/part-count/depth rejection, whose real fix is "the file is too big or too deeply nested, not
 /// structurally wrong". <c>Guard</c> gives THIS TYPE its own tailored hint — by switching on the TYPE, never
-/// by pattern-matching <see cref="Exception.Message"/> substrings (the exact string-coupling backlog
-/// B11/B12 already eliminated for <c>not_found</c>/<c>invalid_argument</c>).
+/// by pattern-matching <see cref="Exception.Message"/> substrings (the exact string-coupling
+/// already eliminated for <c>not_found</c>/<c>invalid_argument</c>).
 /// </para>
 /// </remarks>
 public sealed class ResourceLimitExceededException : Exception

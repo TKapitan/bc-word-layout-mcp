@@ -50,7 +50,7 @@ public static class LayoutEditor
     /// <para>
     /// Fills the gap two <c>afterControl</c> inserts leave: chaining inline controls concatenates their
     /// rendered text with nothing in between ("Document NoDOCU-0150"), and no other tool emits a bare run, so
-    /// the only previous workaround was stacking each fragment in its own paragraph. Backlog B34, found by the
+    /// the only previous workaround was stacking each fragment in its own paragraph. A gap found by the
     /// 2026-07-31 from-scratch authoring exercise.
     /// </para>
     /// <para>
@@ -236,8 +236,8 @@ public static class LayoutEditor
     /// SCOPE (this is the single enforcement chokepoint): <paramref name="location"/>.Part must be
     /// <see cref="LayoutPart.Body"/>. Unlike <see cref="InsertField"/>/<see cref="InsertLabel"/> (which
     /// fully support <see cref="LayoutPart.Header"/>/<see cref="LayoutPart.Footer"/>), a repeater TABLE in a
-    /// header/footer is explicitly out of scope — see <c>docs/BACKLOG.md</c> item B27 ("Explicitly
-    /// deferred (v1.1+ backlog)" list ("repeaters in headers/footers"). This is checked first, before any
+    /// header/footer is explicitly out of scope — tracked as GitHub issue #10 ("Repeater tables in
+    /// headers/footers"). This is checked first, before any
     /// schema/id work, so a rejected call never touches <paramref name="doc"/>.
     /// </remarks>
     /// <exception cref="ArgumentException">
@@ -267,8 +267,8 @@ public static class LayoutEditor
             throw new ArgumentException(
                 $"insert_repeater_table only supports {nameof(Location)}.{nameof(Location.Part)} = "
                 + $"{nameof(LayoutPart)}.{nameof(LayoutPart.Body)} in v1: a repeater TABLE in a header/footer "
-                + "is explicitly deferred (see docs/BACKLOG.md item B27, "
-                + "\"Explicitly deferred\" list: \"repeaters in headers/footers\"). insert_field/insert_label "
+                + "is explicitly deferred (repeaters in headers/footers - tracked as GitHub "
+                + "issue #10). insert_field/insert_label "
                 + "still fully support layoutPart='header'/'footer' - only a repeater TABLE cannot target one "
                 + "yet; omit layoutPart (or pass 'body') to insert this table into the main document instead.",
                 nameof(location));

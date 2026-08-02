@@ -1,6 +1,7 @@
 """Builds the BC-sandbox fidelity pack: layouts a human uploads to a real Business Central sandbox.
 
-This is the tooling half of backlog item B17 (and B42) - the one assumption under the whole preview
+This is the tooling half of the BC-sandbox fidelity validation (and of GitHub issue #1 on
+foreign-namespace bindings) - the one assumption under the whole preview
 pillar that this repo cannot verify on its own: no tool-emitted layout has ever been rendered by the
 real BC report engine. The pack makes that check a mechanical exercise instead of a project:
 
@@ -609,8 +610,8 @@ def write_pack_docs(records: list[dict]):
 sandbox, this tool's own offline mock render of it, and a README saying what to look at.
 
 **Why:** nothing this tool has ever produced has been rendered by the real BC report engine. Until that
-happens, "the preview catches structural and binding mistakes" is an untested claim (backlog B17), and
-the question of how BC resolves a foreign-namespace binding (B42) is open. This pack answers both.
+happens, "the preview catches structural and binding mistakes" is an untested claim, and the question
+of how BC resolves a foreign-namespace binding (GitHub issue #1) is open. This pack answers both.
 
 ## The layouts
 
@@ -642,7 +643,7 @@ the question of how BC resolves a foreign-namespace binding (B42) is open. This 
 ## What to send back
 
 The whole `sandbox-pack/` folder, with the BC PDFs (and any dataset XML) added. Then `COMPARISON.md`
-gets filled in per item, and the real findings go to `docs/FIDELITY-CHECKLIST.md` and the backlog.
+gets filled in per item, and the real findings go to `docs/FIDELITY-CHECKLIST.md` and the issue tracker.
 """
 
     comparison = ["# Comparison sheet", "",
