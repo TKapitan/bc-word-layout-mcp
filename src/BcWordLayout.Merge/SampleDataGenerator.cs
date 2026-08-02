@@ -419,13 +419,39 @@ public static class SampleDataGenerator
 
     /// <summary>
     /// Strips the active label convention's suffix (see <see cref="LabelConvention.StripSuffix"/> — by
-    /// default <c>_Lbl</c>/<c>Lbl</c>) then humanizes the remainder.
+    /// default <c>_Lbl</c>/<c>Lbl</c>), then one trailing caption-indicator token the convention itself
+    /// does not know about, then humanizes the remainder. The second strip matters for labels classified
+    /// by the labels-data-item rule rather than by suffix (see <see cref="LabelConvention"/>'s remarks):
+    /// their names end in <c>Caption</c>/<c>Label</c> (<c>SalesLineDocumentNoCaption</c>,
+    /// <c>ShipmentDateLabel</c>), and a header cell reading "Sales Line Document No" is the real-caption
+    /// mock — "Sales Line Document No Caption" is name-echo noise. Trailing-only and single-pass on
+    /// purpose (mirroring <see cref="LabelConvention.StripSuffix"/>), so a mid-name indicator word is
+    /// never touched and a column named exactly one indicator word keeps its whole name.
     /// </summary>
     private static string HumanizeLabel(string columnName)
     {
-        var stripped = LabelConvention.Current.StripSuffix(columnName);
+        var stripped = StripTrailingCaptionIndicator(LabelConvention.Current.StripSuffix(columnName));
         var humanized = HumanizeWords(stripped);
         return humanized.Length == 0 ? stripped : humanized;
+    }
+
+    /// <summary>
+    /// Removes ONE trailing <see cref="CaptionIndicatorTokens"/> token (longest first, ordinal), plus a
+    /// joining underscore if one remains — <c>No_ItemCaption</c> → <c>No_Item</c>. Returns
+    /// <paramref name="name"/> unchanged when no token matches or the token is all there is.
+    /// </summary>
+    private static string StripTrailingCaptionIndicator(string name)
+    {
+        foreach (var token in CaptionIndicatorTokens.OrderByDescending(t => t.Length))
+        {
+            if (name.Length > token.Length && name.EndsWith(token, StringComparison.Ordinal))
+            {
+                var trimmed = name[..^token.Length];
+                return trimmed.EndsWith('_') ? trimmed[..^1] : trimmed;
+            }
+        }
+
+        return name;
     }
 
     /// <summary>
