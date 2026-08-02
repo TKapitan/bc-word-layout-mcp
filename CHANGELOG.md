@@ -22,6 +22,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **New skill `al-word-layout-design`**
+  ([#27](https://github.com/TKapitan/bc-word-layout-mcp/issues/27)): what a from-scratch BC Word
+  layout should *look like*, closing the one quality dimension validation cannot judge — a
+  structurally valid, fully bound, ugly document passes `validate_layout level=full` with zero
+  findings. Two archetype skeletons (trading document, list/analysis report) mapped step-by-step to
+  tool calls, per-element conventions (address blocks, caption placement, line-table alignment and
+  borders, totals, header/footer chrome, typography, twip widths), and the stock idioms the tools
+  cannot build, with the supported route for each. Every convention is tagged with its evidence —
+  observed in a named stock corpus layout, or BC-verified in the round-2 from-scratch sandbox
+  builds (P01/P06/P07, 2026-08-02) — never invented; a sandbox round or corpus addition that
+  refutes a convention updates the skill. The `al-word-layout` skill now cross-references it and
+  gained the two tool parameters the recipes rely on that its reference had omitted:
+  `create_layout`'s `headingText` and `insert_repeater_table`'s `columnAlignments`.
 - **New `quick` validation check `table-style-resolves`** (warning): flags any `w:tblStyle` whose
   style id the layout's own styles part does not define — a dangling reference renders fine but
   silently does nothing, which is exactly the trap when a `tableStyle` parameter or hand-authored

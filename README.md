@@ -13,6 +13,9 @@ it is saved and rejected outright if it would corrupt the file.
 
 - [`skills/al-word-layout/SKILL.md`](skills/al-word-layout/SKILL.md) — the companion skill: the
   intended agent workflow (inspect → edit → validate → preview → sandbox verify).
+- [`skills/al-word-layout-design/SKILL.md`](skills/al-word-layout-design/SKILL.md) — the design
+  skill: what a new layout should *look like* — archetype skeletons and observed BC document
+  conventions, each tagged with the stock corpus layout or BC-verified build it comes from.
 - [`docs/SOLUTION-DESIGN.md`](docs/SOLUTION-DESIGN.md) — architecture and design rationale.
 - [`docs/adr/`](docs/adr/) — the deliberate design decisions, as ADRs.
 
@@ -85,12 +88,13 @@ Clone, then use the repo-root [`.mcp.json`](.mcp.json), which launches the serve
 `dotnet run --project src/BcWordLayout.McpHost` — no publish step while iterating. See
 [Building from source](#building-from-source).
 
-### The companion skill and plugin
+### The companion skills and plugin
 
-The `al-word-layout` skill teaches an agent the intended workflow and the supported matrix — the
-server is fully usable without it, but agents drive the tools noticeably better with it. The plugin
-installs the skill and the server entry together, and this repository is a plugin marketplace for
-**both** ecosystems:
+Two skills ride along with the server: `al-word-layout` teaches an agent the intended workflow and
+the supported matrix, and `al-word-layout-design` teaches what a from-scratch layout should look
+like (archetype skeletons and observed BC document conventions). The server is fully usable without
+them, but agents drive the tools noticeably better with them. The plugin installs the skills and
+the server entry together, and this repository is a plugin marketplace for **both** ecosystems:
 
 - **Claude Code:** `/plugin marketplace add TKapitan/bc-word-layout-mcp`, then install the
   `bc-word-layout` plugin it offers.
@@ -98,10 +102,11 @@ installs the skill and the server entry together, and this repository is a plugi
   `"chat.plugins.marketplaces": ["TKapitan/bc-word-layout-mcp"]` to your **user** `settings.json`,
   then install the `bc-word-layout` plugin from the marketplace. The same mechanism serves
   Copilot CLI.
-- **Manual copy (the floor — no plugin system involved):** copy `skills/al-word-layout/` into your
-  project's `.claude/skills/` or `.github/skills/` (or user-level `~/.claude/skills/`). `SKILL.md`
-  agent skills are an open standard — Claude Code, VS Code, and Copilot CLI all scan these
-  locations natively; the server is then registered separately per Option A/B above.
+- **Manual copy (the floor — no plugin system involved):** copy `skills/al-word-layout/` and
+  `skills/al-word-layout-design/` into your project's `.claude/skills/` or `.github/skills/` (or
+  user-level `~/.claude/skills/`). `SKILL.md` agent skills are an open standard — Claude Code,
+  VS Code, and Copilot CLI all scan these locations natively; the server is then registered
+  separately per Option A/B above.
 
 ### Configuration (optional)
 
@@ -374,6 +379,10 @@ Or write the requests to a file of your own and pipe it (`Get-Content requests.j
 
 - [`skills/al-word-layout/SKILL.md`](skills/al-word-layout/SKILL.md) — the companion skill: intended
   agent workflow, full tool reference, v1 supported matrix, anti-patterns, and error handling.
+- [`skills/al-word-layout-design/SKILL.md`](skills/al-word-layout-design/SKILL.md) — the design
+  skill: the two archetype skeletons (trading document, list report), per-element BC conventions
+  (address blocks, caption placement, line-table alignment, totals, chrome, typography), and the
+  stock idioms the tools cannot build.
 - [`docs/SOLUTION-DESIGN.md`](docs/SOLUTION-DESIGN.md) — architecture, tool surface, design risks.
 - [GitHub issues](https://github.com/TKapitan/bc-word-layout-mcp/issues) — the backlog: what is
   deferred, why, and what each remaining item is blocked on. Labels classify each issue by type,
