@@ -1,4 +1,5 @@
-# Release on a v* tag (see docs/RELEASING.md): full test gate, then pack + push EVERY produced
+# Release on a v* tag (see docs/RELEASING.md): tag-vs-version guard, full test gate, then pack +
+# push EVERY produced
 # .nupkg (the top-level BcWordLayout.Mcp manifest package plus one per RID — all must ship together),
 # build the Channel-B zips + checksums via the same script a local rehearsal uses, and create the
 # GitHub Release with the zips, SHA256SUMS.txt, and install.ps1 as assets (the README's
@@ -25,6 +26,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The tag is the trigger but Directory.Build.props is the version source — if they disagree,
+      # the workflow would pack and publish packages for a DIFFERENT (immutable, unreclaimable)
+      # version than the tag claims. Fail here, before the test gate, instead. Release candidates
+      # therefore need a real version bump (1.0.0-rc.N in Directory.Build.props + the three
+      # manifests) just like final releases; PackagingMetadataTests keeps the manifests in sync
+      # with the props, and this step keeps the tag in sync with the props.
+      - name: Verify the tag matches the manifest version
+        shell: pwsh
+        run: |
+          $tag = '${{ github.ref_name }}' -replace '^v', ''
+          $version = (Select-Xml -Path Directory.Build.props -XPath '/Project/PropertyGroup/Version').Node.InnerText
+          if ($tag -ne $version) {
+            throw "Tag version '$tag' does not match <Version>$version</Version> in Directory.Build.props. Bump the version (see docs/RELEASING.md) or fix the tag."
+          }
+
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
@@ -41,8 +57,20 @@ jobs:
         with:
           user: ${{ secrets.NUGET_USER }}
 
+      # Enumerate in pwsh and push per file: `dotnet nuget push` does not resolve forward-slash
+      # wildcards on Windows (the rc.1 run failed with 'File does not exist' on the glob), and the
+      # count assertion enforces that the manifest package and both RID packages ship together.
       - name: Push every package to NuGet
-        run: dotnet nuget push "src/BcWordLayout.McpHost/bin/Release/*.nupkg" --api-key "${{ steps.nuget-login.outputs.NUGET_API_KEY }}" --source https://api.nuget.org/v3/index.json --skip-duplicate
+        shell: pwsh
+        run: |
+          $packages = @(Get-ChildItem src/BcWordLayout.McpHost/bin/Release/*.nupkg)
+          if ($packages.Count -ne 3) {
+            throw "Expected 3 packages (BcWordLayout.Mcp + win-x64 + win-arm64), found $($packages.Count): $($packages.Name -join ', ')"
+          }
+          foreach ($pkg in $packages) {
+            dotnet nuget push $pkg.FullName --api-key "${{ steps.nuget-login.outputs.NUGET_API_KEY }}" --source https://api.nuget.org/v3/index.json --skip-duplicate
+            if ($LASTEXITCODE -ne 0) { throw "Push failed for $($pkg.Name)" }
+          }
 
       - name: Build release zips + checksums
         run: pwsh scripts/build-release-zips.ps1
