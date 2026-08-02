@@ -366,7 +366,9 @@ Or write the requests to a file of your own and pipe it (`Get-Content requests.j
   agent workflow, full tool reference, v1 supported matrix, anti-patterns, and error handling.
 - [`docs/SOLUTION-DESIGN.md`](docs/SOLUTION-DESIGN.md) — architecture, tool surface, design risks.
 - [GitHub issues](https://github.com/TKapitan/bc-word-layout-mcp/issues) — the backlog: what is
-  deferred, why, and what each remaining item is blocked on.
+  deferred, why, and what each remaining item is blocked on. Labels classify each issue by type,
+  impact, and blockage — the taxonomy is defined in
+  [`docs/BRANCHING.md`](docs/BRANCHING.md#issue-classification).
 - [`docs/FIDELITY-CHECKLIST.md`](docs/FIDELITY-CHECKLIST.md) — per-release mock-preview fidelity
   regression procedure, and the record of the BC-sandbox validation.
 - [`CHANGELOG.md`](CHANGELOG.md) — release notes.
