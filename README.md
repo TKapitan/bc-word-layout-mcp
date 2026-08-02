@@ -155,7 +155,7 @@ other tool is conversion-free and works everywhere the server runs.
 | `validate_layout` | Validate a layout: `level=quick` (structural + binding checks) or `level=full` (adds a dry-run merge that surfaces every unresolved binding as a finding). |
 | `preview_layout` | Mock preview: merges deterministic (or supplied) sample data into a working copy and converts it to PDF via Word COM or LibreOffice. |
 | `render_preview_pages` | Render pages of a preview PDF (the `pdfPath` from `preview_layout`) as PNG images returned inline as MCP image content blocks, so the calling agent can visually inspect the preview (default 3 pages, cap 10 per call; page onward via `firstPage`). |
-| `create_layout` | Create a new blank layout `.docx` from a schema, optionally starting from a branded/styled (unbound) template. |
+| `create_layout` | Create a new blank layout `.docx` from a schema, optionally starting from a branded/styled (unbound) template. A blank build ships deterministic default typography (Calibri 11 pt via a scaffolded styles part) so it renders with the same font in Word and in BC. |
 | `insert_field` | Insert a plain-text FIELD content control bound to a dataset path, in the body, a header, or a footer. |
 | `insert_label` | Insert a plain-text LABEL content control bound to a label-suffixed (`Lbl`/`_Lbl`) dataset path. |
 | `insert_text` | Insert plain STATIC text — a literal run, not a content control: the separator space, colon or `" / "` that glues two inline controls together (without it, chained controls render as `Document NoDOCU-0150`). Creates no control, so it has no `controlId` and cannot be targeted by `remove_control`. |
@@ -271,9 +271,10 @@ Error `message`/`hint` texts are not part of the contract — never parse them.
   except `set_cell_borders`, which is cosmetic and accepts them. See
   [issue #9](https://github.com/TKapitan/bc-word-layout-mcp/issues/9).
 - **Cosmetic formatting** (fonts, colors, margins, styles/branding) — no dedicated tool beyond the
-  bold/size/alignment knobs on the cell and insert tools and `set_cell_borders`' per-cell rules;
-  hand-edit the OOXML directly, then run `validate_layout` to confirm the edit didn't break structure
-  or bindings.
+  bold/size/alignment knobs on the cell and insert tools, `set_cell_borders`' per-cell rules, and the
+  deterministic default typography a blank `create_layout` ships (Calibri 11 pt via its scaffolded
+  styles part); restyle via `create_layout`'s `templatePath` or hand-edit the OOXML directly, then run
+  `validate_layout` to confirm the edit didn't break structure or bindings.
 - **RDL layouts, Excel layouts** — out of scope entirely; this server is Word-only.
 - **Any BC-connected upload** of a layout to a tenant — no public API exists for this; it is UI-only in
   Business Central, a deliberate scope decision rather than a gap to script around.

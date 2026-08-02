@@ -239,4 +239,66 @@ public class LayoutValidatorNegativeTests
             File.Delete(path);
         }
     }
+
+    // ---- table-style-resolves: a w:tblStyle naming a style the layout does not define (issue #3) ----
+
+    [Fact]
+    public void Dangling_tblStyle_reference_is_flagged_as_a_warning_but_a_resolving_sibling_is_not()
+    {
+        // Two styled tables in one document: one referencing TableGrid (defined below by the same
+        // DefaultStylesScaffold a blank create_layout ships, dogfooded here as the fixture's styles part)
+        // and one referencing a style nothing defines. Only the latter may trip the check.
+        var body =
+            SyntheticLayout.SimpleStyledTable("TableGrid") +
+            SyntheticLayout.SimpleStyledTable("NotDefinedAnywhere");
+        var path = SyntheticLayout.Create(body);
+
+        try
+        {
+            using (var doc = DocumentFormat.OpenXml.Packaging.WordprocessingDocument.Open(path, true))
+            {
+                Assert.True(DefaultStylesScaffold.EnsureDefaultStyles(doc.MainDocumentPart!));
+            }
+
+            var result = LayoutValidator.Quick(path);
+
+            var styleFindings = result.Findings.Where(f => f.Check == "table-style-resolves").ToList();
+            var finding = Assert.Single(styleFindings);
+            Assert.Equal(FindingSeverity.Warning, finding.Severity);
+            Assert.Contains("NotDefinedAnywhere", finding.Message);
+            Assert.Equal("document.xml", finding.Location);
+
+            // A dangling style reference renders fine (it just silently does nothing), so it must never
+            // fail the layout on its own.
+            Assert.True(result.Passed);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void TblStyle_reference_in_a_layout_with_no_styles_part_at_all_is_flagged_as_a_warning()
+    {
+        // The exact pre-fix create_layout shape: a table referencing the documented 'TableGrid' example in
+        // a document that ships no styles part whatsoever - the reference cannot resolve regardless of its
+        // spelling, and the message must say the styles part itself is missing.
+        var path = SyntheticLayout.Create(SyntheticLayout.SimpleStyledTable("TableGrid"));
+
+        try
+        {
+            var result = LayoutValidator.Quick(path);
+
+            var styleFindings = result.Findings.Where(f => f.Check == "table-style-resolves").ToList();
+            var finding = Assert.Single(styleFindings);
+            Assert.Equal(FindingSeverity.Warning, finding.Severity);
+            Assert.Contains("no styles part", finding.Message);
+            Assert.True(result.Passed);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
 }

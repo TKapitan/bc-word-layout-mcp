@@ -51,7 +51,7 @@ never throws.
 
 | Tool | Key params (defaults) | Returns | Reach for it when… |
 |---|---|---|---|
-| `validate_layout` | `layoutPath`, `level` = `"quick"` \| `"full"` (default `"quick"`) | `level`, `passed`, `errorCount`, `warningCount`, `findings[]` (`check`, `severity`, `message`, `location`). `quick`: OpenXML validity, single BC XML part, `storeItemID` match, XPath resolution, repeater shape/location, `attachedTemplate` warning. `full`: everything `quick` does, plus a real dry-run merge (sample data + repeater expansion) against a throwaway copy, surfacing every merge warning as a finding. | `quick` liberally (cheap, run it constantly); `full` before treating the loop as done — it's the only level that proves every binding actually resolves. |
+| `validate_layout` | `layoutPath`, `level` = `"quick"` \| `"full"` (default `"quick"`) | `level`, `passed`, `errorCount`, `warningCount`, `findings[]` (`check`, `severity`, `message`, `location`). `quick`: OpenXML validity, single BC XML part, `storeItemID` match, XPath resolution, repeater shape/location, `attachedTemplate` warning, dangling `w:tblStyle` reference warning (a table naming a style the layout's styles part does not define — the reference silently does nothing). `full`: everything `quick` does, plus a real dry-run merge (sample data + repeater expansion) against a throwaway copy, surfacing every merge warning as a finding. | `quick` liberally (cheap, run it constantly); `full` before treating the loop as done — it's the only level that proves every binding actually resolves. |
 
 ### Preview
 
@@ -104,7 +104,7 @@ every tool here except `set_cell_borders`.
 
 | Tool | Key params (defaults) | Returns | Reach for it when… |
 |---|---|---|---|
-| `create_layout` | `schemaSource` (existing `.docx` layout **or** schema `.xml`), `outputPath`, `templatePath`=`null` (an **unbound** branded/styled shell — headers/footers/logo/fonts/styles, NOT a full BC layout with its own bound controls) | `outputPath`, report identity, `storeItemId`, `usedTemplate`, `replacedExistingBcPart`, `quickValidation` | Starting a brand-new layout, optionally over a branded template. Always ships exactly one BC custom XML part (fresh `storeItemID`) plus the glossary part the `insert_*` placeholders depend on. `templatePath` MUST be unbound: if it already carries a BC part **and** bound controls that would go stale against the fresh `storeItemID`, the call fails outright with `template_not_unbound` (nothing is written) instead of silently shipping a broken layout — see §5. A template whose BC part has zero bound controls of its own still succeeds. |
+| `create_layout` | `schemaSource` (existing `.docx` layout **or** schema `.xml`), `outputPath`, `templatePath`=`null` (an **unbound** branded/styled shell — headers/footers/logo/fonts/styles, NOT a full BC layout with its own bound controls) | `outputPath`, report identity, `storeItemId`, `usedTemplate`, `replacedExistingBcPart`, `quickValidation` | Starting a brand-new layout, optionally over a branded template. Always ships exactly one BC custom XML part (fresh `storeItemID`) plus the glossary part the `insert_*` placeholders depend on. A BLANK (non-template) layout also ships empty header/footer parts wired into its page setup **and a default styles part pinning its typography** (Calibri 11 pt `docDefaults` plus the standard `Normal`/`TableGrid` definitions), so it renders with the same font in Word and in Business Central — a template keeps its own headers/footers and styles/theme untouched. `templatePath` MUST be unbound: if it already carries a BC part **and** bound controls that would go stale against the fresh `storeItemID`, the call fails outright with `template_not_unbound` (nothing is written) instead of silently shipping a broken layout — see §5. A template whose BC part has zero bound controls of its own still succeeds. |
 | `refresh_xml_part` | `layoutPath`, `newSchemaSource` (existing `.docx` **or** schema `.xml`) | Old/new report identity, `namespaceChanged`, `remappedCount`, `orphanedBindings[]` (`alias`, `xpath`, `part`), `newUnboundFields[]`, `quickValidation` | After the AL report dataset changes. Replaces the dataset part's content **in place** (keeps the same `storeItemID`, so every existing binding still links to the same part) and reclassifies every existing binding by element name — matches are remapped/kept, non-matches are reported as `orphanedBindings` and **left in place** (this tool never deletes or rebinds anything itself — that's your call via `remove_control`/`insert_field`/`insert_label`). A non-zero `errorCount` here from `xpath-resolves` findings is the *expected* corroboration of the orphan report, not a failed refresh. |
 
 ## 3. Supported matrix (v1)
@@ -151,8 +151,10 @@ every tool here except `set_cell_borders`.
   columns / humanized element names, not real captions translated from the AL project's XLF files.
   Pass a real exported dataset via `dataOverridesPath` when caption text matters.
 - **Broad cosmetic formatting** (fonts, colors, margins, styles/branding) — beyond the deliberate
-  knobs that exist (`bold`/`fontSizePoints` on the insert tools, cell/column alignments, and
-  `set_cell_borders`' per-cell rules), there is no styling tool; hand-edit the OOXML directly, then
+  knobs that exist (`bold`/`fontSizePoints` on the insert tools, cell/column alignments,
+  `set_cell_borders`' per-cell rules, and the deterministic default typography a blank
+  `create_layout` ships — Calibri 11 pt via its scaffolded styles part), there is no styling tool;
+  restyle via `create_layout`'s `templatePath` or hand-edit the OOXML directly, then
   run `validate_layout` to confirm the hand-edit didn't break structure or bindings.
 - **RDL layouts, Excel layouts** — out of scope entirely; this server is Word-only.
 - **Any BC-connected upload** of a layout to a tenant — no public API for this exists; it is UI-only

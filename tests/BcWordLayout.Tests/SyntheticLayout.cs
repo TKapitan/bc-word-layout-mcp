@@ -151,6 +151,18 @@ internal static class SyntheticLayout
     }
 
     /// <summary>
+    /// A minimal well-formed 1×1 <c>w:tbl</c> whose <c>w:tblPr</c> carries a <c>w:tblStyle</c> reference to
+    /// <paramref name="styleId"/> — for <c>LayoutValidator</c>'s <c>table-style-resolves</c> tests. Whether
+    /// the reference actually resolves is the caller's business: pair it with
+    /// <c>DefaultStylesScaffold.EnsureDefaultStyles</c> (which defines <c>TableGrid</c>) or leave the layout
+    /// without a styles part entirely.
+    /// </summary>
+    public static string SimpleStyledTable(string styleId, string text = "styled") =>
+        $"<w:tbl><w:tblPr><w:tblStyle w:val=\"{styleId}\"/></w:tblPr>"
+        + "<w:tblGrid><w:gridCol w:w=\"2000\"/></w:tblGrid>"
+        + $"<w:tr><w:tc><w:tcPr/><w:p><w:r><w:t>{text}</w:t></w:r></w:p></w:tc></w:tr></w:tbl>";
+
+    /// <summary>
     /// A 4-column <c>w:tbl</c> (1000 twips per grid column) whose three rows cover that grid three different
     /// ways — the <c>w:gridBefore</c>/<c>w:gridAfter</c> shape real base-app layouts use for a totals or
     /// filler row that stops short of the table's full width:
