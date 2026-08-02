@@ -364,9 +364,8 @@ Or write the requests to a file of your own and pipe it (`Get-Content requests.j
 - [`skills/al-word-layout/SKILL.md`](skills/al-word-layout/SKILL.md) — the companion skill: intended
   agent workflow, full tool reference, v1 supported matrix, anti-patterns, and error handling.
 - [`docs/SOLUTION-DESIGN.md`](docs/SOLUTION-DESIGN.md) — architecture, tool surface, design risks.
-- [GitHub issues](https://github.com/TKapitan/bc-word-layout-mcp/issues) — the prioritized backlog
-  (labels `P1-hardening` … `P4-standing`): what is deferred, why, and what each remaining item is
-  blocked on.
+- [GitHub issues](https://github.com/TKapitan/bc-word-layout-mcp/issues) — the backlog: what is
+  deferred, why, and what each remaining item is blocked on.
 - [`docs/FIDELITY-CHECKLIST.md`](docs/FIDELITY-CHECKLIST.md) — per-release mock-preview fidelity
   regression procedure, and the record of the BC-sandbox validation.
 - [`CHANGELOG.md`](CHANGELOG.md) — release notes.
