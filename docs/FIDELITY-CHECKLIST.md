@@ -38,7 +38,7 @@ harness below (Deliverable 2) repeats it in every artifact it writes.
 | Structural OOXML validity of edited/created/merged layouts | **[Automated]** | `OpenXmlValidator`, run in: `FidelityHarnessTests` (merged corpus docx), `LayoutValidatorTests`/`FullValidatorTests` (quick/full validation), `MergeEngineTests.Corpus_layouts_merge_and_validate_with_zero_errors`, and every mutating tool's own before/after structural gate (`ToolGuards.GuardMutate`). |
 | Merge determinism | **[Automated]** | `MergeSnapshotTests.Merging_the_same_corpus_file_twice_produces_byte_identical_pretty_printed_xml`, `MergeEngineTests.Merging_the_same_corpus_file_twice_is_deterministic`. |
 | Caption text | **[Manual, generated data only]** | With GENERATED sample data the preview fills labels from the dataset's own label columns, falling back to humanized element names (`Item No Line`), so captions read differently from a real render (`No.`). With a real exported dataset via `dataOverridesPath` they MATCH — the dataset carries the captions BC itself renders (verified against a BC sandbox, 2026-08-01). Reading captions from the AL project's XLF files is **not planned**: supply a real dataset when caption text matters. |
-| Font | **[Manual]** | A layout that PINS its fonts renders the same either side: the stock corpus layouts resolve `minorHAnsi` to Calibri through their theme part, and their sandbox renders matched the mock (2026-08-01). A blank `create_layout` build now pins the same typography itself — its scaffolded `styles.xml` names Calibri 11 pt explicitly in `docDefaults` ([#3](https://github.com/TKapitan/bc-word-layout-mcp/issues/3); `DefaultStylesScaffold`), so the two-renderers-two-fonts disagreement recorded below is fixed at create time. BC-side confirmation of the scaffolded pin still rides the next sandbox-pack re-run ([#14](https://github.com/TKapitan/bc-word-layout-mcp/issues/14)). A layout that names NO font (externally authored, or a `templatePath` shell without a styles part) still renders each side's own default — check which case you are in before reading anything into a font difference. |
+| Font | **[Manual]** | A layout that PINS its fonts renders the same either side: the stock corpus layouts resolve `minorHAnsi` to Calibri through their theme part, and their sandbox renders matched the mock (2026-08-01). A blank `create_layout` build now pins the same typography itself — its scaffolded `styles.xml` names Calibri 11 pt explicitly in `docDefaults` ([#3](https://github.com/TKapitan/bc-word-layout-mcp/issues/3); `DefaultStylesScaffold`), so the two-renderers-two-fonts disagreement is fixed at create time — **BC-verified 2026-08-02** across three from-scratch layouts (round 2, items P01/P06/P07: same typeface and sizes both sides, including a `tableStyle='TableGrid'` reference BC honoured from the scaffolded styles part and explicit `fontSizePoints`/`bold` runs over the pinned base). A layout that names NO font (externally authored, or a `templatePath` shell without a styles part) still renders each side's own default — check which case you are in before reading anything into a font difference. |
 | Pagination / page breaks / "different first page" headers | **[Manual]** | Word/LibreOffice's pagination engine is not BC's report engine. Measured once (2026-08-01, a 2-page purchase order): same page count, same first-page→default header/footer switch at page 2, page break within ONE row. Still manual — one document is not a guarantee. Note that BC honours the Word first/default/even part model exactly, so a layout with `w:titlePg` renders its FIRST-page parts on page 1. |
 | Picture rendering (placeholder vs. real image) | **[Automated for Word path]** / **[Manual for LibreOffice + real image]** | `MergeEngineTests.Corpus_picture_controls_are_filled_with_a_valid_placeholder_png` asserts the placeholder PNG fill itself; `FidelityHarnessTests`/`PdfConverterTests` render it end-to-end via Word COM. The LibreOffice path is unverified — LibreOffice was never installed on the reference dev machine, so whether it accepts the placeholder image part's package-root/absolute relationship target is still open (see [#7](https://github.com/TKapitan/bc-word-layout-mcp/issues/7)). What a genuine (non-placeholder) picture looks like is manual either way — the mock always substitutes a placeholder, by design. |
 | Number/date/locale formatting | **[Automated determinism]** / **[Manual vs BC locale]** | `SampleDataGeneratorTests` locks down the generator's own deterministic, type-aware output run over run. Whether it matches BC's locale-aware formatting is manual, and it will not: the sandbox rendered `31. März 2025` / `1.800,00` from its own regional settings. With a real exported dataset the values come from BC itself — except that BC's export carries RAW numbers plus a `decimalformatter` attribute which nothing here applies yet ([#4](https://github.com/TKapitan/bc-word-layout-mcp/issues/4)), so amounts can still read `100` where BC prints `100.00`. |
@@ -47,9 +47,11 @@ harness below (Deliverable 2) repeats it in every artifact it writes.
 
 ## The sandbox pack (the prepared version of the manual procedure)
 
-`python tools/e2e/sandbox_pack.py` builds five layouts into `preview-output/sandbox-pack/` (gitignored)
-for uploading to a real BC sandbox: one authored entirely by the tools, and four exercising a distinct
-editing capability against stock base-app layouts. Each item folder carries the `.docx` to upload, this
+`python tools/e2e/sandbox_pack.py` builds seven layouts into `preview-output/sandbox-pack/` (gitignored)
+for uploading to a real BC sandbox: three authored entirely by the tools (P01, P06, P07 — every one a
+`create_layout` blank build, so all three carry the scaffolded default typography whose BC-side
+verification rides this pack), and four exercising a distinct editing capability against stock
+base-app layouts. Each item folder carries the `.docx` to upload, this
 tool's own mock render of it, a README naming the questions that item's BC render answers, and the full
 tool-call/validation record; the pack root carries `INSTRUCTIONS.md` (BC-side procedure) and
 `COMPARISON.md` (a per-item sheet keyed to the dimensions table above).
@@ -87,6 +89,31 @@ Two results worth keeping in mind when reading a finding from this tool:
 - **BC follows Word's header/footer part model exactly** — first-page parts on page 1, default parts from
   page 2 — so a layout with `w:titlePg` will not show anything inserted into its default header on a
   single-page document ([#5](https://github.com/TKapitan/bc-word-layout-mcp/issues/5)).
+
+### Recorded result — 2026-08-02, BC sandbox (round 2: seven items, typography focus)
+
+Re-run after the issue-#3 fix (blank builds scaffold a default styles part), with the pack extended
+from five to seven items — three of them from-scratch `create_layout` builds (P01, plus new P06/P07).
+Every item's BC dataset export was captured, so `bc_compare.py` re-ran the mock on **the data BC
+itself used** — every comparison below is layout-vs-layout, not data-vs-data. **All seven items
+passed**; the filled comparison sheet lives with the round's pack output.
+
+- **The issue-#3 typography fix is BC-verified.** All three from-scratch layouts rendered in the same
+  typeface and sizes as the mock (Calibri 11 pt from the scaffolded `docDefaults`) — round 1's
+  two-fonts disagreement is gone. That includes explicit `fontSizePoints`/`bold` static runs over the
+  pinned base (P06) and text inside scaffolded header/footer parts and nested detail rows (P07).
+- **BC honours a `w:tblStyle` reference against the scaffolded styles part**: P06's line table, styled
+  only by `tableStyle='TableGrid'` (no direct border formatting), rendered the full ½ pt grid in BC —
+  the style-reference mechanism itself is now verified, not just the border shapes the corpus uses.
+- **The blank build's scaffolded header/footer parts render in BC** with bound data on every page of a
+  6-page document (P07) — round 1 had only proved a stock layout's own parts.
+- **An old-style report works from scratch**: P07 targets report 115 (dedicated `Labels` data item, no
+  `*_Lbl` columns); labels bound from the `Labels` item carried their caption text, and a nested
+  detail repeater built from nothing repeated per entry without drifting off the parent grid.
+- The only recurring difference remains the **`decimalformatter` gap
+  ([#4](https://github.com/TKapitan/bc-word-layout-mcp/issues/4))**: columns whose BC export carries
+  raw numbers render unformatted in the mock (`1002060.00` vs BC's `1,002,060.00`); pre-formatted
+  columns match exactly. No new fidelity gaps were found.
 
 ## Manual procedure (per release, 3 corpus reports)
 
