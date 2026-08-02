@@ -26,6 +26,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   style id the layout's own styles part does not define — a dangling reference renders fine but
   silently does nothing, which is exactly the trap when a `tableStyle` parameter or hand-authored
   reference is misspelled or the layout carries no styles part at all.
+- **The schema-source rule is now documented** — skill §1 ("Where the schema comes from") plus a
+  matching anti-pattern, a README scope bullet, SOLUTION-DESIGN §6.8, and
+  [ADR-0006](docs/adr/0006-schema-transplanted-never-synthesized.md): the server transplants the BC
+  dataset part byte-for-byte from a BC-produced artifact and never synthesizes it from AL source, so
+  a brand-new layout starts with one AL build (the compiler creates the referenced `.docx`, dataset
+  part included) or one stock-layout/schema export from BC. Previously this was implicit in the
+  `schemaSource`/`newSchemaSource` parameter docs and nowhere stated as the workflow entry point.
 
 ## [1.0.0] - 2026-08-01
 

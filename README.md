@@ -275,6 +275,16 @@ Error `message`/`hint` texts are not part of the contract — never parse them.
   deterministic default typography a blank `create_layout` ships (Calibri 11 pt via its scaffolded
   styles part); restyle via `create_layout`'s `templatePath` or hand-edit the OOXML directly, then run
   `validate_layout` to confirm the edit didn't break structure or bindings.
+- **Generating the dataset schema itself** — deliberate, not a gap
+  ([ADR-0006](docs/adr/0006-schema-transplanted-never-synthesized.md)): `create_layout` and
+  `refresh_xml_part` take their schema from a BC-produced artifact (a compiler-generated layout, an
+  exported stock layout, or an exported schema `.xml`) and transplant its part content byte-for-byte,
+  so "the layout's XML part == the compiler's XML part" holds by construction. Reimplementing the AL
+  compiler's dataset-to-schema mapping (element-name derivation, `IncludeCaption` → `_Lbl` columns,
+  namespace construction) would reintroduce exactly the drift class the transplant rule eliminates.
+  Practical consequence: a brand-new layout starts with one AL build (the compiler creates the
+  referenced layout `.docx`, dataset part included) or one export from BC — the skill's §1 documents
+  the workflow.
 - **RDL layouts, Excel layouts** — out of scope entirely; this server is Word-only.
 - **Any BC-connected upload** of a layout to a tenant — no public API exists for this; it is UI-only in
   Business Central, a deliberate scope decision rather than a gap to script around.

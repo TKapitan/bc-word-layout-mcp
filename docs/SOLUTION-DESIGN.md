@@ -274,6 +274,16 @@ in-process lock; a `CrossProcessLock` (named mutex, keyed by normalised path) is
 IDE windows cannot interleave. Read tools take the same pair briefly, so a read cannot observe a
 half-committed rename.
 
+**8. The dataset schema is transplanted, never synthesized.** `create_layout` and `refresh_xml_part` copy
+the BC dataset part's content byte-for-byte from a BC-produced source (a `.docx` layout or an exported
+schema `.xml`); nothing in this codebase constructs that XML from AL source or from scratch. The AL
+compiler owns the dataset-to-schema mapping (element-name derivation, `IncludeCaption` → `_Lbl` columns,
+namespace construction from report id/name), and an independent reimplementation would drift — producing
+layouts whose bindings BC orphans the moment it regenerates the part. Fidelity by construction beats
+fidelity by regression test. The workflow consequence — a brand-new layout starts with one AL build or one
+BC export that produces the schema artifact — is documented in the skill's §1 and
+[ADR-0006](adr/0006-schema-transplanted-never-synthesized.md).
+
 ## 7. Testing strategy
 
 - **Corpus**: 10 real BC layouts in `tests/corpus/` (provenance per file in
