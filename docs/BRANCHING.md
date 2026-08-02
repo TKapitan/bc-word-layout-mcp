@@ -57,7 +57,10 @@ situation actually occurs, no standing hotfix machinery exists — that is delib
    the existing history.
 5. **Gates.** CI must be green on both legs (`build-and-test (windows-latest)` and
    `build-and-test (ubuntu-latest)`), the branch must be current with `main`, and every review
-   conversation must be resolved. External PRs are reviewed by the code owner
+   conversation must be resolved. A Markdown-only change skips both build legs by design
+   ([`ci.yml`](../.github/workflows/ci.yml)'s `changes` job): the required checks report as
+   *skipped*, which GitHub counts as satisfied — documentation PRs merge without spending
+   build minutes. External PRs are reviewed by the code owner
    ([`CODEOWNERS`](../.github/CODEOWNERS)); maintainer PRs merge on green CI — the required-check
    gate, not self-review theater, is what protects `main` while there is one maintainer.
 6. **Squash-merge.** One PR → one commit on `main`. The head branch is deleted automatically.
@@ -151,7 +154,7 @@ repo; apply them via the appendix below or Settings → Rules → Rulesets → I
 | --- | --- | --- |
 | Require a pull request | required approvals: **0** | A solo maintainer cannot approve their own PR; requiring 1 would dead-lock every merge. Raise to 1 + require code-owner review the day a second maintainer joins. |
 | Allowed merge methods | **squash only** | One functionality per PR → one commit per functionality on `main`; PR titles feed `--generate-notes` in the release workflow. |
-| Required status checks | `build-and-test (windows-latest)`, `build-and-test (ubuntu-latest)`, **strict** (branch must be up to date) | Both CI legs are load-bearing: Windows is the supported platform, Linux is the rot-guard (see [`ci.yml`](../.github/workflows/ci.yml)). Strict mode means the merged result is exactly what CI tested. |
+| Required status checks | `build-and-test (windows-latest)`, `build-and-test (ubuntu-latest)`, **strict** (branch must be up to date) | Both CI legs are load-bearing: Windows is the supported platform, Linux is the rot-guard (see [`ci.yml`](../.github/workflows/ci.yml)). Strict mode means the merged result is exactly what CI tested. Markdown-only changes skip both legs via a job-level `if:` — a skipped required job counts as passing, so docs PRs still merge. |
 | Require conversation resolution | on | Review threads are part of the record. |
 | Require linear history | on | Squash-only already guarantees it; the rule keeps it true if merge settings ever drift. |
 | Block force pushes / deletions | on | `main` is the release source of truth. |

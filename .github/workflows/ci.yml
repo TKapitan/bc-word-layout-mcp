@@ -2,6 +2,13 @@
 # claim (D8): it keeps the [SupportedOSPlatform]-guarded non-Windows code paths compiling and their
 # dependency-agnostic tests passing, so widening platform support later stays a day's work. Warnings
 # fail the build (TreatWarningsAsErrors + latest-recommended analyzers in Directory.Build.props).
+#
+# Markdown-only changes skip both build legs: the `changes` job diffs the push/PR range and
+# `build-and-test` runs only when something other than *.md changed. The skip must be a job-level
+# `if:` — NOT a workflow-level paths-ignore — because both legs are required status checks in the
+# `main` ruleset: a job skipped by `if:` reports conclusion "skipped", which satisfies a required
+# check, whereas a workflow that never triggers leaves the checks stuck "Expected" and blocks the
+# merge. On any doubt (unresolvable base commit), the gate fails open and builds.
 name: CI
 
 on:
@@ -11,7 +18,42 @@ on:
     branches: [main]
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.diff.outputs.code }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Detect non-Markdown changes
+        id: diff
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base='${{ github.event.pull_request.base.sha }}'
+          else
+            base='${{ github.event.before }}'
+          fi
+          if [ -z "$base" ] || ! git cat-file -e "$base^{commit}" 2>/dev/null; then
+            echo "No resolvable base commit ('$base') - failing open, building everything."
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          changed=$(git diff --name-only "$base"...HEAD)
+          echo "Changed files since $base:"
+          echo "$changed"
+          if echo "$changed" | grep -qivE '^$|\.md$'; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Markdown-only change - skipping the build legs."
+            echo "code=false" >> "$GITHUB_OUTPUT"
+          fi
+
   build-and-test:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     strategy:
       fail-fast: false
       matrix:
