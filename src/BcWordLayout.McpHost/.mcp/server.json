@@ -30,7 +30,7 @@
           "value": "{bcwl_labels_data_item}",
           "variables": {
             "bcwl_labels_data_item": {
-              "description": "Optional. Name of a dedicated labels data item (e.g. Labels) whose direct columns are all labels. Leave empty to disable the rule.",
+              "description": "Optional. Overrides the labels data-item rule: name of the data item whose direct columns are all labels (default: Labels), or '-' to disable the rule. Leave empty for the default.",
               "isRequired": false,
               "isSecret": false
             }

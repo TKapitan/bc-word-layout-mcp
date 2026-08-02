@@ -1349,7 +1349,7 @@
                             <w:sz w:val="16" />
                             <w:szCs w:val="16" />
                           </w:rPr>
-                          <w:t xml:space="preserve">NOIT-5175</w:t>
+                          <w:t xml:space="preserve">NOIT-3962</w:t>
                         </w:r>
                         <w:proofErr w:type="spellEnd" />
                       </w:p>
@@ -1405,7 +1405,7 @@
                             <w:sz w:val="16" />
                             <w:szCs w:val="16" />
                           </w:rPr>
-                          <w:t xml:space="preserve">Description Item Delta 1</w:t>
+                          <w:t xml:space="preserve">Description Item Demo 1</w:t>
                         </w:r>
                         <w:proofErr w:type="spellEnd" />
                       </w:p>
@@ -1700,7 +1700,7 @@
                                     <w:sz w:val="16" />
                                     <w:szCs w:val="16" />
                                   </w:rPr>
-                                  <w:t xml:space="preserve">SALE-2830</w:t>
+                                  <w:t xml:space="preserve">SALE-4864</w:t>
                                 </w:r>
                                 <w:proofErr w:type="spellEnd" />
                               </w:p>
@@ -1802,7 +1802,7 @@
                                     <w:sz w:val="16" />
                                     <w:szCs w:val="16" />
                                   </w:rPr>
-                                  <w:t xml:space="preserve">15/05/2026</w:t>
+                                  <w:t xml:space="preserve">09/04/2026</w:t>
                                 </w:r>
                                 <w:proofErr w:type="spellEnd" />
                               </w:p>
@@ -1854,7 +1854,7 @@
                                     <w:sz w:val="16" />
                                     <w:szCs w:val="16" />
                                   </w:rPr>
-                                  <w:t xml:space="preserve">35</w:t>
+                                  <w:t xml:space="preserve">1</w:t>
                                 </w:r>
                                 <w:proofErr w:type="spellEnd" />
                               </w:p>
@@ -1906,7 +1906,7 @@
                                     <w:sz w:val="16" />
                                     <w:szCs w:val="16" />
                                   </w:rPr>
-                                  <w:t xml:space="preserve">24</w:t>
+                                  <w:t xml:space="preserve">38</w:t>
                                 </w:r>
                                 <w:proofErr w:type="spellEnd" />
                               </w:p>
@@ -1958,7 +1958,7 @@
                                     <w:sz w:val="16" />
                                     <w:szCs w:val="16" />
                                   </w:rPr>
-                                  <w:t xml:space="preserve">1</w:t>
+                                  <w:t xml:space="preserve">26</w:t>
                                 </w:r>
                                 <w:proofErr w:type="spellEnd" />
                               </w:p>
@@ -2010,7 +2010,7 @@
                                     <w:sz w:val="16" />
                                     <w:szCs w:val="16" />
                                   </w:rPr>
-                                  <w:t xml:space="preserve">294.77</w:t>
+                                  <w:t xml:space="preserve">451.24</w:t>
                                 </w:r>
                                 <w:proofErr w:type="spellEnd" />
                               </w:p>
@@ -2062,7 +2062,7 @@
                                     <w:sz w:val="16" />
                                     <w:szCs w:val="16" />
                                   </w:rPr>
-                                  <w:t xml:space="preserve">635.24</w:t>
+                                  <w:t xml:space="preserve">711.57</w:t>
                                 </w:r>
                                 <w:proofErr w:type="spellEnd" />
                               </w:p>
@@ -2114,7 +2114,7 @@
                                     <w:sz w:val="16" />
                                     <w:szCs w:val="16" />
                                   </w:rPr>
-                                  <w:t xml:space="preserve">483.91</w:t>
+                                  <w:t xml:space="preserve">485.39</w:t>
                                 </w:r>
                                 <w:proofErr w:type="spellEnd" />
                               </w:p>
@@ -2165,7 +2165,7 @@
                                     <w:sz w:val="16" />
                                     <w:szCs w:val="16" />
                                   </w:rPr>
-                                  <w:t xml:space="preserve">447.95</w:t>
+                                  <w:t xml:space="preserve">252.80</w:t>
                                 </w:r>
                               </w:p>
                             </w:tc>
@@ -2252,7 +2252,7 @@
                                     <w:sz w:val="16" />
                                     <w:szCs w:val="16" />
                                   </w:rPr>
-                                  <w:t xml:space="preserve">SALE-0302</w:t>
+                                  <w:t xml:space="preserve">SALE-6444</w:t>
                                 </w:r>
                                 <w:proofErr w:type="spellEnd" />
                               </w:p>
@@ -2303,7 +2303,7 @@
                                     <w:sz w:val="16" />
                                     <w:szCs w:val="16" />
                                   </w:rPr>
-                                  <w:t xml:space="preserve">Sales Header Billto Name Sample 2</w:t>
+                                  <w:t xml:space="preserve">Sales Header Billto Name Beta 2</w:t>
                                 </w:r>
                                 <w:proofErr w:type="spellEnd" />
                               </w:p>
@@ -2354,7 +2354,7 @@
                                     <w:sz w:val="16" />
                                     <w:szCs w:val="16" />
                                   </w:rPr>
-                                  <w:t xml:space="preserve">26/01/2026</w:t>
+                                  <w:t xml:space="preserve">02/07/2026</w:t>
                                 </w:r>
                                 <w:proofErr w:type="spellEnd" />
                               </w:p>
@@ -2406,7 +2406,7 @@
                                     <w:sz w:val="16" />
                                     <w:szCs w:val="16" />
                                   </w:rPr>
-                                  <w:t xml:space="preserve">32</w:t>
+                                  <w:t xml:space="preserve">43</w:t>
                                 </w:r>
                                 <w:proofErr w:type="spellEnd" />
                               </w:p>
@@ -2458,7 +2458,7 @@
                                     <w:sz w:val="16" />
                                     <w:szCs w:val="16" />
                                   </w:rPr>
-                                  <w:t xml:space="preserve">33</w:t>
+                                  <w:t xml:space="preserve">20</w:t>
                                 </w:r>
                                 <w:proofErr w:type="spellEnd" />
                               </w:p>
@@ -2510,7 +2510,7 @@
                                     <w:sz w:val="16" />
                                     <w:szCs w:val="16" />
                                   </w:rPr>
-                                  <w:t xml:space="preserve">43</w:t>
+                                  <w:t xml:space="preserve">15</w:t>
                                 </w:r>
                                 <w:proofErr w:type="spellEnd" />
                               </w:p>
@@ -2562,7 +2562,7 @@
                                     <w:sz w:val="16" />
                                     <w:szCs w:val="16" />
                                   </w:rPr>
-                                  <w:t xml:space="preserve">721.40</w:t>
+                                  <w:t xml:space="preserve">451.52</w:t>
                                 </w:r>
                                 <w:proofErr w:type="spellEnd" />
                               </w:p>
@@ -2614,7 +2614,7 @@
                                     <w:sz w:val="16" />
                                     <w:szCs w:val="16" />
                                   </w:rPr>
-                                  <w:t xml:space="preserve">547.16</w:t>
+                                  <w:t xml:space="preserve">625.83</w:t>
                                 </w:r>
                                 <w:proofErr w:type="spellEnd" />
                               </w:p>
@@ -2666,7 +2666,7 @@
                                     <w:sz w:val="16" />
                                     <w:szCs w:val="16" />
                                   </w:rPr>
-                                  <w:t xml:space="preserve">185.66</w:t>
+                                  <w:t xml:space="preserve">645.24</w:t>
                                 </w:r>
                                 <w:proofErr w:type="spellEnd" />
                               </w:p>
@@ -2717,7 +2717,7 @@
                                     <w:sz w:val="16" />
                                     <w:szCs w:val="16" />
                                   </w:rPr>
-                                  <w:t xml:space="preserve">862.20</w:t>
+                                  <w:t xml:space="preserve">304.77</w:t>
                                 </w:r>
                               </w:p>
                             </w:tc>
@@ -2806,7 +2806,7 @@
                             <w:sz w:val="16" />
                             <w:szCs w:val="16" />
                           </w:rPr>
-                          <w:t xml:space="preserve">Description Item Delta 1</w:t>
+                          <w:t xml:space="preserve">Description Item Demo 1</w:t>
                         </w:r>
                         <w:proofErr w:type="spellEnd" />
                       </w:p>
@@ -2910,7 +2910,7 @@
                             <w:sz w:val="16" />
                             <w:szCs w:val="16" />
                           </w:rPr>
-                          <w:t xml:space="preserve">5</w:t>
+                          <w:t xml:space="preserve">35</w:t>
                         </w:r>
                         <w:proofErr w:type="spellEnd" />
                       </w:p>
@@ -2967,7 +2967,7 @@
                             <w:sz w:val="16" />
                             <w:szCs w:val="16" />
                           </w:rPr>
-                          <w:t xml:space="preserve">46</w:t>
+                          <w:t xml:space="preserve">2</w:t>
                         </w:r>
                         <w:proofErr w:type="spellEnd" />
                       </w:p>
@@ -3117,7 +3117,7 @@
                             <w:sz w:val="16" />
                             <w:szCs w:val="16" />
                           </w:rPr>
-                          <w:t xml:space="preserve">176.94</w:t>
+                          <w:t xml:space="preserve">537.16</w:t>
                         </w:r>
                         <w:proofErr w:type="spellEnd" />
                       </w:p>
@@ -3425,7 +3425,7 @@
                             <w:sz w:val="16" />
                             <w:szCs w:val="16" />
                           </w:rPr>
-                          <w:t xml:space="preserve">NOIT-8696</w:t>
+                          <w:t xml:space="preserve">NOIT-3400</w:t>
                         </w:r>
                         <w:proofErr w:type="spellEnd" />
                       </w:p>
@@ -3481,7 +3481,7 @@
                             <w:sz w:val="16" />
                             <w:szCs w:val="16" />
                           </w:rPr>
-                          <w:t xml:space="preserve">Description Item Delta 2</w:t>
+                          <w:t xml:space="preserve">Description Item Test 2</w:t>
                         </w:r>
                         <w:proofErr w:type="spellEnd" />
                       </w:p>
@@ -3776,7 +3776,7 @@
                                     <w:sz w:val="16" />
                                     <w:szCs w:val="16" />
                                   </w:rPr>
-                                  <w:t xml:space="preserve">SALE-0757</w:t>
+                                  <w:t xml:space="preserve">SALE-3746</w:t>
                                 </w:r>
                                 <w:proofErr w:type="spellEnd" />
                               </w:p>
@@ -3827,7 +3827,7 @@
                                     <w:sz w:val="16" />
                                     <w:szCs w:val="16" />
                                   </w:rPr>
-                                  <w:t xml:space="preserve">Sales Header Billto Name Preview 1</w:t>
+                                  <w:t xml:space="preserve">Sales Header Billto Name Draft 1</w:t>
                                 </w:r>
                                 <w:proofErr w:type="spellEnd" />
                               </w:p>
@@ -3878,7 +3878,7 @@
                                     <w:sz w:val="16" />
                                     <w:szCs w:val="16" />
                                   </w:rPr>
-                                  <w:t xml:space="preserve">02/04/2026</w:t>
+                                  <w:t xml:space="preserve">05/04/2026</w:t>
                                 </w:r>
                                 <w:proofErr w:type="spellEnd" />
                               </w:p>
@@ -3930,7 +3930,7 @@
                                     <w:sz w:val="16" />
                                     <w:szCs w:val="16" />
                                   </w:rPr>
-                                  <w:t xml:space="preserve">32</w:t>
+                                  <w:t xml:space="preserve">37</w:t>
                                 </w:r>
                                 <w:proofErr w:type="spellEnd" />
                               </w:p>
@@ -3982,7 +3982,7 @@
                                     <w:sz w:val="16" />
                                     <w:szCs w:val="16" />
                                   </w:rPr>
-                                  <w:t xml:space="preserve">19</w:t>
+                                  <w:t xml:space="preserve">18</w:t>
                                 </w:r>
                                 <w:proofErr w:type="spellEnd" />
                               </w:p>
@@ -4034,7 +4034,7 @@
                                     <w:sz w:val="16" />
                                     <w:szCs w:val="16" />
                                   </w:rPr>
-                                  <w:t xml:space="preserve">37</w:t>
+                                  <w:t xml:space="preserve">43</w:t>
                                 </w:r>
                                 <w:proofErr w:type="spellEnd" />
                               </w:p>
@@ -4086,7 +4086,7 @@
                                     <w:sz w:val="16" />
                                     <w:szCs w:val="16" />
                                   </w:rPr>
-                                  <w:t xml:space="preserve">285.69</w:t>
+                                  <w:t xml:space="preserve">652.45</w:t>
                                 </w:r>
                                 <w:proofErr w:type="spellEnd" />
                               </w:p>
@@ -4138,7 +4138,7 @@
                                     <w:sz w:val="16" />
                                     <w:szCs w:val="16" />
                                   </w:rPr>
-                                  <w:t xml:space="preserve">72.26</w:t>
+                                  <w:t xml:space="preserve">647.28</w:t>
                                 </w:r>
                                 <w:proofErr w:type="spellEnd" />
                               </w:p>
@@ -4190,7 +4190,7 @@
                                     <w:sz w:val="16" />
                                     <w:szCs w:val="16" />
                                   </w:rPr>
-                                  <w:t xml:space="preserve">711.17</w:t>
+                                  <w:t xml:space="preserve">730.58</w:t>
                                 </w:r>
                                 <w:proofErr w:type="spellEnd" />
                               </w:p>
@@ -4241,7 +4241,7 @@
                                     <w:sz w:val="16" />
                                     <w:szCs w:val="16" />
                                   </w:rPr>
-                                  <w:t xml:space="preserve">439.08</w:t>
+                                  <w:t xml:space="preserve">768.00</w:t>
                                 </w:r>
                               </w:p>
                             </w:tc>
@@ -4328,7 +4328,7 @@
                                     <w:sz w:val="16" />
                                     <w:szCs w:val="16" />
                                   </w:rPr>
-                                  <w:t xml:space="preserve">SALE-4553</w:t>
+                                  <w:t xml:space="preserve">SALE-6009</w:t>
                                 </w:r>
                                 <w:proofErr w:type="spellEnd" />
                               </w:p>
@@ -4379,7 +4379,7 @@
                                     <w:sz w:val="16" />
                                     <w:szCs w:val="16" />
                                   </w:rPr>
-                                  <w:t xml:space="preserve">Sales Header Billto Name Draft 2</w:t>
+                                  <w:t xml:space="preserve">Sales Header Billto Name Demo 2</w:t>
                                 </w:r>
                                 <w:proofErr w:type="spellEnd" />
                               </w:p>
@@ -4430,7 +4430,7 @@
                                     <w:sz w:val="16" />
                                     <w:szCs w:val="16" />
                                   </w:rPr>
-                                  <w:t xml:space="preserve">09/12/2026</w:t>
+                                  <w:t xml:space="preserve">09/01/2026</w:t>
                                 </w:r>
                                 <w:proofErr w:type="spellEnd" />
                               </w:p>
@@ -4482,7 +4482,7 @@
                                     <w:sz w:val="16" />
                                     <w:szCs w:val="16" />
                                   </w:rPr>
-                                  <w:t xml:space="preserve">5</w:t>
+                                  <w:t xml:space="preserve">45</w:t>
                                 </w:r>
                                 <w:proofErr w:type="spellEnd" />
                               </w:p>
@@ -4534,7 +4534,7 @@
                                     <w:sz w:val="16" />
                                     <w:szCs w:val="16" />
                                   </w:rPr>
-                                  <w:t xml:space="preserve">31</w:t>
+                                  <w:t xml:space="preserve">14</w:t>
                                 </w:r>
                                 <w:proofErr w:type="spellEnd" />
                               </w:p>
@@ -4586,7 +4586,7 @@
                                     <w:sz w:val="16" />
                                     <w:szCs w:val="16" />
                                   </w:rPr>
-                                  <w:t xml:space="preserve">45</w:t>
+                                  <w:t xml:space="preserve">5</w:t>
                                 </w:r>
                                 <w:proofErr w:type="spellEnd" />
                               </w:p>
@@ -4638,7 +4638,7 @@
                                     <w:sz w:val="16" />
                                     <w:szCs w:val="16" />
                                   </w:rPr>
-                                  <w:t xml:space="preserve">69.37</w:t>
+                                  <w:t xml:space="preserve">779.02</w:t>
                                 </w:r>
                                 <w:proofErr w:type="spellEnd" />
                               </w:p>
@@ -4690,7 +4690,7 @@
                                     <w:sz w:val="16" />
                                     <w:szCs w:val="16" />
                                   </w:rPr>
-                                  <w:t xml:space="preserve">725.64</w:t>
+                                  <w:t xml:space="preserve">80.51</w:t>
                                 </w:r>
                                 <w:proofErr w:type="spellEnd" />
                               </w:p>
@@ -4742,7 +4742,7 @@
                                     <w:sz w:val="16" />
                                     <w:szCs w:val="16" />
                                   </w:rPr>
-                                  <w:t xml:space="preserve">582.21</w:t>
+                                  <w:t xml:space="preserve">82.26</w:t>
                                 </w:r>
                                 <w:proofErr w:type="spellEnd" />
                               </w:p>
@@ -4793,7 +4793,7 @@
                                     <w:sz w:val="16" />
                                     <w:szCs w:val="16" />
                                   </w:rPr>
-                                  <w:t xml:space="preserve">554.05</w:t>
+                                  <w:t xml:space="preserve">295.69</w:t>
                                 </w:r>
                               </w:p>
                             </w:tc>
@@ -4882,7 +4882,7 @@
                             <w:sz w:val="16" />
                             <w:szCs w:val="16" />
                           </w:rPr>
-                          <w:t xml:space="preserve">Description Item Delta 2</w:t>
+                          <w:t xml:space="preserve">Description Item Test 2</w:t>
                         </w:r>
                         <w:proofErr w:type="spellEnd" />
                       </w:p>
@@ -4986,7 +4986,7 @@
                             <w:sz w:val="16" />
                             <w:szCs w:val="16" />
                           </w:rPr>
-                          <w:t xml:space="preserve">20</w:t>
+                          <w:t xml:space="preserve">3</w:t>
                         </w:r>
                         <w:proofErr w:type="spellEnd" />
                       </w:p>
@@ -5043,7 +5043,7 @@
                             <w:sz w:val="16" />
                             <w:szCs w:val="16" />
                           </w:rPr>
-                          <w:t xml:space="preserve">28</w:t>
+                          <w:t xml:space="preserve">23</w:t>
                         </w:r>
                         <w:proofErr w:type="spellEnd" />
                       </w:p>
@@ -5193,7 +5193,7 @@
                             <w:sz w:val="16" />
                             <w:szCs w:val="16" />
                           </w:rPr>
-                          <w:t xml:space="preserve">271.01</w:t>
+                          <w:t xml:space="preserve">715.64</w:t>
                         </w:r>
                         <w:proofErr w:type="spellEnd" />
                       </w:p>
@@ -5699,7 +5699,7 @@
                     <w:sz w:val="16" />
                     <w:szCs w:val="16" />
                   </w:rPr>
-                  <w:t xml:space="preserve">111.36</w:t>
+                  <w:t xml:space="preserve">553.24</w:t>
                 </w:r>
                 <w:proofErr w:type="spellEnd" />
               </w:p>

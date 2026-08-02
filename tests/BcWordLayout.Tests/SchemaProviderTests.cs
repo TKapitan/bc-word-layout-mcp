@@ -2,8 +2,9 @@ using BcWordLayout.Domain;
 
 namespace BcWordLayout.Tests;
 
-/// <remarks>Joins the label-convention-seam collection: <c>InventoryOrderDetails_identity_and_zero_labels</c>
-/// pins <c>InventoryOrderDetails.docx</c>'s zero-<c>IsLabel</c>-column count, which a concurrently-swapped
+/// <remarks>Joins the label-convention-seam collection: <c>InventoryOrderDetails_identity_and_labels</c>
+/// pins <c>InventoryOrderDetails.docx</c>'s <c>IsLabel</c>-column classification (exactly the
+/// <c>&lt;Labels&gt;</c> item's direct columns), which a concurrently-swapped
 /// <c>LabelConvention.Current</c> could disturb (see <see cref="LabelConventionSeamCollection"/>).</remarks>
 [Collection("label-convention-seam")]
 public class SchemaProviderTests
@@ -24,17 +25,21 @@ public class SchemaProviderTests
     }
 
     [Fact]
-    public void InventoryOrderDetails_identity_and_zero_labels()
+    public void InventoryOrderDetails_identity_and_labels()
     {
-        // This layout's label-like columns are suffixed "Caption"/"Label" (a BC label naming convention
-        // LabelConvention.IsLabelName - which only recognizes the "*Lbl" suffix - does not recognize), so
-        // every one of them is classified as a plain (non-label) column here; see the final report's note
-        // on this production-code assumption.
+        // This layout's caption columns are suffixed "Caption"/"Label"/unsuffixed (never "Lbl") and live
+        // under a dedicated <Labels> data item - the shape the DEFAULT convention's labels-data-item rule
+        // classifies (see LabelConvention's remarks): every direct column of the <Labels> item is a label,
+        // and nothing else in this schema is (no "*Lbl"-suffixed column exists anywhere in this file).
         var tree = SchemaProvider.FromLayout(Corpus.Path(Corpus.InventoryOrderDetails));
 
         Assert.Equal("50002", tree.Report.ReportId);
         Assert.Contains("FS_YSR_InventoryOrderDetails", tree.Report.Namespace);
-        Assert.Equal(0, tree.AllColumns().Count(c => c.IsLabel));
+
+        var labelsItem = tree.Root.Children.Single(c => c.Name == "Labels");
+        Assert.NotEmpty(labelsItem.Columns);
+        Assert.All(labelsItem.Columns, c => Assert.True(c.IsLabel));
+        Assert.Equal(labelsItem.Columns.Count, tree.AllColumns().Count(c => c.IsLabel));
     }
 
     [Fact]

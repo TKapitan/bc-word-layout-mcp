@@ -100,13 +100,17 @@ installs the skill and the server entry together, and this repository is a plugi
 
 ### Configuration (optional)
 
-Two environment variables override BC's default label-naming convention (`*Lbl`/`*_Lbl`), read once
-at server startup; an invalid value is ignored (logged to stderr) and the default kept:
+Label classification works out of the box for both shapes found in real BC layouts: columns whose
+name ends in `Lbl`/`_Lbl` (BC's documented convention), plus every direct column of a data item
+named `Labels` — a dedicated labels data item, common in older/converted reports whose columns are
+suffixed `Caption`/`Label` or not at all. The second rule is self-scoping: it only affects layouts
+that actually contain a `Labels` data item, so no per-report configuration is needed. Two
+environment variables override this default convention, read once at server startup; an invalid
+value is ignored (logged to stderr) and the default kept:
 
 - `BCWL_LABEL_SUFFIXES` — comma-separated label suffixes, e.g. `Lbl,Caption` (default: `Lbl`).
-- `BCWL_LABELS_DATA_ITEM` — the name of a dedicated labels data item, e.g. `Labels`: every direct
-  column of a data item with that exact name is a label regardless of suffix — the only way to
-  classify unsuffixed label names. Unset by default.
+- `BCWL_LABELS_DATA_ITEM` — retargets the labels data-item rule to a different data-item name, or
+  disables it entirely with the special value `-` (default: `Labels`).
 
 ```json
 {
@@ -116,7 +120,7 @@ at server startup; an invalid value is ignored (logged to stderr) and the defaul
       "args": ["BcWordLayout.Mcp@1.0.0", "--yes"],
       "env": {
         "BCWL_LABEL_SUFFIXES": "Lbl,Caption",
-        "BCWL_LABELS_DATA_ITEM": "Labels"
+        "BCWL_LABELS_DATA_ITEM": "ReportLabels"
       }
     }
   }

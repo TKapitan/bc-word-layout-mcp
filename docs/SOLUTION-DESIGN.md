@@ -65,8 +65,10 @@ a distance, and each one has cost a defect at least once, so they are stated exp
 - **Labels are usually ordinary dataset columns** following a `*Lbl`/`*_Lbl` naming convention — there is
   normally no `<Labels>` element. But a dedicated `<Labels>` data item *does* occur, and its columns are
   then suffixed `Caption`/`Label` instead. Neither shape is rare. This is why label detection is a
-  **configurable convention** (`LabelConvention`, overridable per host via `BCWL_LABEL_SUFFIXES` /
-  `BCWL_LABELS_DATA_ITEM`) rather than a hardcoded suffix test.
+  **configurable convention** (`LabelConvention`) that handles both shapes per document by default —
+  the `Lbl` suffix rule plus a self-scoping `Labels` data-item rule that only fires on layouts actually
+  carrying such an item — overridable per host via `BCWL_LABEL_SUFFIXES` / `BCWL_LABELS_DATA_ITEM`
+  (sentinel `-` disables the data-item rule) rather than a hardcoded suffix test.
 - Encoding varies: usually UTF-16 LE with BOM, but UTF-8 also occurs. The part may carry **no
   `itemProps`/`DataStoreItem`** at all, and its directory casing varies (`customXml/` vs `customXML/`).
   Nothing may assume any of these.

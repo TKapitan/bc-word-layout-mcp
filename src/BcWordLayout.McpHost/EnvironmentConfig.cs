@@ -19,11 +19,14 @@ internal static class EnvironmentConfig
     public const string LabelSuffixesVariable = "BCWL_LABEL_SUFFIXES";
 
     /// <summary>
-    /// Optional name of a dedicated labels DATA ITEM (e.g. <c>"Labels"</c>): every direct column of a data
-    /// item with this exact name is classified as a label regardless of its own suffix — the shape the
-    /// corpus's <c>InventoryOrderDetails.docx</c> proves is real (its <c>&lt;Labels&gt;</c> item mixes
-    /// <c>*Label</c>/<c>*Caption</c>/unsuffixed column names a suffix list alone can never classify). Unset
-    /// (the default) disables the rule. Combines freely with <see cref="LabelSuffixesVariable"/>; either may
+    /// Optional override of the labels DATA-ITEM rule, which is ON by default with the name
+    /// <c>"Labels"</c>: every direct column of a data item with that exact name is classified as a label
+    /// regardless of its own suffix — the shape the corpus's <c>InventoryOrderDetails.docx</c> proves is
+    /// real (its <c>&lt;Labels&gt;</c> item mixes <c>*Label</c>/<c>*Caption</c>/unsuffixed column names a
+    /// suffix list alone can never classify), and self-scoping (see
+    /// <see cref="BcWordLayout.Domain.LabelConvention"/>'s remarks for why default-on is safe). Set to a
+    /// different data-item name to retarget the rule, or to the sentinel <c>"-"</c> to disable it
+    /// (suffix-only classification). Combines freely with <see cref="LabelSuffixesVariable"/>; either may
     /// be set without the other.
     /// </summary>
     public const string LabelsDataItemVariable = "BCWL_LABELS_DATA_ITEM";
@@ -53,7 +56,11 @@ internal static class EnvironmentConfig
     /// Parses <paramref name="rawValue"/> (the raw <see cref="LabelsDataItemVariable"/> value) into a
     /// trimmed data-item name. Returns null for a null/blank value or one that is not a plausible single
     /// element name (contains <c>'/'</c> — the rule matches ONE data-item name, never a path) — callers must
-    /// treat null as "rule stays disabled". Never throws.
+    /// treat null as "keep the default rule (data item 'Labels')". Returns <see cref="string.Empty"/> for
+    /// the explicit opt-out sentinel <c>"-"</c> (never a legal XML element name, so it cannot collide with a
+    /// real data item) — "disable the rule"; <see cref="BcWordLayout.Domain.LabelConvention"/>'s constructor
+    /// already maps a blank name to a disabled rule, so the empty string passes straight through. Never
+    /// throws.
     /// </summary>
     public static string? ParseLabelsDataItemName(string? rawValue)
     {
@@ -63,6 +70,11 @@ internal static class EnvironmentConfig
         }
 
         var name = rawValue.Trim();
+        if (name == "-")
+        {
+            return string.Empty;
+        }
+
         return name.Contains('/') ? null : name;
     }
 }

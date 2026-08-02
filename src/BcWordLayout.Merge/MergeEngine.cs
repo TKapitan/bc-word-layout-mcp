@@ -509,25 +509,26 @@ public static class MergeEngine
     /// Appends one <c>labels-convention-hint</c> <see cref="MergeWarning"/> when the schema carries the
     /// well-known <c>&lt;Labels&gt;</c> data-item shape (a data item literally named "Labels" whose direct
     /// columns are the report's captions) but the ACTIVE <see cref="LabelConvention"/> does not classify
-    /// them — i.e. <see cref="LabelConvention.LabelsDataItemName"/> is unset and at least one direct
-    /// column lacks a recognized label suffix. Without the rule, those caption columns receive
-    /// type-inferred FIELD samples, so a preview's column headings render as raw numbers/dates (the exact
-    /// InventoryOrderDetails symptom from the 2026-07-31 preview sweep — garbage headers with nothing
-    /// telling the caller the fix already exists). The convention deliberately stays OFF by default (see
-    /// <see cref="LabelConvention"/>'s own remarks); this hint makes the knob discoverable exactly when it
-    /// matters, instead of silently degrading the preview. Skipped when a real
+    /// them. The DEFAULT convention's labels-data-item rule
+    /// (<see cref="LabelConvention.LabelsDataItemName"/>, <c>"Labels"</c>) classifies this shape out of the
+    /// box, so the hint can only fire when a host has explicitly disabled or retargeted the rule
+    /// (<c>BCWL_LABELS_DATA_ITEM</c>) yet merges a layout with the very shape the rule exists for. Without
+    /// the rule, those caption columns receive type-inferred FIELD samples, so a preview's column headings
+    /// render as raw numbers/dates (the exact InventoryOrderDetails symptom from the 2026-07-31 preview
+    /// sweep — garbage headers with nothing telling the caller the fix already exists); the hint names the
+    /// env var so the degradation is never silent. Skipped when a real
     /// <see cref="MergeOptions.DataOverridesPath"/> dataset was supplied — its caption values are real, so
     /// nothing here is being mis-sampled.
     /// </summary>
     private static MergeResult AppendLabelsConventionHintIfNeeded(MergeResult result, DatasetTree schema, MergeOptions options)
     {
-        if (!string.IsNullOrEmpty(options.DataOverridesPath) || LabelConvention.Current.LabelsDataItemName is not null)
+        if (!string.IsNullOrEmpty(options.DataOverridesPath))
         {
             return result;
         }
 
         var labelsItem = FindDataItem(schema.Root, "Labels");
-        var unclassified = labelsItem?.Columns.Count(c => !LabelConvention.Current.IsLabelName(c.Name)) ?? 0;
+        var unclassified = labelsItem?.Columns.Count(c => !c.IsLabel) ?? 0;
         if (labelsItem is null || unclassified == 0)
         {
             return result;

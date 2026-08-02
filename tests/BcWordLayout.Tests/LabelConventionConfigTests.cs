@@ -9,7 +9,7 @@ namespace BcWordLayout.Tests;
 /// <summary>
 /// Covers the CONFIGURABLE part of <see cref="LabelConvention"/> (
 /// finding P4): a custom suffix list driving <c>insert_label</c>/<c>insert_field</c>/<c>list_dataset_fields</c>
-/// consistently through the real tool surface, and the opt-in <c>&lt;Labels&gt;</c> data-item rule at the
+/// consistently through the real tool surface, and the default-on <c>&lt;Labels&gt;</c> data-item rule at the
 /// lower <see cref="LabelConvention.IsLabelPath(System.Collections.Generic.IReadOnlyList{string})"/> level.
 /// </summary>
 /// <remarks>Joins the label-convention-seam collection: every test here swaps
@@ -63,12 +63,16 @@ public class LabelConventionConfigTests
     }
 
     [Fact]
-    public void Merge_hints_at_the_labels_data_item_knob_when_the_default_convention_misses_a_Labels_item()
+    public void Merge_hints_at_the_labels_data_item_knob_when_the_rule_is_disabled()
     {
         // InventoryOrderDetails.docx is the corpus proof of the <Labels> data-item shape (see
-        // LabelConvention's remarks): under the DEFAULT convention its ~27 caption columns are sampled as
-        // fields, so the preview's column headings degrade to raw numbers/dates. The merge must say so and
-        // name the env var that fixes it - the knob is useless if nothing points at it.
+        // LabelConvention's remarks). The default convention classifies it out of the box, so the hint can
+        // only fire when a host has explicitly disabled (BCWL_LABELS_DATA_ITEM="-") or retargeted the rule:
+        // then the ~27 caption columns are sampled as fields and the preview's column headings degrade to
+        // raw numbers/dates. The merge must say so and name the env var that restores the rule - the
+        // opt-out would otherwise degrade previews silently.
+        var previous = LabelConvention.Current;
+        LabelConvention.Current = new LabelConvention(new[] { "Lbl" });
         var output = System.IO.Path.Combine(
             System.IO.Path.GetTempPath(), $"bcwl-labels-hint-{Guid.NewGuid():N}.docx");
         try
@@ -81,15 +85,16 @@ public class LabelConventionConfigTests
         }
         finally
         {
+            LabelConvention.Current = previous;
             File.Delete(output);
         }
     }
 
     [Fact]
-    public void Merge_emits_no_labels_hint_once_the_labels_data_item_rule_is_active()
+    public void Merge_emits_no_labels_hint_under_the_default_convention()
     {
-        var previous = LabelConvention.Current;
-        LabelConvention.Current = new LabelConvention(new[] { "Lbl" }, labelsDataItemName: "Labels");
+        // The default convention's labels-data-item rule already classifies the <Labels> shape, so a
+        // stock server merging InventoryOrderDetails.docx has nothing to hint about.
         var output = System.IO.Path.Combine(
             System.IO.Path.GetTempPath(), $"bcwl-labels-hint-{Guid.NewGuid():N}.docx");
         try
@@ -100,7 +105,6 @@ public class LabelConventionConfigTests
         }
         finally
         {
-            LabelConvention.Current = previous;
             File.Delete(output);
         }
     }
@@ -175,15 +179,20 @@ public class LabelConventionConfigTests
     }
 
     [Fact]
-    public void Labels_data_item_rule_is_disabled_by_default()
+    public void Labels_data_item_rule_is_enabled_by_default()
     {
-        // The default LabelConvention.Default/initial Current must NOT enable the Labels-data-item rule -
-        // required so InventoryOrderDetails.docx's real <Labels> data item still classifies as zero labels
-        // by default (SchemaProviderTests/LayoutReaderTests pin exactly that), even though the corpus proves
-        // the shape is real. See LabelConvention's own remarks for the full rationale.
-        Assert.Null(LabelConvention.Default.LabelsDataItemName);
+        // The default convention enables the Labels-data-item rule (name "Labels"): the rule is
+        // self-scoping - it can only ever match a document whose dataset actually carries a <Labels> data
+        // item, and where that shape occurs its columns ARE captions (InventoryOrderDetails.docx is the
+        // corpus proof; SchemaProviderTests/LayoutReaderTests pin its classification under this default).
+        // Opting out is explicit: BCWL_LABELS_DATA_ITEM="-" on the host, labelsDataItemName: null in code.
+        // See LabelConvention's own remarks for the full rationale.
+        Assert.Equal("Labels", LabelConvention.Default.LabelsDataItemName);
 
         var column = new DatasetColumn { Name = "DataRetrieved", Path = "/Labels/DataRetrieved" };
-        Assert.False(LabelConvention.Default.IsLabelPath(column.Path));
+        Assert.True(LabelConvention.Default.IsLabelPath(column.Path));
+
+        // Self-scoping: the same unsuffixed name under any OTHER data item stays a plain field.
+        Assert.False(LabelConvention.Default.IsLabelPath("/Header/DataRetrieved"));
     }
 }

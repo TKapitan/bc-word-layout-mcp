@@ -11,9 +11,10 @@ using ModelContextProtocol.Protocol;
 // stdio JSON-RPC transport via the official ModelContextProtocol C# SDK.
 // IMPORTANT: stdout carries the MCP protocol, so ALL logging must go to stderr.
 
-// Optional host-level override of the BC label naming convention:
-// BCWL_LABEL_SUFFIXES, comma-separated (e.g. "Lbl,Caption"), and/or BCWL_LABELS_DATA_ITEM
-// (e.g. "Labels" — every direct column of a data item with that name is a label regardless of suffix).
+// Optional host-level override of the default label convention (suffix "Lbl" plus the self-scoping
+// "Labels" data-item rule — see LabelConvention's remarks): BCWL_LABEL_SUFFIXES, comma-separated
+// (e.g. "Lbl,Caption"), and/or BCWL_LABELS_DATA_ITEM (a data-item name retargeting the rule — every
+// direct column of a data item with that name is a label regardless of suffix — or "-" to disable it).
 // Read directly via Console.Error here rather than the DI logger configured below, since the host isn't
 // built yet at this point in the file — still stderr-only, never stdout, so it cannot corrupt the MCP
 // JSON-RPC stream.
@@ -34,21 +35,23 @@ if (!string.IsNullOrWhiteSpace(rawLabelSuffixes) || !string.IsNullOrWhiteSpace(r
     {
         Console.Error.WriteLine(
             $"[bc-word-layout-mcp] Ignoring invalid {EnvironmentConfig.LabelsDataItemVariable} value "
-            + $"'{rawLabelsDataItem}' (must be a single data-item name, not a path); labels-data-item "
-            + "rule stays disabled.");
+            + $"'{rawLabelsDataItem}' (must be a single data-item name, or '-' to disable the rule); "
+            + "keeping the default labels data item (Labels).");
     }
 
+    // parsedLabelsDataItem: null = keep the default rule; "" (the "-" sentinel) = disable it — the
+    // LabelConvention constructor maps a blank name to a disabled rule; anything else retargets it.
     if (parsedLabelSuffixes is not null || parsedLabelsDataItem is not null)
     {
         LabelConvention.Current = new LabelConvention(
             parsedLabelSuffixes ?? LabelConvention.Default.Suffixes,
-            parsedLabelsDataItem);
+            parsedLabelsDataItem ?? LabelConvention.Default.LabelsDataItemName);
         Console.Error.WriteLine(
             "[bc-word-layout-mcp] Using custom label convention: suffixes "
             + string.Join(", ", LabelConvention.Current.Suffixes)
             + (LabelConvention.Current.LabelsDataItemName is { } item
                 ? $"; labels data item '{item}'."
-                : "."));
+                : "; labels data-item rule disabled."));
     }
 }
 

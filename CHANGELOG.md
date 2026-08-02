@@ -35,6 +35,11 @@ Business Central through deterministic, typed tools instead of free-hand OOXML e
   both the legacy `w:dataBinding` and the `w15:dataBinding` field-control shapes, layouts whose dataset
   part is UTF-8 or UTF-16 and may carry no store item at all, and multi-section documents where "the
   header" means the first section's default header rather than the first part in the package.
+- **Label classification that handles both real-world shapes out of the box** — columns named
+  `*Lbl`/`*_Lbl` (BC's documented convention) plus every direct column of a data item named `Labels`
+  (the dedicated labels data item common in older/converted reports; the rule is self-scoping, so
+  layouts without such an item are unaffected). Overridable per host via `BCWL_LABEL_SUFFIXES` and
+  `BCWL_LABELS_DATA_ITEM` (a different data-item name retargets the rule; `-` disables it).
 - **A companion skill** ([`skills/al-word-layout`](skills/al-word-layout/SKILL.md)) documenting the
   intended workflow, the supported matrix, and the anti-patterns.
 - **Three install channels**: the `BcWordLayout.Mcp` NuGet MCP-server package (top-level manifest

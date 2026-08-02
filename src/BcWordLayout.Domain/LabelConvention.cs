@@ -25,18 +25,25 @@ namespace BcWordLayout.Domain;
 /// column of a data item with that exact name as a label unconditionally.
 /// </para>
 /// <para>
-/// <see cref="LabelsDataItemName"/> defaults to <c>null</c> (disabled) even though the corpus proves the
-/// shape is real: turning it on BY DEFAULT would flip <c>InventoryOrderDetails.docx</c>'s label-count
-/// assertions in <c>SchemaProviderTests</c>/<c>LayoutReaderTests</c> from 0 to ~27 — an unrequested default-
-/// behavior change - the existing suite must stay green UNCHANGED. Callers who
-/// know their own corpus uses this shape opt in explicitly, e.g.
-/// <c>new LabelConvention(suffixes, labelsDataItemName: "Labels")</c>.
+/// <see cref="LabelsDataItemName"/> defaults to <c>"Labels"</c> (rule ENABLED) because the rule is
+/// inherently SELF-SCOPING: it can only ever match a document whose dataset actually carries a data item
+/// with that exact name, and everywhere the shape has been observed those columns ARE the report's
+/// captions — a data item literally named "Labels" holding business row data has not been seen. Layouts
+/// without such an item are completely unaffected, so the default convention classifies BOTH known
+/// shapes per document with no configuration. A host that does hit a false positive opts out via
+/// <c>BCWL_LABELS_DATA_ITEM</c> (sentinel <c>"-"</c> — see <c>EnvironmentConfig</c> in
+/// <c>BcWordLayout.McpHost</c>); a library consumer constructs a convention with
+/// <c>labelsDataItemName: null</c>.
 /// </para>
 /// </remarks>
 public sealed class LabelConvention
 {
-    /// <summary>The BC-standard convention every consumer uses unless <see cref="Current"/> is reassigned.</summary>
-    public static readonly LabelConvention Default = new(new[] { "Lbl" });
+    /// <summary>
+    /// The convention every consumer uses unless <see cref="Current"/> is reassigned: the BC-standard
+    /// <c>"Lbl"</c> suffix rule plus the self-scoping <c>"Labels"</c> data-item rule (see this type's
+    /// remarks for why the rule is on by default).
+    /// </summary>
+    public static readonly LabelConvention Default = new(new[] { "Lbl" }, labelsDataItemName: "Labels");
 
     private static LabelConvention _current = Default;
 
@@ -46,8 +53,8 @@ public sealed class LabelConvention
     /// generation) reads THIS, never <see cref="Default"/> directly — the same minimal-seam pattern as
     /// <c>LifecycleTools.SelectConverter</c>: a plain settable static, no DI. Defaults to
     /// <see cref="Default"/>. The MCP host's <c>Program.cs</c> reassigns it at startup from the
-    /// <c>BCWL_LABEL_SUFFIXES</c> environment variable when present (see <c>EnvironmentConfig</c> in
-    /// <c>BcWordLayout.McpHost</c>).
+    /// <c>BCWL_LABEL_SUFFIXES</c>/<c>BCWL_LABELS_DATA_ITEM</c> environment variables when present (see
+    /// <c>EnvironmentConfig</c> in <c>BcWordLayout.McpHost</c>).
     /// </summary>
     /// <remarks>
     /// Public rather than internal specifically so the host project (a separate assembly with no
@@ -74,8 +81,8 @@ public sealed class LabelConvention
     /// <summary>
     /// When set, every DIRECT column of a data item with this exact name (ordinal) is a label regardless of
     /// its own suffix — the shape <c>InventoryOrderDetails.docx</c>'s <c>&lt;Labels&gt;</c> data item proves
-    /// is real (see this type's remarks). <c>null</c> disables the rule (suffix-list-only classification,
-    /// the BC-standard behavior).
+    /// is real (see this type's remarks). <c>null</c> disables the rule (suffix-list-only classification);
+    /// <see cref="Default"/> enables it with <c>"Labels"</c>.
     /// </summary>
     public string? LabelsDataItemName { get; }
 

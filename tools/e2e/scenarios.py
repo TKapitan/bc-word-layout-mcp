@@ -656,10 +656,10 @@ def s15(ctx: Ctx):
                "cell 1 is plain text now (binding dropped, text kept)")
 
 
-@scenario("s16-inventory-remove-column-keeps-hint",
+@scenario("s16-inventory-remove-column-labels-classified",
           layout="InventoryOrderDetails.docx",
-          desc="Remove a column from the <Labels>-convention layout; width preserved AND the "
-               "labels-convention-hint merge warning still fires in the preview.")
+          desc="Remove a column from the <Labels>-convention layout; width preserved, the <Labels> "
+               "columns classify as labels out of the box, and no labels-convention-hint fires.")
 def s16(ctx: Ctx):
     info = ctx.info()
     candidates = [(i, t) for i, t in enumerate(info["tables"])
@@ -669,11 +669,18 @@ def s16(ctx: Ctx):
     ctx.edit("remove_column", tableIndex=index, column=table["columnCount"] - 1)
     after = ctx.info()["tables"][index]
     ctx.expect(ctx.grid_total(after) == total_before, "table width preserved")
+    # The default convention's labels-data-item rule classifies this layout's <Labels> columns with no
+    # configuration, so previews sample them as captions and the hint has nothing to point at (it only
+    # fires when a host explicitly disables/retargets the rule via BCWL_LABELS_DATA_ITEM).
+    labels_item = ctx.find_data_item(ctx.fields_root(), "Labels")
+    ctx.expect(labels_item is not None and bool(labels_item["columns"])
+               and all(c["isLabel"] for c in labels_item["columns"]),
+               "every direct column of the <Labels> data item classifies as a label by default")
     preview = ctx.tool("preview_layout", {"layoutPath": ctx.work,
                                           "outputDir": os.path.join(ctx.out_dir, "hint-check")})
     kinds = [w.get("kind") for w in preview["data"].get("warnings", [])]
-    ctx.expect("labels-convention-hint" in kinds,
-               f"labels-convention-hint still fires after the edit (got {kinds})")
+    ctx.expect("labels-convention-hint" not in kinds,
+               f"no labels-convention-hint under the default convention (got {kinds})")
 
 
 # ================================================================ CLI

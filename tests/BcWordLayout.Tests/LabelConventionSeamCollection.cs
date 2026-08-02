@@ -16,15 +16,21 @@ namespace BcWordLayout.Tests;
 /// (see <c>LabelConvention</c>'s own remarks) — so a class needs to join only if it asserts something
 /// classification-sensitive about THAT file specifically:
 /// <list type="bullet">
-/// <item><see cref="SchemaProviderTests"/> — pins <c>InventoryOrderDetails</c>'s zero-<c>IsLabel</c>-column count.</item>
-/// <item><see cref="LayoutReaderTests"/> — pins <c>InventoryOrderDetails</c>'s zero-<see cref="BcWordLayout.Domain.Models.ControlKind.Label"/>-control count.</item>
+/// <item><see cref="SchemaProviderTests"/> — pins <c>InventoryOrderDetails</c>'s <c>IsLabel</c>-column
+/// classification (exactly the <c>&lt;Labels&gt;</c> item's direct columns, via the default convention's
+/// labels-data-item rule).</item>
+/// <item><see cref="LayoutReaderTests"/> — pins <c>InventoryOrderDetails</c>'s
+/// <see cref="BcWordLayout.Domain.Models.ControlKind.Label"/>-control classification (exactly the controls
+/// bound into the <c>&lt;Labels&gt;</c> item).</item>
 /// <item><see cref="MergeSnapshotTests"/> — byte-level merge-output snapshot for <c>InventoryOrderDetails</c>, whose text
 /// content differs for label vs. field columns (see <c>SampleDataGenerator.GenerateLeafValue</c>).</item>
 /// </list>
 /// Every other corpus file's label-like columns already end in <c>Lbl</c>/<c>_Lbl</c> and so remain
 /// classified as labels under any convention this repo's tests install (which always keeps <c>"Lbl"</c> in
-/// the suffix list), so classes that only ever touch those files need not join. Tests that swap
-/// <c>LabelConvention.Current</c> itself MUST also live in this collection and restore it in a
+/// the suffix list), so classes that only ever touch those files need not join. <c>InventoryOrderDetails</c>
+/// is different because its classification hinges on the labels-data-item rule (on by default, but swapped
+/// conventions may omit it — e.g. <c>new LabelConvention(["Lbl", "Caption"])</c> disables it). Tests that
+/// swap <c>LabelConvention.Current</c> itself MUST also live in this collection and restore it in a
 /// <c>finally</c> block regardless of outcome (see <see cref="LabelConventionConfigTests"/>).
 /// </remarks>
 [CollectionDefinition("label-convention-seam")]

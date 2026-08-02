@@ -58,7 +58,19 @@ public class EnvironmentConfigTests
     [InlineData("/Report/Labels")] // a path, not a single data-item name - the rule matches one name only
     public void ParseLabelsDataItemName_returns_null_for_an_invalid_or_unusable_value(string? rawValue)
     {
+        // null means "keep the default rule (data item 'Labels')" - see the parser's own docs.
         Assert.Null(EnvironmentConfig.ParseLabelsDataItemName(rawValue));
+    }
+
+    [Theory]
+    [InlineData("-")]
+    [InlineData("  -  ")]
+    public void ParseLabelsDataItemName_maps_the_opt_out_sentinel_to_an_empty_name(string rawValue)
+    {
+        // "" (not null) is the explicit "disable the rule" signal: LabelConvention's constructor maps a
+        // blank name to a disabled rule, so the host can pass it straight through - distinct from null,
+        // which keeps the default rule.
+        Assert.Equal(string.Empty, EnvironmentConfig.ParseLabelsDataItemName(rawValue));
     }
 
     [Fact]

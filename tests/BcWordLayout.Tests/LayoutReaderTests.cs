@@ -6,8 +6,9 @@ using DocumentFormat.OpenXml.Wordprocessing;
 namespace BcWordLayout.Tests;
 
 /// <remarks>Joins the label-convention-seam collection: <c>InventoryOrderDetails_controls</c> pins
-/// <c>InventoryOrderDetails.docx</c>'s zero-<see cref="ControlKind.Label"/>-control count, which a
-/// concurrently-swapped <c>LabelConvention.Current</c> could disturb (see
+/// <c>InventoryOrderDetails.docx</c>'s <see cref="ControlKind.Label"/>-control classification (exactly
+/// the controls bound into the <c>&lt;Labels&gt;</c> data item), which a concurrently-swapped
+/// <c>LabelConvention.Current</c> could disturb (see
 /// <see cref="LabelConventionSeamCollection"/>).</remarks>
 [Collection("label-convention-seam")]
 public class LayoutReaderTests
@@ -55,10 +56,19 @@ public class LayoutReaderTests
     [Fact]
     public void InventoryOrderDetails_controls()
     {
+        // This layout binds its column headings into a dedicated <Labels> data item whose columns are
+        // suffixed "Caption"/"Label" (never "Lbl") - the shape the DEFAULT convention's labels-data-item
+        // rule classifies (see LabelConvention's remarks). Pin the classification structurally: a control
+        // is Label-kind exactly when its binding targets a direct child of the <Labels> item.
         var inv = LayoutReader.Read(Corpus.Path(Corpus.InventoryOrderDetails));
 
         Assert.Equal(2, inv.RepeaterCount);
-        Assert.Equal(0, inv.Controls.Count(c => c.Kind == ControlKind.Label));
+
+        var labelControls = inv.Controls.Where(c => c.Kind == ControlKind.Label).ToList();
+        Assert.NotEmpty(labelControls);
+        Assert.All(labelControls, c => Assert.Contains(":Labels[", c.XPath));
+        Assert.DoesNotContain(inv.Controls,
+            c => c.Kind == ControlKind.Field && c.XPath is not null && c.XPath.Contains(":Labels["));
     }
 
     [Fact]
