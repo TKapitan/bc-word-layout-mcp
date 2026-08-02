@@ -53,7 +53,6 @@ Ordered by expected community value.
 
 | Id | Item | Summary |
 |---|---|---|
-| B29 | Page-position-conditional content | "Company name in the footer on the last page only" — a pure Word construct (`IF PAGE = NUMPAGES` field code) no tool emits. Confirm add-in-compatible OOXML first, then a dedicated tool — or document hand-edit + `validate_layout` as the path. |
 | B31 | Parked ideas | Broader cosmetic formatting beyond the shipped knobs (bold/alignment/size on `set_cell_text`/`insert_field`/`insert_label`; per-column alignments) — e.g. colors, italics, fonts: hand-edit + validate remains the supported path. RDL→Word assisted conversion; Excel layouts; BC tenant upload (no public API exists — revisit only if Microsoft ships one). |
 
 ## P4 — Standing verification debt
