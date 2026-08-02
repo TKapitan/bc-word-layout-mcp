@@ -4,11 +4,16 @@
 # fail the build (TreatWarningsAsErrors + latest-recommended analyzers in Directory.Build.props).
 #
 # Markdown-only changes skip both build legs: the `changes` job diffs the push/PR range and
-# `build-and-test` runs only when something other than *.md changed. The skip must be a job-level
-# `if:` — NOT a workflow-level paths-ignore — because both legs are required status checks in the
-# `main` ruleset: a job skipped by `if:` reports conclusion "skipped", which satisfies a required
-# check, whereas a workflow that never triggers leaves the checks stuck "Expected" and blocks the
-# merge. On any doubt (unresolvable base commit), the gate fails open and builds.
+# `build-and-test` runs only when something other than *.md changed. On any doubt (unresolvable
+# base commit), the detection fails open and builds.
+#
+# The ruleset's ONLY required status check is `ci-result`, an always-run gate that fails unless
+# the legs succeeded or were skipped by the Markdown-only rule. The matrix legs cannot be required
+# directly alongside the skip: a matrix job skipped by `if:` never expands its matrix, so on a
+# docs PR GitHub reports a single check named `build-and-test` and the required contexts
+# `build-and-test (windows-latest)` / `(ubuntu-latest)` stay "Expected" forever, blocking the
+# merge. (A workflow-level paths-ignore has the same stuck-"Expected" problem, which is why the
+# skip is a job-level `if:` in the first place.)
 name: CI
 
 on:
@@ -74,3 +79,21 @@ jobs:
 
       - name: Test
         run: dotnet test --no-build -c Release
+
+  # The single required status check (see the header comment). `if: always()` makes it report on
+  # every run; it passes only when both legs succeeded, or were skipped because nothing outside
+  # Markdown changed. Any other combination — a failed leg, a failed/cancelled `changes` job — fails.
+  ci-result:
+    needs: [changes, build-and-test]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify the build legs succeeded or were legitimately skipped
+        shell: bash
+        run: |
+          result='${{ needs.build-and-test.result }}'
+          code='${{ needs.changes.outputs.code }}'
+          echo "build-and-test: $result (non-Markdown changes: $code)"
+          if [ "$result" = "success" ]; then exit 0; fi
+          if [ "$result" = "skipped" ] && [ "$code" = "false" ]; then exit 0; fi
+          exit 1

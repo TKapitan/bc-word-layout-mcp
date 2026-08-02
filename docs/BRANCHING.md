@@ -54,12 +54,11 @@ situation actually occurs, no standing hotfix machinery exists — that is delib
 4. **Open a PR against `main`.** The template checklist is the review contract. The PR title
    becomes the commit subject on `main` (squash merge), so write it in the imperative mood, like
    the existing history.
-5. **Gates.** CI must be green on both legs (`build-and-test (windows-latest)` and
-   `build-and-test (ubuntu-latest)`), the branch must be current with `main`, and every review
-   conversation must be resolved. A Markdown-only change skips both build legs by design
-   ([`ci.yml`](../.github/workflows/ci.yml)'s `changes` job): the required checks report as
-   *skipped*, which GitHub counts as satisfied — documentation PRs merge without spending
-   build minutes. External PRs are reviewed by the code owner
+5. **Gates.** CI must be green — the required check is the single `ci-result` gate, which passes
+   only when both build legs (`windows-latest` and `ubuntu-latest`) succeeded or were skipped
+   because the change touched only Markdown ([`ci.yml`](../.github/workflows/ci.yml)'s `changes`
+   job) — documentation PRs merge without spending build minutes. The branch must be current with
+   `main`, and every review conversation must be resolved. External PRs are reviewed by the code owner
    ([`CODEOWNERS`](../.github/CODEOWNERS)); maintainer PRs merge on green CI — the required-check
    gate, not self-review theater, is what protects `main` while there is one maintainer.
 6. **Squash-merge.** One PR → one commit on `main`. The head branch is deleted automatically.
@@ -82,7 +81,7 @@ repo; apply them via the appendix below or Settings → Rules → Rulesets → I
 | --- | --- | --- |
 | Require a pull request | required approvals: **0** | A solo maintainer cannot approve their own PR; requiring 1 would dead-lock every merge. Raise to 1 + require code-owner review the day a second maintainer joins. |
 | Allowed merge methods | **squash only** | One functionality per PR → one commit per functionality on `main`; PR titles feed `--generate-notes` in the release workflow. |
-| Required status checks | `build-and-test (windows-latest)`, `build-and-test (ubuntu-latest)`, **strict** (branch must be up to date) | Both CI legs are load-bearing: Windows is the supported platform, Linux is the rot-guard (see [`ci.yml`](../.github/workflows/ci.yml)). Strict mode means the merged result is exactly what CI tested. Markdown-only changes skip both legs via a job-level `if:` — a skipped required job counts as passing, so docs PRs still merge. |
+| Required status checks | `ci-result`, **strict** (branch must be up to date) | `ci-result` is an always-run gate that passes only when both CI legs succeeded or were skipped by the Markdown-only rule (see [`ci.yml`](../.github/workflows/ci.yml)). Both legs are load-bearing — Windows is the supported platform, Linux is the rot-guard — but they cannot be required directly: a matrix job skipped by `if:` never expands, so `build-and-test (windows-latest)` would stay "Expected" forever on a docs PR and block the merge. Strict mode means the merged result is exactly what CI tested. |
 | Require conversation resolution | on | Review threads are part of the record. |
 | Require linear history | on | Squash-only already guarantees it; the rule keeps it true if merge settings ever drift. |
 | Block force pushes / deletions | on | `main` is the release source of truth. |
