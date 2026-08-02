@@ -176,10 +176,11 @@ public class LayoutValidatorNegativeTests
             Assert.Contains(SyntheticLayout.ForeignNamespace, nsFindings[0].Message);
             Assert.Contains(SyntheticLayout.DatasetNamespace, nsFindings[0].Message);
 
-            // Warning, not error: stock base-app layouts ship this way and BC evidently tolerates it, so
-            // the layout must still pass. Promoting this to an error is gated on GitHub issue #1.
-            Assert.Equal(FindingSeverity.Warning, nsFindings[0].Severity);
-            Assert.True(result.Passed);
+            // Error since the 2026-08-02 sandbox verification (GitHub issue #1): BC rejects any layout
+            // whose binding names a namespace other than the target report's current one at upload
+            // (InvalidPrefixMapping), so validate_layout must fail it too.
+            Assert.Equal(FindingSeverity.Error, nsFindings[0].Severity);
+            Assert.False(result.Passed);
 
             Assert.Empty(result.Findings.Where(f => f.Check == "xpath-resolves"));
             Assert.Empty(result.Findings.Where(f => f.Check == "store-item-id"));

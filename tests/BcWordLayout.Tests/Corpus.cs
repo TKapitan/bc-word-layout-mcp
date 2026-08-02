@@ -51,7 +51,9 @@ public static class Corpus
     /// <c>Payment_Practice/685</c> — a base-app layout in which ALL 25 bindings are orphaned: 20 point at
     /// the report's OLD namespace (<c>Payment_Practice/590</c>) and all 25 name <c>storeItemID</c>s absent
     /// from the package, whose BC part has no <c>itemProps</c>/<c>DataStoreItem</c> at all. Kept because
-    /// <c>validate_layout</c> used to report it as PASSING with zero findings.
+    /// <c>validate_layout</c> used to report it as PASSING with zero findings. Sandbox-verified 2026-08-02
+    /// (issue #1): BC REJECTS this capture at upload (<c>InvalidPrefixMapping</c> × 20) and accepts it once
+    /// every binding is re-pointed to 685, so the 20 <c>binding-namespace</c> findings are Errors.
     /// </summary>
     public const string PaymentPracticeByPeriod = "PaymentPracticeByPeriod.docx";
 
@@ -61,7 +63,12 @@ public static class Corpus
     /// <c>Prod_Order_Line</c> → <c>Prod_Order_Component</c>) with every level nested inside ONE 10-column
     /// body table. Structurally unlike <see cref="StandardStatement"/>'s 4-level shape, which branches
     /// across several tables and skips intermediate data items — this one is the pure-depth case, so it is
-    /// the hardest test of the merge engine's per-level XPath re-anchoring. Validates clean.
+    /// the hardest test of the merge engine's per-level XPath re-anchoring. NOT a clean stock capture: the
+    /// part claims 99000789 but 38 of its 43 bindings name 50000-range namespaces from a customized tenant
+    /// (<c>Subcontractor_Dispatch_List/50030</c>, <c>FS_YSC_SubcontractorDispatch/50030</c>, even
+    /// <c>Quantity_Explosion_of_BOM/50010</c>) — the same contamination signature that struck
+    /// QuantityExplosionofBOM below. Kept for merge-depth coverage only; it fails <c>binding-namespace</c>
+    /// with 38 Errors and must not be cited as evidence of how stock layouts ship (issue #1, 2026-08-02).
     /// </summary>
     public const string SubcontractorDispatchList = "SubcontractorDispatchList.docx";
 
