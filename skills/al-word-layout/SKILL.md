@@ -35,6 +35,28 @@ Every mutating tool — all fifteen of them, from `insert_field` through the tab
 you don't need a separate `validate_layout` call just to see whether an edit broke something, but a
 `full` pass is still worth running before moving on to preview/sandbox.
 
+### Where the schema comes from
+
+Every tool binds and validates against the BC dataset custom XML part embedded in the layout itself,
+and this server **never generates that part** — `create_layout`'s `schemaSource` and
+`refresh_xml_part`'s `newSchemaSource` must point at a BC-produced artifact, whose part content is
+transplanted byte-for-byte. So a task like "create a new Word layout for report X" always starts by
+obtaining a schema source, in one of three ways:
+
+- **Your own AL report** (the usual case): declare the layout on the report object (`WordLayout`
+  property or a `rendering` entry) and **build the AL project once** — the compiler creates the
+  referenced `.docx` if it does not exist, already carrying the dataset part. Author into that file
+  directly, or pass it as `create_layout`'s `schemaSource` for variants and templated builds.
+- **A standard BC report**: export its built-in Word layout from Business Central (the Report
+  Layouts page) and use the exported `.docx` as `schemaSource`.
+- **A standalone schema `.xml`** exported from Business Central works anywhere a `.docx` source
+  does (`schemaSource`, `newSchemaSource`, `list_dataset_fields`' `source`).
+
+The same rule holds after every later dataset change: rebuild or re-export to get the new schema
+artifact, then `refresh_xml_part` with it (§2, Lifecycle). If no BC-produced artifact exists yet —
+the report is uncompiled AL source and nothing has been exported — the missing step is an AL build,
+not a hand-authored XML part (see §4).
+
 ## 2. Tool reference
 
 All tools take **absolute file paths**. Every tool returns the uniform envelope described in §5 and
@@ -104,7 +126,7 @@ every tool here except `set_cell_borders`.
 
 | Tool | Key params (defaults) | Returns | Reach for it when… |
 |---|---|---|---|
-| `create_layout` | `schemaSource` (existing `.docx` layout **or** schema `.xml`), `outputPath`, `templatePath`=`null` (an **unbound** branded/styled shell — headers/footers/logo/fonts/styles, NOT a full BC layout with its own bound controls) | `outputPath`, report identity, `storeItemId`, `usedTemplate`, `replacedExistingBcPart`, `quickValidation` | Starting a brand-new layout, optionally over a branded template. Always ships exactly one BC custom XML part (fresh `storeItemID`) plus the glossary part the `insert_*` placeholders depend on. A BLANK (non-template) layout also ships empty header/footer parts wired into its page setup **and a default styles part pinning its typography** (Calibri 11 pt `docDefaults` plus the standard `Normal`/`TableGrid` definitions), so it renders with the same font in Word and in Business Central — a template keeps its own headers/footers and styles/theme untouched. `templatePath` MUST be unbound: if it already carries a BC part **and** bound controls that would go stale against the fresh `storeItemID`, the call fails outright with `template_not_unbound` (nothing is written) instead of silently shipping a broken layout — see §5. A template whose BC part has zero bound controls of its own still succeeds. |
+| `create_layout` | `schemaSource` (existing `.docx` layout **or** schema `.xml`), `outputPath`, `templatePath`=`null` (an **unbound** branded/styled shell — headers/footers/logo/fonts/styles, NOT a full BC layout with its own bound controls) | `outputPath`, report identity, `storeItemId`, `usedTemplate`, `replacedExistingBcPart`, `quickValidation` | Starting a brand-new layout, optionally over a branded template — §1 ("Where the schema comes from") covers how to obtain the `schemaSource` artifact when none exists yet. Always ships exactly one BC custom XML part (fresh `storeItemID`) plus the glossary part the `insert_*` placeholders depend on. A BLANK (non-template) layout also ships empty header/footer parts wired into its page setup **and a default styles part pinning its typography** (Calibri 11 pt `docDefaults` plus the standard `Normal`/`TableGrid` definitions), so it renders with the same font in Word and in Business Central — a template keeps its own headers/footers and styles/theme untouched. `templatePath` MUST be unbound: if it already carries a BC part **and** bound controls that would go stale against the fresh `storeItemID`, the call fails outright with `template_not_unbound` (nothing is written) instead of silently shipping a broken layout — see §5. A template whose BC part has zero bound controls of its own still succeeds. |
 | `refresh_xml_part` | `layoutPath`, `newSchemaSource` (existing `.docx` **or** schema `.xml`) | Old/new report identity, `namespaceChanged`, `remappedCount`, `orphanedBindings[]` (`alias`, `xpath`, `part`), `newUnboundFields[]`, `quickValidation` | After the AL report dataset changes. Replaces the dataset part's content **in place** (keeps the same `storeItemID`, so every existing binding still links to the same part) and reclassifies every existing binding by element name — matches are remapped/kept, non-matches are reported as `orphanedBindings` and **left in place** (this tool never deletes or rebinds anything itself — that's your call via `remove_control`/`insert_field`/`insert_label`). A non-zero `errorCount` here from `xpath-resolves` findings is the *expected* corroboration of the orphan report, not a failed refresh. |
 
 ## 3. Supported matrix (v1)
@@ -168,6 +190,11 @@ every tool here except `set_cell_borders`.
   for what genuinely has no tool (broad cosmetic styling) — and always follow it with
   `validate_layout`. In particular: dropping a line-items column is `remove_column`, one call — not a
   remove-and-blank workaround, and not a hand edit.
+- **Never hand-author or synthesize the BC dataset XML part itself** — not from the report's `.al`
+  source, not from memory of the compiler's naming rules. The schema must come from a BC-produced
+  artifact (a compiler-generated layout, an exported stock layout, or an exported schema `.xml` —
+  see §1, "Where the schema comes from"). A synthesized part that drifts from the compiler's
+  element-name/label derivation produces bindings BC orphans the moment it regenerates the part.
 - **Never treat `preview_layout`'s PDF as final sign-off.** It's an explicit MOCK: deterministic
   sample data (or your override), converted outside the real BC report engine. The outer loop — AL
   build → publish to dev sandbox → run the report — is unchanged and is the only real verification.
