@@ -1095,7 +1095,7 @@ internal static class ToolGuards
             + "applies). For set_cell_text/clear_cell_text: the cell must be PLAIN TEXT - a cell that holds a "
             + "bound field/label control is rejected; use remove_control (the cell/column is preserved) or "
             + "insert_field/insert_label for those. For insert_repeater_table: only layoutPart='body' (the "
-            + "default) is supported - a repeater TABLE in a header/footer is deferred to the v1.1+ backlog "
+            + "default) is supported - a repeater TABLE in a header/footer is deferred (GitHub issue #10) "
             + "(unlike insert_field/insert_label, which do support 'header'/'footer').",
 
         "controlid" =>

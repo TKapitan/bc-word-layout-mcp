@@ -78,7 +78,7 @@ public static class TableTools
                      + "totals block).")] string look = "bc",
         [Description("v1 SCOPE: only 'body' (the default) is supported for a repeater table - passing "
                      + "'header'/'footer' here is rejected with invalid_argument (repeaters in headers/"
-                     + "footers are deferred to the v1.1+ backlog). Present for parameter-shape consistency "
+                     + "footers are deferred - GitHub issue #10). Present for parameter-shape consistency "
                      + "with insert_field/insert_label, which DO support 'header'/'footer'.")]
         string layoutPart = "body",
         [Description("Not supported for insert_repeater_table (see layoutPart) - always omit this.")]
