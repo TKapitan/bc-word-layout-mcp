@@ -53,7 +53,6 @@ Ordered by expected community value.
 
 | Id | Item | Summary |
 |---|---|---|
-| B31 | Parked ideas | Broader cosmetic formatting beyond the shipped knobs (bold/alignment/size on `set_cell_text`/`insert_field`/`insert_label`; per-column alignments) — e.g. colors, italics, fonts: hand-edit + validate remains the supported path. RDL→Word assisted conversion; Excel layouts; BC tenant upload (no public API exists — revisit only if Microsoft ships one). |
 
 ## P4 — Standing verification debt
 
