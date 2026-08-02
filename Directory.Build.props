@@ -10,12 +10,13 @@
     <AnalysisLevel>latest-recommended</AnalysisLevel>
   </PropertyGroup>
 
-  <!-- v1.0.0 release (Phase 5.2). Bump Version here for every future release; the other three
-       fields derive from it so every assembly in the solution carries the same version consistently. -->
+  <!-- Bump Version + InformationalVersion for every release, RCs included (docs/RELEASING.md §1);
+       AssemblyVersion/FileVersion stay numeric because they cannot carry a -rc.N suffix. The tag
+       must match <Version> exactly — release.yml refuses to publish otherwise. -->
   <PropertyGroup>
-    <Version>1.0.0</Version>
+    <Version>1.0.0-rc.2</Version>
     <AssemblyVersion>1.0.0.0</AssemblyVersion>
     <FileVersion>1.0.0.0</FileVersion>
-    <InformationalVersion>1.0.0</InformationalVersion>
+    <InformationalVersion>1.0.0-rc.2</InformationalVersion>
   </PropertyGroup>
 </Project>

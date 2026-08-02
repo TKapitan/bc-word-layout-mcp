@@ -1,6 +1,6 @@
 {
   "name": "bc-word-layout",
-  "version": "1.0.0",
+  "version": "1.0.0-rc.2",
   "description": "Author, validate and preview Business Central Word report layouts with AI agents: the bc-word-layout MCP server (23 deterministic tools) plus the al-word-layout skill that teaches the intended inspect -> edit -> validate -> preview workflow.",
   "author": {
     "name": "Tom Kapitan",
@@ -9,7 +9,7 @@
   "mcpServers": {
     "bc-word-layout": {
       "command": "dnx",
-      "args": ["BcWordLayout.Mcp@1.0.0", "--yes"]
+      "args": ["BcWordLayout.Mcp@1.0.0-rc.2", "--yes"]
     }
   }
 }
