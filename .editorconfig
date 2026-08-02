@@ -1,0 +1,40 @@
+# Editor configuration for bc-word-layout-mcp — formatting only.
+# Analyzer severities and warnings-as-errors are wired up separately (release plan G5).
+root = true
+
+[*]
+charset = utf-8
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.md]
+trim_trailing_whitespace = false
+
+[*.cs]
+indent_style = space
+indent_size = 4
+# Match the existing codebase: file-scoped namespaces, var everywhere, expression-level clarity.
+csharp_style_namespace_declarations = file_scoped:suggestion
+csharp_style_var_for_built_in_types = true:suggestion
+csharp_style_var_when_type_is_apparent = true:suggestion
+csharp_style_var_elsewhere = true:suggestion
+dotnet_sort_system_directives_first = false
+
+[*.{json,yml,yaml,props,targets,csproj,sln,xml,editorconfig}]
+indent_style = space
+indent_size = 2
+
+# Test code: xUnit idioms the quality rules misread — underscored test method names (the suite's
+# naming convention), [CollectionDefinition] classes that must end in "Collection", constant arrays
+# in [InlineData]/attribute arguments, fixture Dispose shapes, and culture-agnostic formatting in
+# assertion messages. Production code keeps the full latest-recommended severity.
+[tests/**/*.cs]
+dotnet_diagnostic.CA1707.severity = none
+dotnet_diagnostic.CA1711.severity = none
+dotnet_diagnostic.CA1816.severity = none
+dotnet_diagnostic.CA1861.severity = none
+dotnet_diagnostic.CA1305.severity = none
+
+[*.py]
+indent_style = space
+indent_size = 4

@@ -1,0 +1,53 @@
+name: Bug report
+description: A tool returned the wrong result, corrupted a layout, or behaved differently than documented.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Two things make BC-layout bugs fixable:
+        the exact tool calls, and a layout that reproduces the problem.
+
+        ⚠️ **Never attach a layout containing customer, client, or otherwise confidential data.**
+        If your layout is private, try to reproduce with one of the corpus layouts in
+        `tests/corpus/`, or with a freshly created layout (`create_layout`).
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you expect, and what did you get instead?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction — the exact tool calls
+      description: The sequence of MCP tool calls (names + arguments) that hits the problem.
+      render: json
+    validations:
+      required: true
+  - type: textarea
+    id: envelope
+    attributes:
+      label: Response envelope / error
+      description: "The full `{ok, data, error}` response — especially `error.code`, `error.message`, `error.hint` — and, for layout problems, `validate_layout` output on the affected file."
+      render: json
+  - type: input
+    id: version
+    attributes:
+      label: Server version
+      placeholder: "1.0.0"
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      placeholder: "Windows 11, .NET 10.0.x, Word installed / not installed, BC 28.x layout"
+  - type: checkboxes
+    id: confidentiality
+    attributes:
+      label: Confidentiality check
+      options:
+        - label: Nothing attached to this issue contains customer, client, or otherwise confidential material.
+          required: true

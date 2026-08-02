@@ -1,0 +1,59 @@
+# Release on a v* tag (see docs/RELEASING.md): full test gate, then pack + push EVERY produced
+# .nupkg (the top-level BcWordLayout.Mcp manifest package plus one per RID — all must ship together),
+# build the Channel-B zips + checksums via the same script a local rehearsal uses, and create the
+# GitHub Release with the zips, SHA256SUMS.txt, and install.ps1 as assets (the README's
+# releases/latest/download/install.ps1 one-liner depends on that last asset). A tag containing '-'
+# (e.g. v1.0.0-rc.1) is marked as a pre-release.
+#
+# NuGet publishing uses TRUSTED PUBLISHING (OIDC), not a stored API key: the job's GitHub OIDC token
+# is exchanged for a 1-hour NuGet API key against the Trusted Publishing policy configured on
+# nuget.org (owner TKapitan, repository bc-word-layout-mcp, workflow file release.yml). The only
+# secret is NUGET_USER — the nuget.org profile name (NOT an email, NOT a key). The login step sits
+# directly before the push because the exchanged key expires after an hour.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  release:
+    runs-on: windows-latest
+    permissions:
+      contents: write   # create the GitHub Release
+      id-token: write   # GitHub OIDC token for NuGet Trusted Publishing
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Test (full gate)
+        run: dotnet test -c Release
+
+      - name: Pack NuGet packages
+        run: dotnet pack src/BcWordLayout.McpHost -c Release
+
+      - name: NuGet login (OIDC -> temp API key)
+        uses: NuGet/login@v1
+        id: nuget-login
+        with:
+          user: ${{ secrets.NUGET_USER }}
+
+      - name: Push every package to NuGet
+        run: dotnet nuget push "src/BcWordLayout.McpHost/bin/Release/*.nupkg" --api-key "${{ steps.nuget-login.outputs.NUGET_API_KEY }}" --source https://api.nuget.org/v3/index.json --skip-duplicate
+
+      - name: Build release zips + checksums
+        run: pwsh scripts/build-release-zips.ps1
+
+      - name: Create the GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = '${{ github.ref_name }}'
+          $assets = Get-ChildItem artifacts/release/* | ForEach-Object FullName
+          $flags = @('--title', $tag, '--verify-tag', '--generate-notes')
+          if ($tag.Contains('-')) { $flags += '--prerelease' }
+          gh release create $tag @assets @flags

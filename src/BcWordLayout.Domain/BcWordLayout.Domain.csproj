@@ -1,0 +1,12 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <PackageReference Include="DocumentFormat.OpenXml" Version="3.5.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="BcWordLayout.Tests" />
+    <InternalsVisibleTo Include="BcWordLayout.Merge" />
+  </ItemGroup>
+
+</Project>

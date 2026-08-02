@@ -1,0 +1,32 @@
+name: Feature request
+description: Propose a new tool, parameter, or supported layout shape.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before proposing, skim [`docs/BACKLOG.md`](../../blob/main/docs/BACKLOG.md) — many gaps are
+        already tracked there with a reason they are deferred — and
+        [`docs/adr/`](../../blob/main/docs/adr) for the design rules proposals need to fit
+        (especially ADR-0005: new OOXML shapes need a **real captured layout** as evidence, not just
+        schema validity).
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What can't you do today? Describe the layout-editing task, not the implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed shape
+      description: "New tool? New parameter on an existing tool? What would the call and response look like?"
+  - type: textarea
+    id: evidence
+    attributes:
+      label: OOXML evidence
+      description: |
+        If this involves emitting or accepting an OOXML shape the tool currently refuses: do you have
+        a real BC-produced layout exhibiting it (e.g. authored with the BC Word add-in)? A capture is
+        usually the actual blocker — see ADR-0005.

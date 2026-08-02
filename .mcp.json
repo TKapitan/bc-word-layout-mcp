@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "bc-word-layout": {
+      "command": "dotnet",
+      "args": ["run", "--project", "src/BcWordLayout.McpHost"]
+    }
+  }
+}

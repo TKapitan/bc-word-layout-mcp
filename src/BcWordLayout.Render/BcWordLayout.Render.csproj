@@ -1,0 +1,12 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- No ProjectReference to BcWordLayout.Domain: Render uses only the BCL (review finding F-21) - keeping
+       this the one Domain-free layer besides the OpenXml SDK dependency itself. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="BcWordLayout.Tests" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="PDFtoImage" Version="5.3.0" />
+  </ItemGroup>
+
+</Project>

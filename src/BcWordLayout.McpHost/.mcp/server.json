@@ -1,0 +1,46 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-10-17/server.schema.json",
+  "name": "io.github.tkapitan/bc-word-layout-mcp",
+  "description": "Create, edit, validate and preview Microsoft Word report layouts for Microsoft Dynamics 365 Business Central through deterministic, typed MCP tools.",
+  "version": "1.0.0",
+  "packages": [
+    {
+      "registryType": "nuget",
+      "registryBaseUrl": "https://api.nuget.org",
+      "identifier": "BcWordLayout.Mcp",
+      "version": "1.0.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "packageArguments": [],
+      "environmentVariables": [
+        {
+          "name": "BCWL_LABEL_SUFFIXES",
+          "value": "{bcwl_label_suffixes}",
+          "variables": {
+            "bcwl_label_suffixes": {
+              "description": "Optional. Comma-separated dataset label-name suffixes (default: Lbl). Leave empty for Business Central's default convention.",
+              "isRequired": false,
+              "isSecret": false
+            }
+          }
+        },
+        {
+          "name": "BCWL_LABELS_DATA_ITEM",
+          "value": "{bcwl_labels_data_item}",
+          "variables": {
+            "bcwl_labels_data_item": {
+              "description": "Optional. Name of a dedicated labels data item (e.g. Labels) whose direct columns are all labels. Leave empty to disable the rule.",
+              "isRequired": false,
+              "isSecret": false
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "repository": {
+    "url": "https://github.com/TKapitan/bc-word-layout-mcp",
+    "source": "github"
+  }
+}

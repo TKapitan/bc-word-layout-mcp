@@ -1,0 +1,34 @@
+# Build + test on Windows AND Linux (release plan G5). The Linux leg is a rot-guard, not a support
+# claim (D8): it keeps the [SupportedOSPlatform]-guarded non-Windows code paths compiling and their
+# dependency-agnostic tests passing, so widening platform support later stays a day's work. Warnings
+# fail the build (TreatWarningsAsErrors + latest-recommended analyzers in Directory.Build.props).
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build (warnings are errors)
+        run: dotnet build --no-restore -c Release
+
+      - name: Test
+        run: dotnet test --no-build -c Release

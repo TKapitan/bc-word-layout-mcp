@@ -1,0 +1,45 @@
+# .NET build output
+bin/
+obj/
+
+# Rider / VS
+.idea/
+.vs/
+*.user
+
+# Test / coverage artifacts
+TestResults/
+*.trx
+coverage*.xml
+
+# Snapshot-test failure artifacts (see tests/BcWordLayout.Tests/SnapshotAssert.cs)
+*.received
+*.received.xml
+
+# Fidelity harness output (see docs/FIDELITY-CHECKLIST.md, tests/BcWordLayout.Tests/FidelityHarnessTests.cs)
+# — regenerated fresh on every test run; a human-review artifact, never committed.
+fidelity-output/
+
+# Local preview_layout output (merged .docx + preview .pdf) — a human-review artifact generated on
+# demand from test/sample layouts; never committed (contains sample/test data).
+preview-output/
+
+# Orphaned mutating-edit / merge staging file (see ToolGuards.GuardMutate's and MergeEngine.Merge's
+# stage-and-rename commit steps): a process kill between the stage-copy and the atomic rename can leave one
+# of these next to a layout (.bcwl-stage-*.docx) or a merge/preview output (.bcwl-merge-stage-*.docx).
+# Swept opportunistically at mutation/merge time (review finding F-23, F-17 interaction); ignored here as a
+# backstop for whatever a sweep hasn't reached yet. Matches both name shapes.
+.bcwl-*stage-*.docx
+
+# Private/local reference material — never committed, never referenced from tracked code or docs.
+tests/corpus/protected-private/
+
+# Release artifacts built locally by scripts/build-release-zips.ps1 (CI rebuilds them on tag)
+artifacts/
+
+# Python bytecode from the tools/e2e harnesses
+__pycache__/
+
+# OS junk
+Thumbs.db
+.DS_Store

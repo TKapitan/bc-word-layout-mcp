@@ -1,0 +1,67 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\BcWordLayout.Domain\BcWordLayout.Domain.csproj" />
+    <ProjectReference Include="..\BcWordLayout.Merge\BcWordLayout.Merge.csproj" />
+    <ProjectReference Include="..\BcWordLayout.Render\BcWordLayout.Render.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.10" />
+    <PackageReference Include="ModelContextProtocol" Version="1.4.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Lets BcWordLayout.Tests unit-test internal-only helpers (e.g. LifecycleTools.PreviewPathHash /
+         DefaultPreviewOutputDirName, ToolGuards.EditLockFor) directly, without exposing them on the public
+         tool surface. Mirrors the same grant already present on BcWordLayout.Merge/BcWordLayout.Render. -->
+    <InternalsVisibleTo Include="BcWordLayout.Tests" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+
+  <!-- NuGet MCP-server packaging (release plan §2 Channel A): `dotnet pack` produces a DotnetTool+
+       McpServer package runnable via `dnx BcWordLayout.Mcp@<version>` (plus the yes flag). The
+       embedded .mcp/server.json is what NuGet.org renders as the copy-paste MCP config; its version
+       fields must match <Version> in Directory.Build.props. PackagingMetadataTests enforces that, so
+       a release bump that misses one file fails the suite instead of shipping a stale manifest. -->
+  <PropertyGroup>
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>bc-word-layout-mcp</ToolCommandName>
+    <!-- Per-RID tool packages (the .NET 10 MCP-server convention): `dotnet pack` produces the
+         top-level BcWordLayout.Mcp package plus one framework-dependent package per RID below, and
+         dnx fetches only the caller's platform. Windows-only per release-plan D8 - a non-Windows dnx
+         resolve fails up front instead of shipping ~100 MB of native payload for platforms this
+         release does not support. Widening support later (B4) = adding a RID here. -->
+    <RuntimeIdentifiers>win-x64;win-arm64</RuntimeIdentifiers>
+    <PackageId>BcWordLayout.Mcp</PackageId>
+    <PackageType>McpServer</PackageType>
+    <Authors>Tom Kapitan</Authors>
+    <Description>MCP server that lets AI agents create, edit, validate, and preview Microsoft Word report layouts for Microsoft Dynamics 365 Business Central - 23 deterministic, typed tools over stdio, with validate-before-save write safety and an offline mock PDF preview.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageProjectUrl>https://github.com/TKapitan/bc-word-layout-mcp</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/TKapitan/bc-word-layout-mcp</RepositoryUrl>
+    <PackageTags>mcp;mcp-server;ai;business-central;dynamics-365;word;report-layout;ooxml</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="..\..\README.md" Pack="true" PackagePath="\" />
+    <None Include=".mcp\server.json" Pack="true" PackagePath=".mcp\" />
+  </ItemGroup>
+
+  <!-- SkiaSharp's runtime packages ship enormous NATIVE debug-symbol files (three ~85 MB
+       libSkiaSharp.pdb alone) that would put ~255 MB of dead weight into every publish folder and
+       into the dnx tool package (206 MB instead of ~24 MB). Nothing consumes native symbols for a
+       release artifact; drop them from the publish output, which is also what the tool pack packs.
+       Managed .pdb files (ours) are untouched. -->
+  <Target Name="StripNativeDebugSymbolsFromPublish" AfterTargets="ComputeFilesToPublish">
+    <ItemGroup>
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)"
+                             Condition="'%(Extension)' == '.pdb' And ($([System.String]::Copy('%(ResolvedFileToPublish.RelativePath)').Contains('runtimes')) Or $([System.String]::Copy('%(ResolvedFileToPublish.RelativePath)').StartsWith('libSkiaSharp')) Or $([System.String]::Copy('%(ResolvedFileToPublish.RelativePath)').StartsWith('pdfium')))" />
+    </ItemGroup>
+  </Target>
+
+</Project>

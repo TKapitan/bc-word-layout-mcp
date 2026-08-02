@@ -1,0 +1,61 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="6.0.0" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.5.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.5.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\BcWordLayout.Domain\BcWordLayout.Domain.csproj" />
+    <ProjectReference Include="..\..\src\BcWordLayout.McpHost\BcWordLayout.McpHost.csproj" />
+    <ProjectReference Include="..\..\src\BcWordLayout.Merge\BcWordLayout.Merge.csproj" />
+    <ProjectReference Include="..\..\src\BcWordLayout.Render\BcWordLayout.Render.csproj" />
+  </ItemGroup>
+
+  <!-- Copy the real corpus .docx files next to the test assembly so tests can find them via
+       AppContext.BaseDirectory (no hardcoded absolute paths). -->
+  <ItemGroup>
+    <None Include="..\corpus\*.docx" Link="corpus\%(Filename)%(Extension)">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+  <!-- Copy the packaging manifests the same way, for PackagingMetadataTests (version/identity
+       coupling between Directory.Build.props, the NuGet .mcp/server.json, and the Claude Code
+       plugin manifest). -->
+  <ItemGroup>
+    <None Include="..\..\src\BcWordLayout.McpHost\.mcp\server.json" Link="packaging\server.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\..\.claude-plugin\plugin.json" Link="packaging\plugin.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\..\plugin.json" Link="packaging\copilot-plugin.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+  <!-- The public docs whose tool tables must match the [McpServerTool] names exactly
+       (DocumentedToolNameSyncTests) - the only counts/names drift guard that survives outside
+       contributors. -->
+  <ItemGroup>
+    <None Include="..\..\README.md" Link="docsync\README.md">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\..\skills\al-word-layout\SKILL.md" Link="docsync\SKILL.md">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>

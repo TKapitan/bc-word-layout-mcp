@@ -1,0 +1,17 @@
+{
+  "name": "bc-word-layout",
+  "owner": {
+    "name": "Tom Kapitan",
+    "url": "https://github.com/TKapitan"
+  },
+  "description": "Business Central Word report-layout tooling for AI agents.",
+  "plugins": [
+    {
+      "name": "bc-word-layout",
+      "source": "./",
+      "description": "The bc-word-layout MCP server (fetched via dnx from NuGet; requires the .NET 10 SDK) plus the al-word-layout skill, installed together in one step.",
+      "category": "development",
+      "tags": ["business-central", "dynamics-365", "word", "report-layout"]
+    }
+  ]
+}
