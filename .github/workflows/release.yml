@@ -24,7 +24,7 @@ jobs:
       contents: write   # create the GitHub Release
       id-token: write   # GitHub OIDC token for NuGet Trusted Publishing
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # The tag is the trigger but Directory.Build.props is the version source — if they disagree,
       # the workflow would pack and publish packages for a DIFFERENT (immutable, unreclaimable)
@@ -41,7 +41,7 @@ jobs:
             throw "Tag version '$tag' does not match <Version>$version</Version> in Directory.Build.props. Bump the version (see docs/RELEASING.md) or fix the tag."
           }
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: 10.0.x
 
