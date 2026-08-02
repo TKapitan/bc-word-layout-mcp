@@ -1,9 +1,10 @@
 """Builds the BC-sandbox fidelity pack: layouts a human uploads to a real Business Central sandbox.
 
 This is the tooling half of the BC-sandbox fidelity validation (and of GitHub issue #1 on
-foreign-namespace bindings) - the one assumption under the whole preview
-pillar that this repo cannot verify on its own: no tool-emitted layout has ever been rendered by the
-real BC report engine. The pack makes that check a mechanical exercise instead of a project:
+foreign-namespace bindings) - the check this repo cannot run on its own: only the real BC report
+engine can prove a tool-emitted layout renders correctly. Round 1 (2026-08-01, all five items passed)
+is recorded in docs/FIDELITY-CHECKLIST.md; the pack is a STANDING re-run whenever the tool surface
+changes (GitHub issue #14), and it makes each round a mechanical exercise instead of a project:
 
     python tools/e2e/sandbox_pack.py            # build every pack item
     python tools/e2e/sandbox_pack.py --list     # list them
@@ -167,6 +168,9 @@ def item(id: str, title: str, report: str, base: str | None, purpose: str,
         "Does BC accept and render a layout this tool created from scratch at all?",
         "Do the header fields, the logo placeholder and the line repeater all carry real data?",
         "Is the line table's column alignment/width sane in the real renderer?",
+        "TYPOGRAPHY (issue #3): round 1 rendered this item in a DIFFERENT font than the mock, because "
+        "the layout named no font at all. Blank builds now pin Calibri 11pt in their own scaffolded "
+        "styles part - do the BC render and the mock now use the SAME typeface and size?",
     ],
     bc_steps=[
         "Sales quote: pick any open quote in Cronus (Sales > Quotes) that has at least 3 lines.",
@@ -474,6 +478,182 @@ def p05(b: Build):
     b.note("set_cell_borders: 1/2pt rule under the header row")
 
 
+@item(
+    id="p06", title="Purchase order from scratch with pinned typography", report="1322 - Standard Purchase Order",
+    base=None, schema="StandardPurchaseOrder.docx",
+    purpose="A second from-scratch build (issue #3's fix made blank builds ship a styles part pinning "
+            "Calibri 11pt plus a TableGrid definition), exercising exactly the typography surface P01 "
+            "does not: an explicit tableStyle reference and explicit fontSizePoints/bold static text on "
+            "top of the pinned default font.",
+    asks=[
+        "TYPOGRAPHY (issue #3): does the whole document render in the SAME typeface and size in BC as "
+        "in the mock (Calibri 11pt from the scaffolded styles part)?",
+        "The line table references the scaffolded TableGrid STYLE (w:tblStyle) rather than direct "
+        "border formatting - does BC honour the style and draw the full 1/2pt grid the mock shows?",
+        "The two static text runs above the lines are 16pt bold and default-size respectively "
+        "(insert_text fontSizePoints/bold on top of the pinned base font) - do both sizes match the mock?",
+        "Do the address block, info grid, logo placeholder and totals all carry real data, as P01's did?",
+    ],
+    bc_steps=[
+        "Purchase order: Purchasing > Purchase Orders, pick one with several lines (the same order as "
+        "P03 works and makes the two directly comparable).",
+        "Report Layouts > New layout for report 1322, upload this .docx, then Print the order with it.",
+    ],
+)
+def p06(b: Build):
+    ds = b.dataset()
+    all_paths = Build.paths(ds)
+
+    # Logo, then a two-column address block: company on the left, vendor on the right.
+    b.edit("insert_picture", picture=Build.pick(all_paths, "/Purchase_Header/CompanyPicture"),
+           locationType="documentEnd", widthMm=35, heightMm=18)
+    b.note("logo PICTURE control bound to /Purchase_Header/CompanyPicture")
+
+    addr = b.edit("insert_table", rows=6, columns=2, locationType="documentEnd",
+                  columnWidths="4600,4600")["data"]
+    addr_idx = addr["tableIndex"]
+    for row in range(6):
+        b.edit("insert_field", field=f"/Purchase_Header/CompanyAddress{row + 1}",
+               locationType="tableCell", tableIndex=addr_idx, row=row, col=0)
+        b.edit("insert_field", field=f"/Purchase_Header/VendAddr{row + 1}",
+               locationType="tableCell", tableIndex=addr_idx, row=row, col=1)
+    b.note("2x6 unbound table filled with CompanyAddress1-6 / VendAddr1-6 FIELD controls")
+
+    # Document info: label/value pairs in a small borderless grid.
+    info_tbl = b.edit("insert_table", rows=3, columns=2, locationType="documentEnd",
+                      columnWidths="2800,3000")["data"]
+    info_idx = info_tbl["tableIndex"]
+    pairs = [
+        (Build.pick(all_paths, "/Purchase_Header/OrderNo_Lbl"),
+         Build.pick(all_paths, "/Purchase_Header/No_PurchHeader")),
+        (Build.pick(all_paths, "/Purchase_Header/DocumentDate_Lbl"),
+         Build.pick(all_paths, "/Purchase_Header/DocumentDate")),
+        (Build.pick(all_paths, "/Purchase_Header/PaymentTermsDesc_Lbl"),
+         Build.pick(all_paths, "/Purchase_Header/PaymentTermsDesc")),
+    ]
+    for row, (label, field) in enumerate(pairs):
+        b.edit("insert_label", label=label, locationType="tableCell",
+               tableIndex=info_idx, row=row, col=0)
+        b.edit("insert_field", field=field, locationType="tableCell",
+               tableIndex=info_idx, row=row, col=1)
+    b.note("3x2 label/value grid: order no, document date, payment terms (LABEL + FIELD controls)")
+
+    # The typography knobs on top of the pinned default: a 16pt bold section title and a default-size
+    # note, both plain static runs - the sizes are the ask, the text is just a carrier.
+    b.edit("insert_text", text="ORDER LINES", locationType="documentEnd",
+           bold=True, fontSizePoints=16)
+    b.edit("insert_text", text="All prices are in the order currency, excluding VAT.",
+           locationType="documentEnd")
+    b.note("insert_text twice: 'ORDER LINES' at 16pt bold + a default-size note (fontSizePoints/bold "
+           "on top of the pinned Calibri 11pt base)")
+
+    # The line repeater, styled via the scaffolded TableGrid STYLE - a reference that resolved to
+    # nothing before issue #3's fix.
+    rep = b.edit("insert_repeater_table", dataItem="/Purchase_Header/Purchase_Line",
+                 columns="No_PurchLine,Desc_PurchLine,Qty_PurchLine,UOM_PurchLine,DirUnitCost_PurchLine,LineAmt_PurchLine",
+                 locationType="documentEnd", headerFromLabels=True, tableStyle="TableGrid",
+                 columnWidths="1400,3400,900,900,1600,1500",
+                 columnAlignments="left,left,right,left,right,right")["data"]
+    b.note(f"repeater table over /Purchase_Header/Purchase_Line, {rep['columnCount']} columns, "
+           f"tableStyle='TableGrid' (the scaffolded style definition - w:tblStyle reference, no direct "
+           f"border formatting)")
+
+    # Totals: right-anchored block with a rule above it.
+    totals = b.edit("insert_table", rows=1, columns=2, locationType="documentEnd",
+                    columnWidths="6200,2400", columnAlignments="right,right")["data"]
+    tot_idx = totals["tableIndex"]
+    b.edit("insert_field", field=Build.pick(all_paths, "/Purchase_Header/Totals/TotalInclVATText"),
+           locationType="tableCell", tableIndex=tot_idx, row=0, col=0)
+    b.edit("insert_field", field=Build.pick(all_paths, "/Purchase_Header/Totals/TotalAmountInclVAT"),
+           locationType="tableCell", tableIndex=tot_idx, row=0, col=1, bold=True)
+    b.edit("set_cell_borders", tableIndex=tot_idx, row=0, edges="top", size=4)
+    b.note("right-anchored totals block with a 1/2pt rule above it (set_cell_borders)")
+
+
+@item(
+    id="p07", title="Commission report from scratch incl scaffolded header and footer",
+    report="115 - Salesperson Commission",
+    base=None, schema="SalespersonCommission.docx",
+    purpose="A third from-scratch build on an OLD-style report (a dedicated Labels data item, no "
+            "*_Lbl sibling columns) that authors into the BLANK build's own scaffolded header/footer "
+            "parts and rebuilds a nested detail repeater from nothing - P03 proved header/footer "
+            "bindings on a stock layout's own parts; nobody has ever BC-rendered the parts "
+            "create_layout scaffolds itself.",
+    asks=[
+        "TYPOGRAPHY (issue #3): same typeface and size in BC as in the mock (Calibri 11pt), including "
+        "inside the header, the footer and the nested detail rows?",
+        "The header and footer parts were CREATED by the tool's blank-build scaffold (empty part + "
+        "sectPr reference), not by Word - does BC render them, with data, on every page?",
+        "This report uses the dedicated Labels data item convention (no *_Lbl columns) - do the bound "
+        "labels in the header/footer carry their caption text?",
+        "The salesperson table's headers are humanized STATIC text (no matching label columns exist "
+        "for headerFromLabels to bind) - acceptable, or visibly wrong against the data?",
+        "Does the nested ledger-entry detail row, built from scratch with insert_repeater_row, repeat "
+        "once per entry under each salesperson without drifting off the parent grid?",
+    ],
+    bc_steps=[
+        "Search (Tell Me) for 'Salesperson Commission' (report 115) and set a posting-date filter wide "
+        "enough to catch Cronus's posted sales (e.g. this fiscal year).",
+        "Report Layouts > New layout for report 115, upload this .docx, then run the report with it - "
+        "ideally to 2+ pages so the header/footer repetition is visible.",
+    ],
+)
+def p07(b: Build):
+    ds = b.dataset()
+    all_paths = Build.paths(ds)
+
+    # Header part: the report-name label, bound INLINE with a static separator + page marker. The part
+    # itself is the blank build's scaffold - exercising it is this item's reason to exist.
+    title_lbl = b.edit("insert_label", label=Build.pick(all_paths, "/Labels/ReportNameLabel",
+                                                        "/Labels/SalespersonCommissionLabel"),
+                       locationType="documentEnd", layoutPart="header")["data"]["controlId"]
+    b.edit("insert_text", text="  |  scaffolded header", locationType="afterControl",
+           controlId=title_lbl, layoutPart="header")
+    b.note("scaffolded HEADER part: report-name LABEL control + static marker text, inline")
+
+    # Footer part: the all-amounts-in-LCY note - a label column again, per the Labels-item convention.
+    footer_lbl = b.edit("insert_label", label=Build.pick(all_paths, "/Labels/AllAmountsAreInLCYLabel",
+                                                         "/Labels/RunOnLabel"),
+                        locationType="documentEnd", layoutPart="footer")["data"]["controlId"]
+    b.edit("insert_text", text="  |  scaffolded footer", locationType="afterControl",
+           controlId=footer_lbl, layoutPart="footer")
+    b.note("scaffolded FOOTER part: LCY-note LABEL control + static marker text, inline")
+
+    # The salesperson repeater. No *_Lbl sibling columns exist on this report, so headerFromLabels
+    # deliberately finds nothing and every header cell falls back to humanized static text.
+    rep = b.edit("insert_repeater_table", dataItem="/Salesperson_Purchaser",
+                 columns="Salesperson_Purchaser_Code,Salesperson_Purchaser_Name,"
+                         "Salesperson_Purchaser__Commission___,SalesCommissionAmt,AdjProfitCommissionAmt",
+                 locationType="documentEnd", headerFromLabels=True,
+                 columnWidths="1400,3306,1500,2000,2000",
+                 columnAlignments="left,left,right,right,right")["data"]
+    b.note(f"repeater table over /Salesperson_Purchaser, {rep['columnCount']} columns, humanized "
+           f"static headers (this old-style report has no *_Lbl columns to bind)")
+
+    # The nested detail: one row per customer ledger entry under each salesperson, built from nothing
+    # (P04 rebuilt an EXISTING nested repeater; this one never existed).
+    b.edit("insert_repeater_row", parentControlId=rep["controlId"],
+           dataItem="/Salesperson_Purchaser/Cust_Ledger_Entry",
+           cells="-,Cust__Ledger_Entry__Posting_Date_,Cust__Ledger_Entry__Document_No__,"
+                 "CustLedgerEntry_CustomerName,Cust__Ledger_Entry__Sales__LCY__",
+           alignments="-,left,left,left,right")
+    b.note("nested DETAIL ROW over /Salesperson_Purchaser/Cust_Ledger_Entry via insert_repeater_row: "
+           "posting date, document no, customer, sales LCY - one row per entry, first column left "
+           "as an indent spacer")
+
+    # Grand totals: right-anchored, rule above.
+    totals = b.edit("insert_table", rows=1, columns=2, locationType="documentEnd",
+                    columnWidths="6200,2400", columnAlignments="right,right")["data"]
+    tot_idx = totals["tableIndex"]
+    b.edit("insert_label", label=Build.pick(all_paths, "/Labels/TotalsCaption"),
+           locationType="tableCell", tableIndex=tot_idx, row=0, col=0)
+    b.edit("insert_field", field=Build.pick(all_paths, "/Totals/Totals_SalesCommission"),
+           locationType="tableCell", tableIndex=tot_idx, row=0, col=1, bold=True)
+    b.edit("set_cell_borders", tableIndex=tot_idx, row=0, edges="top", size=4)
+    b.note("right-anchored totals block: TotalsCaption LABEL + total sales commission FIELD, "
+           "1/2pt rule above")
+
+
 # ---------------------------------------------------------------- runner
 
 def build_item(entry: dict, out_dir: str) -> dict:
@@ -609,9 +789,11 @@ def write_pack_docs(records: list[dict]):
 {len(ok)} of {len(records)} layouts built. Each folder holds one layout to upload to a Business Central
 sandbox, this tool's own offline mock render of it, and a README saying what to look at.
 
-**Why:** nothing this tool has ever produced has been rendered by the real BC report engine. Until that
-happens, "the preview catches structural and binding mistakes" is an untested claim, and the question
-of how BC resolves a foreign-namespace binding (GitHub issue #1) is open. This pack answers both.
+**Why:** only the real BC report engine can prove what this tool emits renders correctly. Round 1
+(2026-08-01) passed all five items and is recorded in `docs/FIDELITY-CHECKLIST.md`; re-running the pack
+whenever the tool surface changes is standing verification debt (GitHub issue #14). This round's
+headline question is TYPOGRAPHY: blank builds now pin Calibri 11pt in a scaffolded styles part
+(issue #3), and three items (P01, P06, P07) exist to prove the BC render now matches the mock's font.
 
 ## The layouts
 
