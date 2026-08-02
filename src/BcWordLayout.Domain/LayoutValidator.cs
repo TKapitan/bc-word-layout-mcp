@@ -43,6 +43,7 @@ public static class LayoutValidator
         CheckRepeaterShape(main, findings);
         CheckRepeaterNotInHeaderOrFooter(inventory, findings);
         CheckAttachedTemplate(main, findings);
+        CheckTableStylesResolve(main, findings);
 
         return new ValidationResult { Level = "quick", Findings = findings };
     }
@@ -387,6 +388,53 @@ public static class LayoutValidator
                     Message = "Layout has an external attachedTemplate relationship. This often points at a "
                               + "stale developer path and is harmless for BC rendering, but consider removing it.",
                     Location = rel.Uri?.ToString(),
+                });
+            }
+        }
+    }
+
+    // 8. Every w:tblStyle names a style the layout's own styles part actually defines. A dangling reference
+    //    is not structurally invalid and Word/BC simply ignore it — which is exactly the trap: a caller who
+    //    passed insert_repeater_table's tableStyle parameter (or hand-authored a w:tblStyle) believes they
+    //    styled the table, and every renderer silently falls back to its own defaults instead (GitHub
+    //    issue #3's knock-on finding). WARNING, not an error: the layout renders fine, the reference just
+    //    does nothing — same severity philosophy as binding-namespace. Layouts this tool creates from
+    //    scratch ship a styles part defining TableGrid (see DefaultStylesScaffold), so the documented
+    //    tableStyle example resolves; this check covers everything else — typo'd style names, bare
+    //    externally-authored layouts, and templates whose styles part lacks the referenced style.
+    private static void CheckTableStylesResolve(MainDocumentPart main, List<ValidationFinding> findings)
+    {
+        // Style ids are case-sensitive in Word's model (w:styleId is an xsd:string) — Ordinal, not
+        // OrdinalIgnoreCase, so "tablegrid" vs "TableGrid" is correctly reported as unresolved.
+        var definedStyleIds = main.StyleDefinitionsPart?.Styles?
+            .Elements<Style>()
+            .Select(s => s.StyleId?.Value)
+            .Where(id => !string.IsNullOrEmpty(id))
+            .ToHashSet(StringComparer.Ordinal);
+
+        foreach (var (rootElement, partName) in EnumerateContentParts(main))
+        {
+            foreach (var tableStyle in rootElement.Descendants<TableStyle>())
+            {
+                var styleId = tableStyle.Val?.Value;
+                if (string.IsNullOrEmpty(styleId) || (definedStyleIds?.Contains(styleId) ?? false))
+                {
+                    continue;
+                }
+
+                findings.Add(new ValidationFinding
+                {
+                    Check = "table-style-resolves",
+                    Severity = FindingSeverity.Warning,
+                    Message = $"A table references style '{styleId}' via w:tblStyle, but "
+                              + (definedStyleIds is null
+                                  ? "this layout has no styles part at all"
+                                  : "the layout's styles part does not define it")
+                              + ", so the reference silently does nothing — every renderer falls back to "
+                              + "its own defaults. Reference a style the layout defines (a layout created "
+                              + "by create_layout defines 'TableGrid'), start from a templatePath that "
+                              + "defines the style, or drop the style reference.",
+                    Location = partName,
                 });
             }
         }

@@ -134,6 +134,45 @@ public class LayoutBuilderTests
     }
 
     [Fact]
+    public void Created_blank_layout_ships_a_default_styles_part_pinning_Calibri_and_defining_TableGrid()
+    {
+        // Without a styles part nothing in a from-scratch layout names a typeface, so Word and BC each
+        // render their own application default and disagree (observed against a real BC sandbox,
+        // 2026-08-01 - GitHub issue #3). The scaffold pins the typography every stock corpus layout
+        // resolves to (Calibri 11pt) explicitly in docDefaults, and defines TableGrid so
+        // insert_repeater_table's documented tableStyle example resolves instead of referencing nothing.
+        var outputPath = TempOutputPath();
+        try
+        {
+            LayoutBuilder.Create(Corpus.Path(Corpus.SalesInvoice), outputPath);
+
+            using var doc = WordprocessingDocument.Open(outputPath, false);
+            var stylesPart = doc.MainDocumentPart!.StyleDefinitionsPart;
+            Assert.NotNull(stylesPart);
+
+            var runDefaults = stylesPart!.Styles!.DocDefaults!.RunPropertiesDefault!.RunPropertiesBaseStyle!;
+            Assert.Equal("Calibri", runDefaults.GetFirstChild<RunFonts>()!.Ascii!.Value);
+            Assert.Equal("Calibri", runDefaults.GetFirstChild<RunFonts>()!.HighAnsi!.Value);
+            Assert.Equal("22", runDefaults.GetFirstChild<FontSize>()!.Val!.Value);
+
+            var styles = stylesPart.Styles.Elements<Style>().ToList();
+            var normal = Assert.Single(styles, s => s.StyleId?.Value == "Normal");
+            Assert.Equal(StyleValues.Paragraph, normal.Type!.Value);
+            Assert.True(normal.Default!.Value);
+            var tableGrid = Assert.Single(styles, s => s.StyleId?.Value == "TableGrid");
+            Assert.Equal(StyleValues.Table, tableGrid.Type!.Value);
+            Assert.NotNull(tableGrid.StyleTableProperties!.GetFirstChild<TableBorders>());
+
+            AssertNoOpenXmlErrors(doc);
+            AssertQuickPasses(doc);
+        }
+        finally
+        {
+            File.Delete(outputPath);
+        }
+    }
+
+    [Fact]
     public void Created_blank_layout_can_take_a_footer_insert_immediately()
     {
         // The end-to-end point of the scaffolding above, through the real edit path.
@@ -636,6 +675,80 @@ public class LayoutBuilderTests
             using var doc = WordprocessingDocument.Open(outputPath, false);
             Assert.Empty(doc.MainDocumentPart!.HeaderParts);
             Assert.Empty(doc.MainDocumentPart.FooterParts);
+        }
+        finally
+        {
+            if (File.Exists(templatePath))
+            {
+                File.Delete(templatePath);
+            }
+
+            if (File.Exists(outputPath))
+            {
+                File.Delete(outputPath);
+            }
+        }
+    }
+
+    [Fact]
+    public void Create_with_templatePath_never_injects_a_styles_part_into_the_templates_own_shell()
+    {
+        // Same contract as the header/footer scaffold above: the default styles part is a BLANK-build
+        // affordance only. A template brings its own look - styles, theme, or deliberately neither -
+        // and injecting docDefaults into it would restyle content the caller authored elsewhere.
+        var templatePath = SyntheticLayout.Create(SyntheticLayout.PlainParagraph("template body"));
+        var outputPath = TempOutputPath();
+        try
+        {
+            var result = LayoutBuilder.Create(Corpus.Path(Corpus.SalesInvoice), outputPath, templatePath);
+            Assert.True(result.UsedTemplate);
+
+            using var doc = WordprocessingDocument.Open(outputPath, false);
+            Assert.Null(doc.MainDocumentPart!.StyleDefinitionsPart);
+        }
+        finally
+        {
+            if (File.Exists(templatePath))
+            {
+                File.Delete(templatePath);
+            }
+
+            if (File.Exists(outputPath))
+            {
+                File.Delete(outputPath);
+            }
+        }
+    }
+
+    [Fact]
+    public void Create_with_templatePath_preserves_the_templates_own_styles_part_rather_than_rescaffolding_it()
+    {
+        // A template WITH a styles part must keep it exactly as authored - the scaffold's own defaults must
+        // never win over a template's deliberate typography. Built by creating a blank layout (which ships
+        // the scaffolded styles part) and then re-pinning its docDefaults font to Arial, so the assertion
+        // below can tell "preserved the template's styles" apart from "re-ran the scaffold".
+        var templatePath = TempOutputPath();
+        var outputPath = TempOutputPath();
+        try
+        {
+            LayoutBuilder.Create(Corpus.Path(Corpus.SalesInvoice), templatePath);
+            using (var templateDoc = WordprocessingDocument.Open(templatePath, true))
+            {
+                var runDefaults = templateDoc.MainDocumentPart!.StyleDefinitionsPart!.Styles!
+                    .DocDefaults!.RunPropertiesDefault!.RunPropertiesBaseStyle!;
+                var fonts = runDefaults.GetFirstChild<RunFonts>()!;
+                fonts.Ascii = "Arial";
+                fonts.HighAnsi = "Arial";
+                templateDoc.MainDocumentPart.StyleDefinitionsPart.Styles.Save();
+            }
+
+            var result = LayoutBuilder.Create(Corpus.Path(Corpus.SalesInvoice), outputPath, templatePath);
+            Assert.True(result.UsedTemplate);
+
+            using var doc = WordprocessingDocument.Open(outputPath, false);
+            var createdDefaults = doc.MainDocumentPart!.StyleDefinitionsPart!.Styles!
+                .DocDefaults!.RunPropertiesDefault!.RunPropertiesBaseStyle!;
+            Assert.Equal("Arial", createdDefaults.GetFirstChild<RunFonts>()!.Ascii!.Value);
         }
         finally
         {

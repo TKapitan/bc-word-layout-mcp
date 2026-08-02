@@ -710,4 +710,86 @@ public class RepeaterTableTests
             File.Delete(editedMergedPath);
         }
     }
+
+    // ---- tableStyle: the w:tblStyle reference against the layout's own styles part (issue #3 knock-on) ----
+
+    [Fact]
+    public void TableStyle_TableGrid_resolves_against_a_blank_created_layouts_scaffolded_styles()
+    {
+        // Before DefaultStylesScaffold, a from-scratch layout had no styles part at all, so
+        // tableStyle='TableGrid' - the tool description's own example - wrote a w:tblStyle reference to a
+        // style that did not exist and silently did nothing. The blank build now defines TableGrid, so the
+        // emitted reference must both be present on the new table and resolve cleanly per quick
+        // validation's table-style-resolves check.
+        var path = Path.Combine(Path.GetTempPath(), $"bcwl-repeatertable-styled-{Guid.NewGuid():N}.docx");
+        try
+        {
+            LayoutBuilder.Create(Corpus.Path(Corpus.SalesInvoice), path);
+
+            EditResult result;
+            using (var doc = WordprocessingDocument.Open(path, true))
+            {
+                result = LayoutEditor.InsertRepeaterTable(
+                    doc, LineItemPath, ThreeColumns, new Location { Type = LocationKind.DocumentEnd },
+                    new RepeaterTableOptions { TableStyle = "TableGrid" });
+                doc.MainDocumentPart!.Document!.Save();
+            }
+
+            using var reopened = WordprocessingDocument.Open(path, false);
+            var repeater = reopened.MainDocumentPart!.Document!.Descendants<SdtElement>()
+                .Single(s => ReadId(s) == result.ControlId);
+            var table = repeater.Ancestors<Table>().Single();
+            Assert.Equal("TableGrid", table.GetFirstChild<TableProperties>()!.GetFirstChild<TableStyle>()!.Val!.Value);
+
+            var quick = LayoutValidator.Quick(reopened);
+            Assert.Empty(quick.Findings.Where(f => f.Check == "table-style-resolves"));
+            Assert.True(quick.Passed);
+            AssertNoOpenXmlErrors(reopened);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void TableStyle_naming_an_undefined_style_is_flagged_as_a_warning_but_the_resolving_sibling_is_not()
+    {
+        // The defect fixture (a dangling w:tblStyle) paired with a valid sibling (a resolving one) in the
+        // SAME document, per the validator-tests non-tautology rule. A dangling reference is a WARNING,
+        // never an error: the layout still renders, the reference just silently does nothing.
+        var path = Path.Combine(Path.GetTempPath(), $"bcwl-repeatertable-badstyle-{Guid.NewGuid():N}.docx");
+        try
+        {
+            LayoutBuilder.Create(Corpus.Path(Corpus.SalesInvoice), path);
+
+            using (var doc = WordprocessingDocument.Open(path, true))
+            {
+                LayoutEditor.InsertRepeaterTable(
+                    doc, LineItemPath, ThreeColumns, new Location { Type = LocationKind.DocumentEnd },
+                    new RepeaterTableOptions { TableStyle = "TableGrid" });
+                LayoutEditor.InsertRepeaterTable(
+                    doc, LineItemPath, ThreeColumns, new Location { Type = LocationKind.DocumentEnd },
+                    new RepeaterTableOptions { TableStyle = "NoSuchStyle" });
+                doc.MainDocumentPart!.Document!.Save();
+            }
+
+            using var reopened = WordprocessingDocument.Open(path, false);
+            var quick = LayoutValidator.Quick(reopened);
+
+            var styleFindings = quick.Findings.Where(f => f.Check == "table-style-resolves").ToList();
+            var finding = Assert.Single(styleFindings);
+            Assert.Equal(FindingSeverity.Warning, finding.Severity);
+            Assert.Contains("NoSuchStyle", finding.Message);
+            Assert.Equal("document.xml", finding.Location);
+
+            // A warning-only finding must never fail quick validation on its own.
+            Assert.True(quick.Passed);
+            Assert.Equal(0, quick.ErrorCount);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
 }

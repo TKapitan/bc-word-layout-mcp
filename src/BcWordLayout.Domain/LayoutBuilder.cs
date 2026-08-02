@@ -15,7 +15,8 @@ namespace BcWordLayout.Domain;
 /// part (with a fresh <c>ds:itemID</c>), a glossary part with the <c>DefaultPlaceholder_-1854013440</c>
 /// docPart entry every control <see cref="SdtFactory"/> builds references, a valid document body, and — for a
 /// BLANK build — the empty header/footer parts a <c>layoutPart='header'/'footer'</c> insert needs to have
-/// something to resolve against (see <see cref="HeaderFooterScaffold"/>; a template keeps its own). The
+/// something to resolve against plus the default styles part that pins its typography (see
+/// <see cref="HeaderFooterScaffold"/> and <see cref="DefaultStylesScaffold"/>; a template keeps its own). The
 /// build is written atomically (assembled in a temp file next to the destination, validated, then moved into
 /// place) and its own <see cref="LayoutValidator.Quick"/> result travels with it on
 /// <see cref="CreateResult.QuickValidation"/> — a <c>templatePath</c> whose body already carried bound
@@ -132,7 +133,7 @@ public static class LayoutBuilder
                     ?? throw new InvalidDataException($"Template '{templatePath}' has no main document part.");
 
                 (storeItemId, replacedExistingBcPart, quick) =
-                    AttachEverything(doc, datasetBytes, identity, headingText, scaffoldHeaderFooter: false);
+                    AttachEverything(doc, datasetBytes, identity, headingText, scaffoldBlankDefaults: false);
             }
             else
             {
@@ -141,7 +142,7 @@ public static class LayoutBuilder
                 main.Document = new Document(new Body());
 
                 (storeItemId, replacedExistingBcPart, quick) =
-                    AttachEverything(doc, datasetBytes, identity, headingText, scaffoldHeaderFooter: true);
+                    AttachEverything(doc, datasetBytes, identity, headingText, scaffoldBlankDefaults: true);
             }
 
             // REFUSE rather than half-succeed: a template that already carried its
@@ -208,9 +209,10 @@ public static class LayoutBuilder
     /// output path untouched (this path is not expected to be reachable in practice and is deliberately not
     /// force-tested — there is no honest way to trigger it from the public surface without fabricating an
     /// internal bug to order, mirroring <c>BcWordLayout.McpHost.Tools.ToolGuards.GuardEdit</c>'s own
-    /// analogous backstop). <paramref name="scaffoldHeaderFooter"/> is true only for the BLANK build path —
+    /// analogous backstop). <paramref name="scaffoldBlankDefaults"/> is true only for the BLANK build path —
     /// a <c>templatePath</c> brings its own header/footer story (branded letterhead, a distinct first page)
-    /// and must never have parts injected into it. <see cref="LayoutValidator.Quick"/> is then run and returned as-is — unlike the
+    /// AND its own look (styles/theme, or deliberately neither), and must never have parts injected into
+    /// it. <see cref="LayoutValidator.Quick"/> is then run and returned as-is — unlike the
     /// hard OpenXmlValidator gate, a non-zero <see cref="ValidationResult.ErrorCount"/> here does NOT throw
     /// FROM THIS METHOD: the decision to refuse when a template's own pre-existing bound controls go stale
     /// against the freshly attached BC part is made by the caller (<see cref="LayoutBuilder.Create"/>, which
@@ -219,7 +221,7 @@ public static class LayoutBuilder
     /// </summary>
     private static (string StoreItemId, bool Replaced, ValidationResult Quick) AttachEverything(
         WordprocessingDocument doc, byte[] datasetBytes, ReportIdentity identity, string? headingText,
-        bool scaffoldHeaderFooter)
+        bool scaffoldBlankDefaults)
     {
         var main = doc.MainDocumentPart!;
         var replaced = RemoveExistingBcParts(main);
@@ -230,12 +232,15 @@ public static class LayoutBuilder
         // BLANK builds only (see the parameter's own remarks): the empty header/footer parts every corpus
         // layout has, wired into the page setup EnsureBodyHasContent just established, so a from-scratch
         // layout can take a footer/header insert straight away instead of failing not_found with nothing to
-        // resolve against. Done before the validator gate below, so a scaffolded part is
+        // resolve against — plus the default styles part that pins the layout's typography (without it,
+        // nothing in the file names a typeface and Word/BC each render their own default; see
+        // DefaultStylesScaffold). Done before the validator gate below, so a scaffolded part is
         // covered by the same structural check as everything else this method attaches.
-        if (scaffoldHeaderFooter)
+        if (scaffoldBlankDefaults)
         {
             HeaderFooterScaffold.EnsureHeader(main);
             HeaderFooterScaffold.EnsureFooter(main);
+            DefaultStylesScaffold.EnsureDefaultStyles(main);
         }
 
         main.Document!.Save();

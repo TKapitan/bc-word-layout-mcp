@@ -5,6 +5,28 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **A blank `create_layout` build now pins its typography**
+  ([#3](https://github.com/TKapitan/bc-word-layout-mcp/issues/3)). A from-scratch layout used to ship
+  no `word/styles.xml` and no theme, so nothing in the file named a typeface — Word rendered its
+  application default and Business Central rendered a different one (observed in a real BC sandbox,
+  2026-08-01). Blank builds now scaffold a default styles part: Calibri 11 pt named explicitly in
+  `docDefaults` (the typeface every stock corpus layout resolves to), plus Word's four stock default
+  styles and a `TableGrid` definition — so `insert_repeater_table`'s documented `tableStyle='TableGrid'`
+  example resolves instead of referencing a style that does not exist. Existing layouts and
+  `templatePath` builds are untouched: a template keeps its own styles/theme (or deliberately neither),
+  and the scaffold is never retrofitted onto a pre-existing document.
+
+### Added
+
+- **New `quick` validation check `table-style-resolves`** (warning): flags any `w:tblStyle` whose
+  style id the layout's own styles part does not define — a dangling reference renders fine but
+  silently does nothing, which is exactly the trap when a `tableStyle` parameter or hand-authored
+  reference is misspelled or the layout carries no styles part at all.
+
 ## [1.0.0] - 2026-08-01
 
 Initial release. Everything below is new; there is no prior public version to compare against.
