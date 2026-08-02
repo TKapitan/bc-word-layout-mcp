@@ -28,8 +28,7 @@
       "parameters": {
         "strict_required_status_checks_policy": true,
         "required_status_checks": [
-          { "context": "build-and-test (windows-latest)" },
-          { "context": "build-and-test (ubuntu-latest)" }
+          { "context": "ci-result" }
         ]
       }
     }
