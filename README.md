@@ -34,7 +34,7 @@ runs the packaged server on demand — no install step, version-pinnable.
     "bc-word-layout": {
       "type": "stdio",
       "command": "dnx",
-      "args": ["BcWordLayout.Mcp@1.0.0", "--yes"]
+      "args": ["BcWordLayout.Mcp", "--yes"]
     }
   }
 }
@@ -47,15 +47,20 @@ runs the packaged server on demand — no install step, version-pinnable.
   "mcpServers": {
     "bc-word-layout": {
       "command": "dnx",
-      "args": ["BcWordLayout.Mcp@1.0.0", "--yes"]
+      "args": ["BcWordLayout.Mcp", "--yes"]
     }
   }
 }
 ```
 
 ```pwsh
-claude mcp add bc-word-layout -- dnx BcWordLayout.Mcp@1.0.0 --yes
+claude mcp add bc-word-layout -- dnx BcWordLayout.Mcp --yes
 ```
+
+Unpinned, `dnx` resolves the latest stable release at each launch, so updates arrive without config
+edits. Append an exact version — `BcWordLayout.Mcp@1.2.3` — to pin for reproducibility; a pinned
+config stays on that version until you edit it. Pinning is also the only way to run a pre-release,
+which latest-stable resolution skips.
 
 Prefer a pinned global install over on-demand fetch? `dotnet tool install -g BcWordLayout.Mcp`
 installs the same server as the `bc-word-layout-mcp` command; use that as the `command` in the
@@ -117,7 +122,7 @@ value is ignored (logged to stderr) and the default kept:
   "mcpServers": {
     "bc-word-layout": {
       "command": "dnx",
-      "args": ["BcWordLayout.Mcp@1.0.0", "--yes"],
+      "args": ["BcWordLayout.Mcp", "--yes"],
       "env": {
         "BCWL_LABEL_SUFFIXES": "Lbl,Caption",
         "BCWL_LABELS_DATA_ITEM": "ReportLabels"
