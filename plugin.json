@@ -1,7 +1,7 @@
 {
   "name": "bc-word-layout",
   "version": "1.0.0-rc.2",
-  "description": "Author, validate and preview Business Central Word report layouts with AI agents: the bc-word-layout MCP server (23 deterministic tools) plus the al-word-layout skill that teaches the intended inspect -> edit -> validate -> preview workflow.",
+  "description": "Author, validate and preview Business Central Word report layouts with AI agents: the bc-word-layout MCP server (23 deterministic tools) plus two skills - al-word-layout teaches the intended inspect -> edit -> validate -> preview workflow, al-word-layout-design teaches what a from-scratch layout should look like (archetype skeletons and observed BC document conventions).",
   "author": {
     "name": "Tom Kapitan",
     "url": "https://github.com/TKapitan"

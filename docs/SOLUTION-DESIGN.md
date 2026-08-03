@@ -316,7 +316,11 @@ BC export that produces the schema artifact — is documented in the skill's §1
   BC-version commitment, and the MCP SDK upgrade cadence are stated in the README
   ("Public contract and versioning") and ADR-0004.
 - A **companion skill** (`al-word-layout`) documents the intended agent workflow — inspect → edit → validate
-  → preview → sandbox verify — and when *not* to hand-edit XML.
+  → preview → sandbox verify — and when *not* to hand-edit XML. A second skill
+  (`al-word-layout-design`) documents what a from-scratch layout should *look like*: the archetype
+  skeletons and the observed BC document conventions, each tagged with the stock corpus layout or
+  BC-verified sandbox build it was observed in — the quality dimension `validate_layout` cannot
+  judge.
 - Telemetry: none. Structured logs go to stderr; stdout is the MCP protocol stream and must never carry
   anything else.
 
