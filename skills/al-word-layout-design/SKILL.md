@@ -189,11 +189,9 @@ buildable equivalent, and it is the shape BC verified.
 
 ## 6. Design-time mock caveats
 
-Two known mock-preview gaps look like design mistakes but aren't — don't redesign around them
+One known mock-preview gap looks like a design mistake but isn't — don't redesign around it
 (sandbox render is the sign-off, per al-word-layout §4):
 
-- Raw-exported numeric columns render unformatted in the mock (`1002060.00` where BC prints
-  `1,002,060.00`) — #4. BC formats them correctly.
 - A repeated table header row never spans pages in the mock even when BC repeats it — #19.
 
 ## 7. Handover checklist

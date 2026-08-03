@@ -9,6 +9,22 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **`preview_layout`'s `dataOverridesPath` now accepts what BC actually exports**
+  ([#4](https://github.com/TKapitan/bc-word-layout-mcp/issues/4)). The parameter was documented as
+  taking "a real exported BC dataset XML", but only the layout's own data-store part shape
+  (`NavWordReportXmlPart`) loaded — the report UI's *Send to → XML* export (a namespace-less
+  `ReportDataSet` document) was refused, so the documented workflow failed at the first step. Both
+  shapes are now accepted, sniffed by root element; the export is converted internally into the
+  layout's shape (`ReportDataSetConverter` — the in-product version of the bridge that previously
+  lived only in `tools/e2e/bc_compare.py`, which now passes exports straight through). Beyond the
+  bridge, the conversion also applies each column's `decimalformatter` (raw `100` → `100.00` as BC
+  itself renders) using the culture named by the export root's `formatRegion` attribute (fallback
+  `language`, then invariant), strictly per column — pre-formatted columns are copied verbatim.
+  Feeding an export from a different report than the layout's dataset now fails with an error naming
+  both report ids instead of producing a preview where every binding is silently unresolved. This
+  closes the recurring `decimalformatter` difference recorded by both BC sandbox comparison rounds
+  (2026-08-01 / 2026-08-02, `docs/FIDELITY-CHECKLIST.md`).
+
 - **A blank `create_layout` build now pins its typography**
   ([#3](https://github.com/TKapitan/bc-word-layout-mcp/issues/3)). A from-scratch layout used to ship
   no `word/styles.xml` and no theme, so nothing in the file named a typeface — Word rendered its

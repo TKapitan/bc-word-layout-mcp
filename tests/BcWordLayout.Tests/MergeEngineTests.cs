@@ -922,6 +922,59 @@ public class MergeEngineTests
     }
 
     /// <summary>Hand-built override dataset (bypasses generation entirely) with <paramref name="lineCount"/> Line rows under one Header.</summary>
+    [Fact]
+    public void DataOverrides_in_the_report_uis_export_shape_merge_end_to_end()
+    {
+        // The full path GitHub issue #4 promises: a Send to → XML export (ReportDataSet shape, id matching
+        // the layout's report) handed straight to MergeOptions.DataOverridesPath — converted internally to
+        // the data-store part shape, repeater expanded one row per DataItem SIBLING, every binding resolved.
+        const string RepeaterXPath = "/ns0:NavWordReportXmlPart[1]/ns0:Header[1]/ns0:Line";
+        const string FieldXPath = "/ns0:NavWordReportXmlPart[1]/ns0:Header[1]/ns0:Line[1]/ns0:ItemNo_Line[1]";
+
+        var body = SyntheticLayout.RepeaterWithField(RepeaterXPath, FieldXPath, SyntheticLayout.GoodItemId);
+        var layoutPath = SyntheticLayout.Create(body);
+        var outputPath = TempDocxPath();
+
+        // SyntheticLayout's dataset namespace is urn:microsoft-dynamics-nav/reports/TestReport/50000/.
+        var overridesPath = Path.Combine(Path.GetTempPath(), $"bcwl-merge-export-shape-{Guid.NewGuid():N}.xml");
+        File.WriteAllText(
+            overridesPath,
+            "<?xml version=\"1.0\" encoding=\"utf-8\"?>"
+            + "<ReportDataSet name=\"TestReport\" id=\"50000\" language=\"en-US\" formatRegion=\"en-US\" wordMergeDataItem=\"Header\">"
+            + "<DataItems><DataItem name=\"Header\">"
+            + "<Columns><Column name=\"CompanyName\">Contoso</Column></Columns>"
+            + "<DataItems>"
+            + "<DataItem name=\"Line\"><Columns><Column name=\"ItemNo_Line\">ITEM-A</Column></Columns></DataItem>"
+            + "<DataItem name=\"Line\"><Columns><Column name=\"ItemNo_Line\">ITEM-B</Column></Columns></DataItem>"
+            + "</DataItems>"
+            + "</DataItem></DataItems>"
+            + "</ReportDataSet>");
+
+        try
+        {
+            var result = MergeEngine.Merge(
+                layoutPath, outputPath, new MergeOptions { DataOverridesPath = overridesPath });
+
+            Assert.Equal(0, result.Stats.Unresolved);
+            Assert.Equal(1, result.Stats.RepeatersExpanded);
+            Assert.Equal(2, result.Stats.RowsGenerated);
+
+            using var doc = WordprocessingDocument.Open(outputPath, false);
+            var text = doc.MainDocumentPart!.Document!.InnerText;
+            Assert.Contains("ITEM-A", text);
+            Assert.Contains("ITEM-B", text);
+
+            var openXmlErrors = new OpenXmlValidator(FileFormatVersions.Office2021).Validate(doc).ToList();
+            Assert.Empty(openXmlErrors);
+        }
+        finally
+        {
+            File.Delete(layoutPath);
+            File.Delete(outputPath);
+            File.Delete(overridesPath);
+        }
+    }
+
     private static string BuildRowCapOverrideXml(int lineCount)
     {
         XNamespace ns = "urn:microsoft-dynamics-nav/reports/TestReport/50000/";

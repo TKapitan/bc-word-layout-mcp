@@ -220,7 +220,9 @@ presence rather than looking for a `code`/`hint` that will not be there.
 
 ## Mock preview: not a substitute for a sandbox render
 
-`preview_layout` merges **deterministic sample data** (or a real dataset via `dataOverridesPath`) into
+`preview_layout` merges **deterministic sample data** (or a real dataset via `dataOverridesPath` —
+both the layout's own data-store part shape and the report UI's *Send to → XML* export are accepted,
+and the export's `decimalformatter` columns are formatted the way BC itself renders them) into
 a working copy of the layout and converts it to PDF **entirely offline** — never through the real
 Business Central report engine. That's good enough to catch structural and binding mistakes on every
 edit, but captions, fonts, and exact pagination can differ from a genuine BC render. Every
