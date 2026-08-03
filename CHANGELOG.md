@@ -5,9 +5,77 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.0.0] - 2026-08-03
+
+Initial release — the first stable version. The only earlier tags are the `v1.0.0-rc.1`/`v1.0.0-rc.2`
+pre-releases from the release-candidate phase; everything below is new, and there is no prior stable
+release to compare against.
+
+An MCP server that lets an agent create, edit, validate and preview Microsoft Word report layouts for
+Business Central through deterministic, typed tools instead of free-hand OOXML editing.
+
+### Added
+
+- **23 MCP tools** over stdio, in four groups — see [`README.md`](README.md) for the full reference:
+  - *Inspect* — `get_layout_info`, `list_dataset_fields`.
+  - *Validate* — `validate_layout` (`quick` structural/binding checks, or `full` with a dry-run merge).
+    The `quick` level includes a `table-style-resolves` warning: any `w:tblStyle` whose style id the
+    layout's own styles part does not define is flagged — a dangling reference renders fine but
+    silently does nothing, which is exactly the trap when a `tableStyle` parameter or hand-authored
+    reference is misspelled or the layout carries no styles part at all.
+  - *Preview* — `preview_layout` (sample-data merge + PDF via Word COM or LibreOffice),
+    `render_preview_pages` (PDF pages returned inline as images so the agent can look at its own work).
+  - *Author and edit* — `create_layout`, `insert_field`, `insert_label`, `insert_text`, `insert_picture`,
+    `insert_table`, `insert_repeater_table`, `insert_repeater_row`, `remove_control`, `set_cell_text`,
+    `clear_cell_text`, `set_cell_borders`, `set_column_widths`, `insert_column`, `remove_column`,
+    `merge_cells`, `split_cells`, `refresh_xml_part`.
+- **A uniform `{ok, data, error}` envelope.** Nothing throws across the MCP boundary; every failure carries
+  a `code`, a `message`, and a `hint` naming the argument to fix or the inspection tool to call first.
+- **Write safety on every mutating tool.** Each edit is written to a staged copy, validated with
+  `OpenXmlValidator` before saving, and rejected outright if it would introduce a new structural error —
+  the file on disk is left untouched. Table edits additionally pass a grid-consistency guard that catches
+  rows desyncing from their `w:tblGrid`, a corruption class `OpenXmlValidator` accepts silently.
+- **Support for the shapes real BC layouts actually have**, rather than a tidy subset: pervasively
+  `gridSpan`-spanned and ragged tables addressed by grid column, rows with skipped grid columns
+  (`w:gridBefore`/`w:gridAfter`), repeater nesting several levels deep with per-level XPath re-anchoring,
+  both the legacy `w:dataBinding` and the `w15:dataBinding` field-control shapes, layouts whose dataset
+  part is UTF-8 or UTF-16 and may carry no store item at all, and multi-section documents where "the
+  header" means the first section's default header rather than the first part in the package.
+- **Label classification that handles both real-world shapes out of the box** — columns named
+  `*Lbl`/`*_Lbl` (BC's documented convention) plus every direct column of a data item named `Labels`
+  (the dedicated labels data item common in older/converted reports; the rule is self-scoping, so
+  layouts without such an item are unaffected). Overridable per host via `BCWL_LABEL_SUFFIXES` and
+  `BCWL_LABELS_DATA_ITEM` (a different data-item name retargets the rule; `-` disables it).
+- **Two companion skills**:
+  - [`al-word-layout`](skills/al-word-layout/SKILL.md) — the intended workflow (inspect → edit →
+    validate → preview), the supported matrix, and the anti-patterns.
+  - [`al-word-layout-design`](skills/al-word-layout-design/SKILL.md)
+    ([#27](https://github.com/TKapitan/bc-word-layout-mcp/issues/27)) — what a from-scratch BC Word
+    layout should *look like*, closing the one quality dimension validation cannot judge: a
+    structurally valid, fully bound, ugly document passes `validate_layout level=full` with zero
+    findings. Two archetype skeletons (trading document, list/analysis report) mapped step-by-step to
+    tool calls, per-element conventions (address blocks, caption placement, line-table alignment and
+    borders, totals, header/footer chrome, typography, twip widths), and the stock idioms the tools
+    cannot build, with the supported route for each. Every convention is tagged with its evidence —
+    observed in a named stock corpus layout, or BC-verified in a from-scratch sandbox build — never
+    invented; a sandbox round or corpus addition that refutes a convention updates the skill.
+- **The schema-source rule, documented as the workflow entry point** — skill §1 ("Where the schema
+  comes from") plus a matching anti-pattern, a README scope bullet, SOLUTION-DESIGN §6.8, and
+  [ADR-0006](docs/adr/0006-schema-transplanted-never-synthesized.md): the server transplants the BC
+  dataset part byte-for-byte from a BC-produced artifact and never synthesizes it from AL source, so
+  a brand-new layout starts with one AL build (the compiler creates the referenced `.docx`, dataset
+  part included) or one stock-layout/schema export from BC.
+- **Three install channels**: the `BcWordLayout.Mcp` NuGet MCP-server package (top-level manifest
+  plus per-RID `win-x64`/`win-arm64` tool packages) launched on demand via `dnx`; self-contained
+  GitHub-Release zips with a checksum-verifying `install.ps1` that unpacks to a stable path; and a
+  plugin installing the server and both companion skills in one step — in **both Claude Code
+  and VS Code / GitHub Copilot** (this repository is a plugin marketplace for each; the skills
+  themselves are open-standard `SKILL.md` files both consume natively).
 
 ### Fixed
+
+Found and fixed during the release-candidate phase (the 2026-08-01 and 2026-08-02 BC-sandbox
+comparison rounds against the `v1.0.0-rc.*` builds) — no stable release ever shipped these:
 
 - **The mock preview no longer loses repeated table header rows (`w:tblHeader`)**
   ([#19](https://github.com/TKapitan/bc-word-layout-mcp/issues/19)). `preview_layout`'s render copy
@@ -47,78 +115,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   styles and a `TableGrid` definition — so `insert_repeater_table`'s documented `tableStyle='TableGrid'`
   example resolves instead of referencing a style that does not exist. Existing layouts and
   `templatePath` builds are untouched: a template keeps its own styles/theme (or deliberately neither),
-  and the scaffold is never retrofitted onto a pre-existing document.
-
-### Added
-
-- **New skill `al-word-layout-design`**
-  ([#27](https://github.com/TKapitan/bc-word-layout-mcp/issues/27)): what a from-scratch BC Word
-  layout should *look like*, closing the one quality dimension validation cannot judge — a
-  structurally valid, fully bound, ugly document passes `validate_layout level=full` with zero
-  findings. Two archetype skeletons (trading document, list/analysis report) mapped step-by-step to
-  tool calls, per-element conventions (address blocks, caption placement, line-table alignment and
-  borders, totals, header/footer chrome, typography, twip widths), and the stock idioms the tools
-  cannot build, with the supported route for each. Every convention is tagged with its evidence —
-  observed in a named stock corpus layout, or BC-verified in the round-2 from-scratch sandbox
-  builds (P01/P06/P07, 2026-08-02) — never invented; a sandbox round or corpus addition that
-  refutes a convention updates the skill. The `al-word-layout` skill now cross-references it and
-  gained the two tool parameters the recipes rely on that its reference had omitted:
-  `create_layout`'s `headingText` and `insert_repeater_table`'s `columnAlignments`.
-- **New `quick` validation check `table-style-resolves`** (warning): flags any `w:tblStyle` whose
-  style id the layout's own styles part does not define — a dangling reference renders fine but
-  silently does nothing, which is exactly the trap when a `tableStyle` parameter or hand-authored
-  reference is misspelled or the layout carries no styles part at all.
-- **The schema-source rule is now documented** — skill §1 ("Where the schema comes from") plus a
-  matching anti-pattern, a README scope bullet, SOLUTION-DESIGN §6.8, and
-  [ADR-0006](docs/adr/0006-schema-transplanted-never-synthesized.md): the server transplants the BC
-  dataset part byte-for-byte from a BC-produced artifact and never synthesizes it from AL source, so
-  a brand-new layout starts with one AL build (the compiler creates the referenced `.docx`, dataset
-  part included) or one stock-layout/schema export from BC. Previously this was implicit in the
-  `schemaSource`/`newSchemaSource` parameter docs and nowhere stated as the workflow entry point.
-
-## [1.0.0] - 2026-08-01
-
-Initial release. Everything below is new; there is no prior public version to compare against.
-
-An MCP server that lets an agent create, edit, validate and preview Microsoft Word report layouts for
-Business Central through deterministic, typed tools instead of free-hand OOXML editing.
-
-### Added
-
-- **23 MCP tools** over stdio, in four groups — see [`README.md`](README.md) for the full reference:
-  - *Inspect* — `get_layout_info`, `list_dataset_fields`.
-  - *Validate* — `validate_layout` (`quick` structural/binding checks, or `full` with a dry-run merge).
-  - *Preview* — `preview_layout` (sample-data merge + PDF via Word COM or LibreOffice),
-    `render_preview_pages` (PDF pages returned inline as images so the agent can look at its own work).
-  - *Author and edit* — `create_layout`, `insert_field`, `insert_label`, `insert_text`, `insert_picture`,
-    `insert_table`, `insert_repeater_table`, `insert_repeater_row`, `remove_control`, `set_cell_text`,
-    `clear_cell_text`, `set_cell_borders`, `set_column_widths`, `insert_column`, `remove_column`,
-    `merge_cells`, `split_cells`, `refresh_xml_part`.
-- **A uniform `{ok, data, error}` envelope.** Nothing throws across the MCP boundary; every failure carries
-  a `code`, a `message`, and a `hint` naming the argument to fix or the inspection tool to call first.
-- **Write safety on every mutating tool.** Each edit is written to a staged copy, validated with
-  `OpenXmlValidator` before saving, and rejected outright if it would introduce a new structural error —
-  the file on disk is left untouched. Table edits additionally pass a grid-consistency guard that catches
-  rows desyncing from their `w:tblGrid`, a corruption class `OpenXmlValidator` accepts silently.
-- **Support for the shapes real BC layouts actually have**, rather than a tidy subset: pervasively
-  `gridSpan`-spanned and ragged tables addressed by grid column, rows with skipped grid columns
-  (`w:gridBefore`/`w:gridAfter`), repeater nesting several levels deep with per-level XPath re-anchoring,
-  both the legacy `w:dataBinding` and the `w15:dataBinding` field-control shapes, layouts whose dataset
-  part is UTF-8 or UTF-16 and may carry no store item at all, and multi-section documents where "the
-  header" means the first section's default header rather than the first part in the package.
-- **Label classification that handles both real-world shapes out of the box** — columns named
-  `*Lbl`/`*_Lbl` (BC's documented convention) plus every direct column of a data item named `Labels`
-  (the dedicated labels data item common in older/converted reports; the rule is self-scoping, so
-  layouts without such an item are unaffected). Overridable per host via `BCWL_LABEL_SUFFIXES` and
-  `BCWL_LABELS_DATA_ITEM` (a different data-item name retargets the rule; `-` disables it).
-- **A companion skill** ([`skills/al-word-layout`](skills/al-word-layout/SKILL.md)) documenting the
-  intended workflow, the supported matrix, and the anti-patterns.
-- **Three install channels**: the `BcWordLayout.Mcp` NuGet MCP-server package (top-level manifest
-  plus per-RID `win-x64`/`win-arm64` tool packages) launched on demand via `dnx`; self-contained
-  GitHub-Release zips with a checksum-verifying `install.ps1` that unpacks to a stable path; and a
-  plugin installing the server and the `al-word-layout` skill in one step — in **both Claude Code
-  and VS Code / GitHub Copilot** (this repository is a plugin marketplace for each; the skill itself
-  is an open-standard `SKILL.md` both consume natively).
+  and the scaffold is never retrofitted onto a pre-existing document. The fix is BC-verified: all three
+  from-scratch layouts in the 2026-08-02 sandbox round rendered in the same typeface and sizes as the
+  mock.
 
 ### Known limitations
 
@@ -127,9 +126,10 @@ Business Central through deterministic, typed tools instead of free-hand OOXML e
   mistakes on every edit; it is not a substitute for a real sandbox render, which remains the sign-off
   step. See [`docs/FIDELITY-CHECKLIST.md`](docs/FIDELITY-CHECKLIST.md) for what is guarded automatically
   and what still needs a human eye.
-- **BC-sandbox validation covers five layouts on one BC version family.** A five-layout authoring
-  pack built with these tools was validated against real BC sandboxes (BC 28.0 and 28.3, Cronus AU)
-  — all five passed ([`docs/FIDELITY-CHECKLIST.md`](docs/FIDELITY-CHECKLIST.md) records the run).
+- **BC-sandbox validation covers seven layouts on one BC version family.** An authoring pack built
+  with these tools was validated against real BC sandboxes (BC 28.0 and 28.3, Cronus AU) across two
+  rounds — five items in round 1, seven in round 2, all passed
+  ([`docs/FIDELITY-CHECKLIST.md`](docs/FIDELITY-CHECKLIST.md) records both runs).
   That establishes that BC accepts and renders what the tools author; it does not make the mock
   preview authoritative, and other BC versions/localizations carry no validation yet.
 - **The LibreOffice conversion path is unverified end to end**
