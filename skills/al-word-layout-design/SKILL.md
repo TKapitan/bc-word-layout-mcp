@@ -120,6 +120,9 @@ buildable equivalent, and it is the shape BC verified.
   [stock: all; verified: all].
 - Header row: bind label columns when the dataset has them (`headerFromLabels=true`); humanized
   static text otherwise [verified: P07].
+- The header row repeats on every page of a multi-page table without you doing anything —
+  `insert_repeater_table` always marks it `w:tblHeader`, a corpus-observed shape [stock: 1304,
+  115]. BC honours it [verified: P07]; only the mock preview loses the repetition (#19, §6).
 - Two buildable looks, both BC-proven:
   - **Open** [stock: 1304, 1322]: no table style, single ½ pt rule under the header row —
     `set_cell_borders` `row=0, edges="bottom", size=4`.
@@ -179,7 +182,6 @@ buildable equivalent, and it is the shape BC verified.
 |---|---|---|
 | Totals as trailing rows inside the line table [stock: 1304, 1322, 1306] | No tool appends static rows inside a repeater table | Separate totals table (§4) when creating; preserve when editing stock |
 | `PAGE`/`NUMPAGES` page numbering [stock: 1304, 1322, 1306] | `insert_text` is literal text, no field codes | `templatePath` shell carrying the header, or hand-edit + `validate_layout` |
-| Repeat-header-row-per-page (`w:tblHeader`) [stock: 1304, 115] | `insert_repeater_table` doesn't set it | Hand-edit if required; note the mock loses it while BC renders it (#19) |
 | Group-header / subtotal rows inside a repeat [stock: 115] | Repeater internals aren't row-editable | Nested `insert_repeater_row` detail rows + separate totals [verified: P07] |
 | Colour header bands / accent colours [stock: 1306] | No shading tool | Branded `templatePath` or hand-edit + validate |
 | Hide-if-empty add-in controls | Deferred, OOXML never captured (#8) | Reserve the rows/cells; stock layouts render empty lines too |
