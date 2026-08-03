@@ -260,6 +260,38 @@ internal static class SyntheticLayout
         + "</w:sdtContent></w:sdt>";
 
     /// <summary>
+    /// A repeater TABLE — the row-level shape <c>SdtFactory.BuildRepeaterTable</c> emits and GitHub issue
+    /// #19 targets: a single-column <c>w:tbl</c> whose first row (when <paramref name="headerRow"/> is
+    /// true) is a static header <c>w:tr</c> marked <c>w:trPr/w:tblHeader</c>, followed by a row-level
+    /// repeater — <c>SdtRow(w15:repeatingSection) &gt; SdtContentRow &gt; SdtRow(w15:repeatingSectionItem)
+    /// &gt; SdtContentRow &gt; w:tr</c> — whose one data row's cell wraps a single bound field. For proving
+    /// <c>MergeOptions.FlattenBindingsForRender</c> unwraps the row-level sdt shells so the cloned data
+    /// rows end up plain <c>w:tr</c> SIBLINGS of the header row (Word fragments the table at surviving
+    /// shells, losing <c>w:tblHeader</c> repetition). Pass <paramref name="headerRow"/> false for the
+    /// degenerate table whose ONLY content is the repeater — with zero matched data rows the unwrap must
+    /// then prune the rowless <c>w:tbl</c> itself.
+    /// </summary>
+    public static string RepeaterTable(
+        string repeaterXPath, string fieldXPath, string storeItemId,
+        bool headerRow = true, int repeaterId = 700, int itemId = 701) =>
+        "<w:tbl><w:tblPr/><w:tblGrid><w:gridCol w:w=\"4000\"/></w:tblGrid>"
+        + (headerRow
+            ? "<w:tr><w:trPr><w:tblHeader/></w:trPr>"
+              + "<w:tc><w:tcPr/><w:p><w:r><w:t>No.</w:t></w:r></w:p></w:tc></w:tr>"
+            : string.Empty)
+        + "<w:sdt><w:sdtPr>"
+        + $"<w:id w:val=\"{repeaterId}\"/>"
+        + $"<w15:dataBinding w:xpath=\"{repeaterXPath}\" w:storeItemID=\"{storeItemId}\"/>"
+        + "<w15:repeatingSection/></w:sdtPr><w:sdtContent>"
+        + "<w:sdt><w:sdtPr>"
+        + $"<w:id w:val=\"{itemId}\"/>"
+        + "<w15:repeatingSectionItem/></w:sdtPr><w:sdtContent>"
+        + $"<w:tr><w:tc><w:tcPr/>{BoundField(fieldXPath, storeItemId)}</w:tc></w:tr>"
+        + "</w:sdtContent></w:sdt>"
+        + "</w:sdtContent></w:sdt>"
+        + "</w:tbl>";
+
+    /// <summary>
     /// A two-level nested repeater: the outer row template (over <paramref name="outerXPath"/>) wraps an
     /// inner repeater (over <paramref name="innerXPath"/>, built via <see cref="RepeaterWithField"/>) whose
     /// own row wraps one bound field — for proving re-anchoring works across two nesting levels.

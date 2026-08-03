@@ -9,6 +9,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **The mock preview no longer loses repeated table header rows (`w:tblHeader`)**
+  ([#19](https://github.com/TKapitan/bc-word-layout-mcp/issues/19)). `preview_layout`'s render copy
+  used to keep every repeater row's content-control shell — binding-stripped, but still a row-level
+  `w:sdt` — and Word fragments a table at those shells: the header row ended up alone in a one-row
+  table fragment that can never break across a page, so the header repetition BC renders on every
+  page of a multi-page table silently never triggered in the mock (found in the 2026-08-02 sandbox
+  round 2, item P07; root cause proven by a Word COM probe — see the issue). The flatten-for-render
+  step now unwraps row-level shells entirely, so cloned data rows become plain `w:tr` siblings of
+  the header row and Word keeps the table whole, repeating the header exactly as BC does. Row-level
+  only: inline field/label shells still flatten exactly as before, and neither the user's layout nor
+  the default logical merge is touched. A table left rowless by a repeater that matched zero data
+  rows (possible with a real `dataOverridesPath` dataset) is removed from the render copy outright.
+
 - **`preview_layout`'s `dataOverridesPath` now accepts what BC actually exports**
   ([#4](https://github.com/TKapitan/bc-word-layout-mcp/issues/4)). The parameter was documented as
   taking "a real exported BC dataset XML", but only the layout's own data-store part shape
