@@ -606,6 +606,114 @@ public class MergeEngineTests
     }
 
     [Fact]
+    public void FlattenBindingsForRender_unwraps_row_sdts_so_cloned_rows_are_plain_siblings_of_the_tblHeader_row()
+    {
+        // Regression for GitHub issue #19: stripping the row-level sdts' binding/repeating properties but
+        // KEEPING their shells makes Word fragment the repeater table at every shell — the w:tblHeader
+        // header row ends up alone in a one-row table fragment, which can never break across a page, so the
+        // header repetition BC renders on every page silently never triggers in the mock. The flatten step
+        // must therefore unwrap row-level sdts entirely: every cloned data row a plain w:tr, DIRECT sibling
+        // of the header row under one contiguous w:tbl.
+        const string RepeaterXPath = "/ns0:NavWordReportXmlPart[1]/ns0:Header[1]/ns0:Line";
+        const string FieldXPath = "/ns0:NavWordReportXmlPart[1]/ns0:Header[1]/ns0:Line[1]/ns0:ItemNo_Line[1]";
+        var schemaXml =
+            "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
+            + "<NavWordReportXmlPart xmlns=\"urn:microsoft-dynamics-nav/reports/TestReport/50000/\">"
+            + "<BCReportInformation><CreationDateTime>2026-01-01</CreationDateTime></BCReportInformation>"
+            + "<Header><CompanyName>Contoso</CompanyName><Line><ItemNo_Line>X</ItemNo_Line></Line></Header>"
+            + "</NavWordReportXmlPart>";
+
+        var body = SyntheticLayout.RepeaterTable(RepeaterXPath, FieldXPath, SyntheticLayout.GoodItemId)
+            + SyntheticLayout.PlainParagraph("after");
+        var layoutPath = SyntheticLayout.Create(body, datasetXml: schemaXml);
+        var boundPath = TempDocxPath();
+        var flattenedPath = TempDocxPath();
+
+        try
+        {
+            // The default (non-flattened) logical merge must keep its row-level sdt structure untouched —
+            // the unwrap is strictly part of the opt-in render flatten, never of the user-facing merge.
+            MergeEngine.Merge(layoutPath, boundPath, new MergeOptions { Seed = 7, Rows = 3 });
+            using (var boundDoc = WordprocessingDocument.Open(boundPath, false))
+            {
+                Assert.NotEmpty(boundDoc.MainDocumentPart!.Document!.Descendants<SdtRow>());
+            }
+
+            var result = MergeEngine.Merge(layoutPath, flattenedPath,
+                new MergeOptions { Seed = 7, Rows = 3, FlattenBindingsForRender = true });
+            Assert.Equal(3, result.Stats.RowsGenerated);
+
+            using var doc = WordprocessingDocument.Open(flattenedPath, false);
+            var document = doc.MainDocumentPart!.Document!;
+            Assert.Empty(document.Descendants<SdtRow>());
+
+            // One contiguous table: header w:tr first (w:tblHeader intact), then the 3 cloned data rows as
+            // DIRECT w:tbl children — nothing row-shaped left for Word to fragment the table at.
+            var table = Assert.Single(document.Descendants<Table>());
+            Assert.DoesNotContain(table.ChildElements, e => e is SdtElement);
+            var directRows = table.Elements<TableRow>().ToList();
+            Assert.Equal(4, directRows.Count);
+            Assert.NotNull(directRows[0].TableRowProperties?.GetFirstChild<TableHeader>());
+
+            // The unwrap is row-level-only: each cloned cell's own (binding-stripped) field control shell
+            // survives, exactly as before.
+            Assert.Equal(3, table.Descendants<SdtBlock>().Count());
+
+            var openXmlErrors = new OpenXmlValidator(FileFormatVersions.Office2021).Validate(doc).ToList();
+            Assert.Empty(openXmlErrors);
+        }
+        finally
+        {
+            File.Delete(layoutPath);
+            File.Delete(boundPath);
+            File.Delete(flattenedPath);
+        }
+    }
+
+    [Fact]
+    public void FlattenBindingsForRender_prunes_a_table_left_rowless_by_a_zero_row_repeater()
+    {
+        // Degenerate corner of the issue-#19 unwrap: a table whose ONLY content is the repeater (no static
+        // header row — a real corpus shape, BC line tables often carry no w:tblHeader), merged against a
+        // real override dataset with ZERO matching rows. Unwrapping then leaves a w:tbl with no rows at
+        // all — something Word itself never writes — so the flatten must remove the table outright and the
+        // result must still validate clean.
+        const string RepeaterXPath = "/ns0:NavWordReportXmlPart[1]/ns0:Header[1]/ns0:Line";
+        const string FieldXPath = "/ns0:NavWordReportXmlPart[1]/ns0:Header[1]/ns0:Line[1]/ns0:ItemNo_Line[1]";
+
+        var body = SyntheticLayout.RepeaterTable(
+                RepeaterXPath, FieldXPath, SyntheticLayout.GoodItemId, headerRow: false)
+            + SyntheticLayout.PlainParagraph("after");
+        var layoutPath = SyntheticLayout.Create(body);
+        var outputPath = TempDocxPath();
+        var overridesPath = BuildRowCapOverrideXml(lineCount: 0);
+
+        try
+        {
+            var result = MergeEngine.Merge(layoutPath, outputPath, new MergeOptions
+            {
+                DataOverridesPath = overridesPath,
+                FlattenBindingsForRender = true,
+            });
+            Assert.Equal(0, result.Stats.RowsGenerated);
+
+            using var doc = WordprocessingDocument.Open(outputPath, false);
+            var document = doc.MainDocumentPart!.Document!;
+            Assert.Empty(document.Descendants<SdtRow>());
+            Assert.Empty(document.Descendants<Table>());
+
+            var openXmlErrors = new OpenXmlValidator(FileFormatVersions.Office2021).Validate(doc).ToList();
+            Assert.Empty(openXmlErrors);
+        }
+        finally
+        {
+            File.Delete(layoutPath);
+            File.Delete(outputPath);
+            File.Delete(overridesPath);
+        }
+    }
+
+    [Fact]
     public void Nested_layout_with_large_rows_is_bounded_by_MaxTotalInstances_and_warns()
     {
         // A 2-level nested repeater at Rows=30 would generate 30 + 30^2 + 30^3 = 27,930 business instances

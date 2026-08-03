@@ -639,8 +639,10 @@ public static class MergeEngine
         // field-name placeholder from the part — and collapse each repeater back to its single template row.
         // Severing the bindings (and the repeating-section markers, so the cloned rows survive as static rows)
         // turns the merged document into a self-contained snapshot of exactly what the merge produced, so a
-        // rendered preview actually shows the sample values and every generated row. Opt-in (preview only):
-        // the default logical-merge output keeps its bindings for validation/structural inspection.
+        // rendered preview actually shows the sample values and every generated row. Row-level sdt shells are
+        // additionally unwrapped entirely — property-stripping alone leaves shells Word fragments the table
+        // at, silently losing w:tblHeader header-row repetition (see UnwrapRowLevelSdts). Opt-in (preview
+        // only): the default logical-merge output keeps its bindings for validation/structural inspection.
         if (options.FlattenBindingsForRender)
         {
             FlattenLiveBindings(main);
@@ -675,8 +677,10 @@ public static class MergeEngine
     /// Removes every live data binding (<c>w:dataBinding</c> / <c>w15:dataBinding</c>) and repeating-section
     /// marker (<c>w15:repeatingSection</c> / <c>w15:repeatingSectionItem</c>) from the document body and every
     /// header/footer, so the merged output no longer re-syncs from the (un-populated) custom XML part when a
-    /// renderer opens it. The content controls themselves and their now-static content (merged run text, cloned
-    /// rows, filled pictures) are left intact — only the "refresh me from the data part" links are cut.
+    /// renderer opens it. Inline and block content controls and their now-static content (merged run text,
+    /// cloned rows, filled pictures) are left intact — only the "refresh me from the data part" links are cut.
+    /// ROW-level controls are the one exception: their shells are unwrapped entirely, because Word fragments
+    /// a table at them even after property-stripping (see <see cref="UnwrapRowLevelSdts"/>).
     /// </summary>
     private static void FlattenLiveBindings(MainDocumentPart main)
     {
@@ -700,6 +704,59 @@ public static class MergeEngine
             foreach (var element in toRemove)
             {
                 element.Remove();
+            }
+        }
+
+        UnwrapRowLevelSdts(root);
+    }
+
+    /// <summary>
+    /// Replaces every row-level sdt (<c>SdtRow</c> — a <c>w:sdt</c> sitting where a <c>w:tr</c> would) with
+    /// the children of its own <c>w:sdtContent</c>, so a flattened repeater table carries its generated rows
+    /// as PLAIN sibling <c>w:tr</c> elements of any static header row. Property-stripping alone is not
+    /// enough for a render copy: Word fragments a table at surviving row-level sdt shells even when their
+    /// <c>sdtPr</c> retains nothing but alias/tag/id (Word COM on a stripped-but-not-unwrapped merge reports
+    /// the repeater table as several Tables, the <c>w:tblHeader</c> header row alone in a one-row fragment —
+    /// which can never break across a page, so the header's every-page repetition BC renders silently never
+    /// triggers; https://github.com/TKapitan/bc-word-layout-mcp/issues/19). Inline and block shells stay:
+    /// only row-level shells make Word split a table. Handles nested shells (repeatingSection &gt; per-row
+    /// repeatingSectionItem clones, nested detail-row repeaters) without recursion: Descendants() snapshots
+    /// outer shells before inner ones, and unwrapping an outer shell MOVES its inner <c>SdtRow</c> instances
+    /// (never clones or destroys them), so the same snapshot still reaches every inner shell. A table this
+    /// leaves with no row content at all (a repeater that matched zero data rows, in a table with no static
+    /// header row) is removed outright — Word never writes a rowless <c>w:tbl</c>, and it renders nothing
+    /// anyway; if that table was its host table CELL's only content, an empty paragraph takes its place so
+    /// the <c>w:tc</c> keeps the one block-level child its content model requires.
+    /// </summary>
+    private static void UnwrapRowLevelSdts(OpenXmlElement root)
+    {
+        var hostTables = new HashSet<Table>();
+        foreach (var sdtRow in root.Descendants<SdtRow>().ToList())
+        {
+            if (sdtRow.Ancestors<Table>().FirstOrDefault() is { } hostTable)
+            {
+                hostTables.Add(hostTable);
+            }
+
+            if (sdtRow.GetFirstChild<SdtContentRow>() is { } content)
+            {
+                foreach (var child in content.ChildElements.ToList())
+                {
+                    child.Remove();
+                    sdtRow.InsertBeforeSelf(child);
+                }
+            }
+
+            sdtRow.Remove();
+        }
+
+        foreach (var table in hostTables.Where(t => !t.ChildElements.Any(e => e is TableRow or SdtElement or CustomXmlRow)))
+        {
+            var parent = table.Parent;
+            table.Remove();
+            if (parent is TableCell cell && cell.ChildElements.All(e => e is TableCellProperties))
+            {
+                cell.AppendChild(new Paragraph());
             }
         }
     }
