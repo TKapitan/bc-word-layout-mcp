@@ -180,12 +180,12 @@ buildable equivalent, and it is the shape BC verified.
 
 | Stock idiom | Why no tool | Route |
 |---|---|---|
-| Totals as trailing rows inside the line table [stock: 1304, 1322, 1306] | No tool appends static rows inside a repeater table | Separate totals table (§4) when creating; preserve when editing stock |
-| `PAGE`/`NUMPAGES` page numbering [stock: 1304, 1322, 1306] | `insert_text` is literal text, no field codes | `templatePath` shell carrying the header, or hand-edit + `validate_layout` |
-| Group-header / subtotal rows inside a repeat [stock: 115] | Repeater internals aren't row-editable | Nested `insert_repeater_row` detail rows + separate totals [verified: P07] |
-| Colour header bands / accent colours [stock: 1306] | No shading tool | Branded `templatePath` or hand-edit + validate |
+| Totals as trailing rows inside the line table [stock: 1304, 1322, 1306] | No tool appends static rows inside a repeater table (#28) | Separate totals table (§4) when creating; preserve when editing stock |
+| `PAGE`/`NUMPAGES` page numbering [stock: 1304, 1322, 1306] | `insert_text` is literal text, no field codes (#29; conditional variants #11) | `templatePath` shell carrying the header, or hand-edit + `validate_layout` |
+| Group-header / subtotal rows inside a repeat [stock: 115] | Repeater internals aren't row-editable (#30) | Nested `insert_repeater_row` detail rows + separate totals [verified: P07] |
+| Colour header bands / accent colours [stock: 1306] | No shading tool (#15) | Branded `templatePath` or hand-edit + validate |
 | Hide-if-empty add-in controls | Deferred, OOXML never captured (#8) | Reserve the rows/cells; stock layouts render empty lines too |
-| Whole-body per-entity repeat with page breaks [stock: 1316] | Repeaters are tables only | Export the stock layout and edit; don't build from scratch |
+| Whole-body per-entity repeat with page breaks [stock: 1316] | Repeaters are tables only (#31) | Export the stock layout and edit; don't build from scratch |
 
 ## 6. Design-time mock caveats
 
