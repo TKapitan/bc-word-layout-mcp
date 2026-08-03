@@ -50,7 +50,7 @@ public static class SampleDataGenerator
 
         if (!string.IsNullOrEmpty(options.DataOverridesPath))
         {
-            return LoadOverrides(options.DataOverridesPath);
+            return LoadOverrides(options.DataOverridesPath, schema.Report);
         }
 
         var ns = XNamespace.Get(schema.Report.Namespace);
@@ -508,12 +508,17 @@ public static class SampleDataGenerator
     // ---- data overrides ----
 
     /// <summary>
-    /// Loads a real exported BC dataset XML as the sample dataset, validating loosely (root local-name
-    /// must be <see cref="OoxmlNames.RootElementName"/>, namespace must start with <see cref="OoxmlNames.BcNamespacePrefix"/>).
-    /// Mirrors <see cref="SchemaProvider.FromSchemaXml"/>: <see cref="XDocument.Load(System.IO.Stream)"/> reads
-    /// the encoding declaration from the stream itself, so UTF-16 LE + BOM exports work unchanged.
+    /// Loads a real exported BC dataset XML as the sample dataset, accepting BOTH encodings BC produces
+    /// (sniffed by root element): the layout's own data-store part shape (root
+    /// <see cref="OoxmlNames.RootElementName"/>, namespace starting <see cref="OoxmlNames.BcNamespacePrefix"/>,
+    /// validated loosely and returned verbatim) and the report UI's *Send to → XML* export (root
+    /// <see cref="ReportDataSetConverter.ExportRootElementName"/>, converted into the first shape in
+    /// <paramref name="report"/>'s namespace — see <see cref="ReportDataSetConverter"/>, including per-column
+    /// <c>decimalformatter</c> application). Mirrors <see cref="SchemaProvider.FromSchemaXml"/>:
+    /// <see cref="XDocument.Load(System.IO.Stream)"/> reads the encoding declaration from the stream itself,
+    /// so UTF-16 LE + BOM exports work unchanged.
     /// </summary>
-    private static SampleDataset LoadOverrides(string path)
+    private static SampleDataset LoadOverrides(string path, ReportIdentity report)
     {
         if (!File.Exists(path))
         {
@@ -532,10 +537,17 @@ public static class SampleDataGenerator
         var root = xdoc.Root
             ?? throw new InvalidDataException("Data overrides XML has no root element.");
 
-        if (!string.Equals(root.Name.LocalName, OoxmlNames.RootElementName, StringComparison.Ordinal))
+        if (string.Equals(root.Name.LocalName, ReportDataSetConverter.ExportRootElementName, StringComparison.Ordinal))
+        {
+            xdoc = ReportDataSetConverter.ToNavWordReportXmlPart(xdoc, report);
+            root = xdoc.Root!;
+        }
+        else if (!string.Equals(root.Name.LocalName, OoxmlNames.RootElementName, StringComparison.Ordinal))
         {
             throw new InvalidDataException(
-                $"Data overrides root element is '{root.Name.LocalName}', expected '{OoxmlNames.RootElementName}'.");
+                $"Data overrides root element is '{root.Name.LocalName}', expected "
+                + $"'{OoxmlNames.RootElementName}' (a layout's data-store part) or "
+                + $"'{ReportDataSetConverter.ExportRootElementName}' (the report UI's Send to → XML export).");
         }
 
         if (!root.Name.NamespaceName.StartsWith(OoxmlNames.BcNamespacePrefix, StringComparison.Ordinal))

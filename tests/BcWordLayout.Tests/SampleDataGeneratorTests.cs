@@ -578,7 +578,7 @@ public class SampleDataGeneratorTests
     }
 
     [Fact]
-    public void DataOverrides_malformed_root_throws_InvalidDataException()
+    public void DataOverrides_malformed_root_error_names_both_accepted_shapes()
     {
         var xml = "<?xml version=\"1.0\" encoding=\"utf-8\"?><SomeOtherRoot></SomeOtherRoot>";
         var path = Path.Combine(Path.GetTempPath(), $"bcwl-overrides-bad-root-{Guid.NewGuid():N}.xml");
@@ -587,8 +587,12 @@ public class SampleDataGeneratorTests
         try
         {
             var schema = MinimalSchema();
-            Assert.Throws<InvalidDataException>(() =>
+            var ex = Assert.Throws<InvalidDataException>(() =>
                 SampleDataGenerator.Generate(schema, new SampleDataOptions { DataOverridesPath = path }));
+
+            // The caller holding the wrong file must learn BOTH encodings that would have worked.
+            Assert.Contains("NavWordReportXmlPart", ex.Message);
+            Assert.Contains("ReportDataSet", ex.Message);
         }
         finally
         {
@@ -625,6 +629,162 @@ public class SampleDataGeneratorTests
 
         Assert.Throws<FileNotFoundException>(() =>
             SampleDataGenerator.Generate(schema, new SampleDataOptions { DataOverridesPath = missingPath }));
+    }
+
+    // ---- data overrides: the report UI's Send to → XML export shape (GitHub issue #4) ----
+
+    /// <summary>
+    /// Writes an export-shape overrides file and loads it through <see cref="SampleDataGenerator.Generate"/>
+    /// against <see cref="MinimalSchema"/> (report id "1", namespace <c>…/reports/Test/1/</c>), deleting the
+    /// file afterwards.
+    /// </summary>
+    private static SampleDataset LoadExportOverrides(string exportXml, Encoding? encoding = null)
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"bcwl-overrides-export-{Guid.NewGuid():N}.xml");
+        File.WriteAllText(path, exportXml, encoding ?? new UTF8Encoding(false));
+        try
+        {
+            return SampleDataGenerator.Generate(
+                MinimalSchema(), new SampleDataOptions { DataOverridesPath = path });
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void DataOverrides_export_shape_is_converted_to_the_dataset_part_shape()
+    {
+        // The shape BC's report UI actually produces (Send to → XML): namespace-less ReportDataSet root,
+        // Labels/Label[@name], DataItems/DataItem[@name]/Columns/Column[@name], one DataItem SIBLING per
+        // row — nothing here is in the layout's namespace or element-per-column encoding.
+        var dataset = LoadExportOverrides(
+            "<?xml version=\"1.0\" encoding=\"utf-8\"?>"
+            + "<ReportDataSet name=\"Test\" id=\"1\" language=\"en-US\" formatRegion=\"en-US\" wordMergeDataItem=\"Header\">"
+            + "<BCReportInformation><CompanyDisplayName>Contoso Ltd.</CompanyDisplayName></BCReportInformation>"
+            + "<Labels><Label name=\"TotalLbl\">Total</Label></Labels>"
+            + "<DataItems><DataItem name=\"Header\">"
+            + "<Columns><Column name=\"CompanyName\">Contoso</Column></Columns>"
+            + "<DataItems>"
+            + "<DataItem name=\"Line\"><Columns><Column name=\"ItemNo\">A</Column></Columns></DataItem>"
+            + "<DataItem name=\"Line\"><Columns><Column name=\"ItemNo\">B</Column></Columns></DataItem>"
+            + "</DataItems>"
+            + "</DataItem></DataItems>"
+            + "</ReportDataSet>");
+
+        // Converted into the layout's own data-store part shape, in the SCHEMA's namespace.
+        Assert.Equal("urn:microsoft-dynamics-nav/reports/Test/1/", dataset.Namespace);
+        XNamespace ns = dataset.Namespace;
+        var root = dataset.Xml.Root!;
+        Assert.Equal(ns + "NavWordReportXmlPart", root.Name);
+
+        Assert.Equal("Contoso Ltd.", root.Element(ns + "BCReportInformation")!.Element(ns + "CompanyDisplayName")!.Value);
+        Assert.Equal("Total", root.Element(ns + "Labels")!.Element(ns + "TotalLbl")!.Value);
+
+        var header = Assert.Single(root.Elements(ns + "Header"));
+        Assert.Equal("Contoso", header.Element(ns + "CompanyName")!.Value);
+
+        // One element per DataItem occurrence, document order preserved — the repeater expansion shape.
+        var lines = header.Elements(ns + "Line").ToList();
+        Assert.Equal(2, lines.Count);
+        Assert.Equal(new[] { "A", "B" }, lines.Select(l => l.Element(ns + "ItemNo")!.Value));
+    }
+
+    [Fact]
+    public void DataOverrides_export_decimalformatter_is_applied_per_column_with_the_formatRegion_culture()
+    {
+        // All four decimalformatter cases observed in real sandbox exports, under a culture (de-DE) whose
+        // separators DIFFER from both the raw encoding and en-US — so applying the wrong culture, or none,
+        // fails visibly. The un-attributed column proves the rule is per-column, never global.
+        var dataset = LoadExportOverrides(
+            "<?xml version=\"1.0\" encoding=\"utf-8\"?>"
+            + "<ReportDataSet name=\"Test\" id=\"1\" language=\"en-US\" formatRegion=\"de-DE\">"
+            + "<DataItems><DataItem name=\"Header\"><Columns>"
+            + "<Column name=\"Amount\" decimalformatter=\"#,##0.00\">1002060</Column>"
+            + "<Column name=\"Total\" decimalformatter=\"$#,##0.00;$-#,##0.00\">-300</Column>"
+            + "<Column name=\"Quantity\" decimalformatter=\"#,##0.#####\">3</Column>"
+            + "<Column name=\"PreFormatted\">1,800.00</Column>"
+            + "<Column name=\"NotANumber\" decimalformatter=\"#,##0.00\">n/a</Column>"
+            + "</Columns></DataItem></DataItems>"
+            + "</ReportDataSet>");
+
+        XNamespace ns = dataset.Namespace;
+        var header = dataset.Xml.Root!.Element(ns + "Header")!;
+
+        Assert.Equal("1.002.060,00", header.Element(ns + "Amount")!.Value);
+        // Sectioned pattern: the NEGATIVE section carries its own literal currency symbol and sign.
+        Assert.Equal("$-300,00", header.Element(ns + "Total")!.Value);
+        // Precision-variable pattern: no forced decimals on a whole number.
+        Assert.Equal("3", header.Element(ns + "Quantity")!.Value);
+        // No attribute → verbatim, even though it LOOKS numeric (it arrived pre-formatted).
+        Assert.Equal("1,800.00", header.Element(ns + "PreFormatted")!.Value);
+        // Attribute but unparseable raw text → verbatim, never mangled.
+        Assert.Equal("n/a", header.Element(ns + "NotANumber")!.Value);
+    }
+
+    [Fact]
+    public void DataOverrides_export_formatRegion_falls_back_to_language_then_invariant()
+    {
+        const string Columns =
+            "<DataItems><DataItem name=\"Header\"><Columns>"
+            + "<Column name=\"Amount\" decimalformatter=\"#,##0.00\">1002060</Column>"
+            + "</Columns></DataItem></DataItems>";
+
+        var languageOnly = LoadExportOverrides(
+            "<?xml version=\"1.0\" encoding=\"utf-8\"?>"
+            + $"<ReportDataSet name=\"Test\" id=\"1\" language=\"de-DE\">{Columns}</ReportDataSet>");
+        var neither = LoadExportOverrides(
+            "<?xml version=\"1.0\" encoding=\"utf-8\"?>"
+            + $"<ReportDataSet name=\"Test\" id=\"1\">{Columns}</ReportDataSet>");
+
+        XNamespace ns = languageOnly.Namespace;
+        Assert.Equal("1.002.060,00", languageOnly.Xml.Root!.Element(ns + "Header")!.Element(ns + "Amount")!.Value);
+        Assert.Equal("1,002,060.00", neither.Xml.Root!.Element(ns + "Header")!.Element(ns + "Amount")!.Value);
+    }
+
+    [Fact]
+    public void DataOverrides_export_from_a_different_report_throws_with_both_report_ids_named()
+    {
+        // Feeding report 1304's export to a report-1 layout would otherwise produce a preview where every
+        // binding is silently unresolved — the id cross-check turns that into an actionable error.
+        var ex = Assert.Throws<InvalidDataException>(() => LoadExportOverrides(
+            "<?xml version=\"1.0\" encoding=\"utf-8\"?>"
+            + "<ReportDataSet name=\"Standard Sales - Quote\" id=\"1304\" language=\"en-US\" formatRegion=\"en-US\">"
+            + "<DataItems><DataItem name=\"Header\"><Columns><Column name=\"No\">X</Column></Columns></DataItem></DataItems>"
+            + "</ReportDataSet>"));
+
+        Assert.Contains("1304", ex.Message);
+        Assert.Contains("'Test'", ex.Message);
+    }
+
+    [Fact]
+    public void DataOverrides_export_handles_utf16_le_bom_like_real_bc_exports()
+    {
+        // Real Send to → XML exports are UTF-16 LE with a BOM; the encoding declaration must be honored.
+        var dataset = LoadExportOverrides(
+            "<?xml version=\"1.0\" encoding=\"utf-16\" standalone=\"yes\"?>"
+            + "<ReportDataSet name=\"Test\" id=\"1\" language=\"en-US\" formatRegion=\"en-US\">"
+            + "<DataItems><DataItem name=\"Header\"><Columns><Column name=\"CompanyName\">Contoso</Column></Columns></DataItem></DataItems>"
+            + "</ReportDataSet>",
+            new UnicodeEncoding(bigEndian: false, byteOrderMark: true));
+
+        XNamespace ns = dataset.Namespace;
+        Assert.Equal("Contoso", dataset.Xml.Root!.Element(ns + "Header")!.Element(ns + "CompanyName")!.Value);
+    }
+
+    [Fact]
+    public void DataOverrides_export_invalid_element_name_throws_naming_the_offender()
+    {
+        // Export attribute values become ELEMENT names in the converted shape, so a name no XML element
+        // can carry must fail with the offender named — not a bare XmlException from deep inside XLinq.
+        var ex = Assert.Throws<InvalidDataException>(() => LoadExportOverrides(
+            "<?xml version=\"1.0\" encoding=\"utf-8\"?>"
+            + "<ReportDataSet name=\"Test\" id=\"1\">"
+            + "<DataItems><DataItem name=\"Header\"><Columns><Column name=\"Bad Name\">X</Column></Columns></DataItem></DataItems>"
+            + "</ReportDataSet>"));
+
+        Assert.Contains("Bad Name", ex.Message);
     }
 
     [Fact]

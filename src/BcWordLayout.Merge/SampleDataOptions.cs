@@ -15,8 +15,11 @@ public sealed class SampleDataOptions
     public int Rows { get; init; } = 3;
 
     /// <summary>
-    /// Optional path to a real exported BC dataset XML file (e.g. "Send to -&gt; Excel (data only)" or
-    /// SaveAsXML output) to use instead of generating fake data. When set to a non-null, non-empty path,
+    /// Optional path to a real exported BC dataset XML file to use instead of generating fake data. Both
+    /// encodings BC produces are accepted (sniffed by root element): the layout's own data-store part shape
+    /// (<c>NavWordReportXmlPart</c>) and the report UI's *Send to → XML* export (<c>ReportDataSet</c>) — the
+    /// latter is converted via <see cref="ReportDataSetConverter"/>, which also applies each column's
+    /// <c>decimalformatter</c> the way BC's own render does. When set to a non-null, non-empty path,
     /// <see cref="Seed"/> and <see cref="Rows"/> are ignored entirely.
     /// </summary>
     public string? DataOverridesPath { get; init; }
@@ -94,7 +97,7 @@ public sealed class SampleDataset
     /// <summary>
     /// True when generation stopped early because <see cref="SampleDataOptions.MaxTotalInstances"/> was
     /// reached — the generated data (and therefore any preview built from it) is deliberately PARTIAL. Always
-    /// false for loaded <see cref="SampleDataOptions.DataOverridesPath"/> data (returned verbatim, never
+    /// false for loaded <see cref="SampleDataOptions.DataOverridesPath"/> data (loaded in full, never
     /// generated) and for any generation that stayed within the budget. <see cref="MergeEngine"/> surfaces this
     /// as a <c>sample-data-capped</c> <see cref="MergeWarning"/> so a capped preview is never silent.
     /// </summary>

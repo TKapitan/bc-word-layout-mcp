@@ -230,7 +230,13 @@ public static class LifecycleTools
         [Description("PDF converter to use: 'auto' (default; prefers Word, falls back to LibreOffice), "
                      + "'word', or 'libreoffice'.")] string converter = "auto",
         [Description("Optional absolute path to a real exported BC dataset XML to merge with instead of "
-                     + "generated sample data.")] string? dataOverridesPath = null,
+                     + "generated sample data. Both encodings BC produces are accepted (sniffed by root "
+                     + "element): the layout's own data-store part shape (NavWordReportXmlPart) and the "
+                     + "report UI's Send to > XML export (ReportDataSet) - for the export shape, each "
+                     + "column carrying a decimalformatter attribute holds a raw number and is formatted "
+                     + "with the export's formatRegion culture, matching what BC itself renders; an export "
+                     + "from a DIFFERENT report than the layout's dataset is rejected with an error naming "
+                     + "both report ids.")] string? dataOverridesPath = null,
         [Description("Optional absolute output directory for the merged .docx and preview .pdf. Defaults to "
                      + "a per-layout folder under the system temp directory, named "
                      + "'<layout-basename>-<hash>' where hash is derived from the layout's full path — so "

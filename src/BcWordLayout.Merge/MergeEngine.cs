@@ -22,7 +22,11 @@ public sealed class MergeOptions
     /// <summary>Number of instances generated per repeating business data item.</summary>
     public int Rows { get; init; } = 3;
 
-    /// <summary>Optional real exported dataset XML to merge with instead of generated sample data.</summary>
+    /// <summary>
+    /// Optional real exported dataset XML to merge with instead of generated sample data — both the layout's
+    /// data-store part shape and the report UI's *Send to → XML* export are accepted (see
+    /// <see cref="SampleDataOptions.DataOverridesPath"/>).
+    /// </summary>
     public string? DataOverridesPath { get; init; }
 
     /// <summary>

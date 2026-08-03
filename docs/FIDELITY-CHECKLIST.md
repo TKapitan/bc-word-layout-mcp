@@ -41,7 +41,7 @@ harness below (Deliverable 2) repeats it in every artifact it writes.
 | Font | **[Manual]** | A layout that PINS its fonts renders the same either side: the stock corpus layouts resolve `minorHAnsi` to Calibri through their theme part, and their sandbox renders matched the mock (2026-08-01). A blank `create_layout` build now pins the same typography itself — its scaffolded `styles.xml` names Calibri 11 pt explicitly in `docDefaults` ([#3](https://github.com/TKapitan/bc-word-layout-mcp/issues/3); `DefaultStylesScaffold`), so the two-renderers-two-fonts disagreement is fixed at create time — **BC-verified 2026-08-02** across three from-scratch layouts (round 2, items P01/P06/P07: same typeface and sizes both sides, including a `tableStyle='TableGrid'` reference BC honoured from the scaffolded styles part and explicit `fontSizePoints`/`bold` runs over the pinned base). A layout that names NO font (externally authored, or a `templatePath` shell without a styles part) still renders each side's own default — check which case you are in before reading anything into a font difference. |
 | Pagination / page breaks / "different first page" headers | **[Manual]** | Word/LibreOffice's pagination engine is not BC's report engine. Measured once (2026-08-01, a 2-page purchase order): same page count, same first-page→default header/footer switch at page 2, page break within ONE row. Re-measured 2026-08-02 (a 6-page report): header/footer parts repeat identically both sides, but **repeated table header rows (`w:tblHeader`) are a known MOCK gap** — BC repeats them on every page, the mock loses them because Word fragments the table at the merged copy's flattened row-SDT wrappers ([#19](https://github.com/TKapitan/bc-word-layout-mcp/issues/19)); the layout itself is correct. Still manual — one document is not a guarantee. Note that BC honours the Word first/default/even part model exactly, so a layout with `w:titlePg` renders its FIRST-page parts on page 1. |
 | Picture rendering (placeholder vs. real image) | **[Automated for Word path]** / **[Manual for LibreOffice + real image]** | `MergeEngineTests.Corpus_picture_controls_are_filled_with_a_valid_placeholder_png` asserts the placeholder PNG fill itself; `FidelityHarnessTests`/`PdfConverterTests` render it end-to-end via Word COM. The LibreOffice path is unverified — LibreOffice was never installed on the reference dev machine, so whether it accepts the placeholder image part's package-root/absolute relationship target is still open (see [#7](https://github.com/TKapitan/bc-word-layout-mcp/issues/7)). What a genuine (non-placeholder) picture looks like is manual either way — the mock always substitutes a placeholder, by design. |
-| Number/date/locale formatting | **[Automated determinism]** / **[Manual vs BC locale]** | `SampleDataGeneratorTests` locks down the generator's own deterministic, type-aware output run over run. Whether it matches BC's locale-aware formatting is manual, and it will not: the sandbox rendered `31. März 2025` / `1.800,00` from its own regional settings. With a real exported dataset the values come from BC itself — except that BC's export carries RAW numbers plus a `decimalformatter` attribute which nothing here applies yet ([#4](https://github.com/TKapitan/bc-word-layout-mcp/issues/4)), so amounts can still read `100` where BC prints `100.00`. |
+| Number/date/locale formatting | **[Automated determinism]** / **[Manual vs BC locale]** | `SampleDataGeneratorTests` locks down the generator's own deterministic, type-aware output run over run. Whether it matches BC's locale-aware formatting is manual, and it will not: the sandbox rendered `31. März 2025` / `1.800,00` from its own regional settings. With a real exported dataset the values come from BC itself — including raw-number columns: each `decimalformatter` attribute the export carries is applied with the export's own `formatRegion` culture ([#4](https://github.com/TKapitan/bc-word-layout-mcp/issues/4), fixed; `ReportDataSetConverter`, guarded by `SampleDataGeneratorTests`' export-shape tests), so `100` renders `100.00` as BC prints it. One caveat stays manual: the separator GLYPHS come from `formatRegion`, while a BC user whose personal regional settings differ from the report's format region may see different ones. |
 | Hide-if-empty conditional controls | **[Deferred]** | Phase 0.2 (reverse-engineering the BC add-in's Hide Field if Zero / Hide Empty Table / Hide Empty Table Row / layout comment OOXML) was never completed, so this is not implemented in `MergeEngine` and there is no `set_hide_if_empty` editing tool ([#8](https://github.com/TKapitan/bc-word-layout-mcp/issues/8)). Nothing to check yet on the current corpus either — no reviewed layout uses these controls. |
 | Report limits / large datasets | **[Manual]** | `MergeOptions.MaxRowsPerRepeater` (default 100) bounds the MOCK preview's own row count for robustness — a safeguard against the mock blowing up, not a statement about BC's real limits. Actual BC report performance/limits at production data volumes are sandbox-only. |
 
@@ -56,9 +56,9 @@ tool's own mock render of it, a README naming the questions that item's BC rende
 tool-call/validation record; the pack root carries `INSTRUCTIONS.md` (BC-side procedure) and
 `COMPARISON.md` (a per-item sheet keyed to the dimensions table above).
 
-`python tools/e2e/bc_compare.py` then closes the loop: it converts each BC dataset export into the shape
-`dataOverridesPath` accepts and re-runs the mock on **the data BC itself used**, rendering PNGs beside
-the BC ones. Without that step a side-by-side conflates two questions — "does the layout render the
+`python tools/e2e/bc_compare.py` then closes the loop: it re-runs the mock on **the data BC itself
+used** (each BC dataset export, passed straight to `dataOverridesPath` — accepted as-is since
+[#4](https://github.com/TKapitan/bc-word-layout-mcp/issues/4)), rendering PNGs beside the BC ones. Without that step a side-by-side conflates two questions — "does the layout render the
 same" and "is the data the same" — and only the first one is ours.
 
 Prefer this over the ad-hoc procedure below: it fixes *what* gets rendered and *what to look for*, so two
@@ -77,8 +77,9 @@ bound fields in header and footer parts, carrying data on every page of a 2-page
 Compared on identical data, the mock and BC renders were **structurally identical** — same fields, values,
 row counts, column geometry, rules and page count. What differed: the picture placeholder (by design),
 the font on the one layout that names no font ([#3](https://github.com/TKapitan/bc-word-layout-mcp/issues/3)),
-and amounts where BC's export carries a `decimalformatter` nothing applies yet
-([#4](https://github.com/TKapitan/bc-word-layout-mcp/issues/4)).
+and amounts where BC's export carries a `decimalformatter` nothing applied at the time
+([#4](https://github.com/TKapitan/bc-word-layout-mcp/issues/4) — since fixed: the formatter is now
+applied with the export's `formatRegion` culture).
 
 Two results worth keeping in mind when reading a finding from this tool:
 
@@ -110,10 +111,11 @@ passed**; the filled comparison sheet lives with the round's pack output.
 - **An old-style report works from scratch**: P07 targets report 115 (dedicated `Labels` data item, no
   `*_Lbl` columns); labels bound from the `Labels` item carried their caption text, and a nested
   detail repeater built from nothing repeated per entry without drifting off the parent grid.
-- The only recurring difference remains the **`decimalformatter` gap
-  ([#4](https://github.com/TKapitan/bc-word-layout-mcp/issues/4))**: columns whose BC export carries
-  raw numbers render unformatted in the mock (`1002060.00` vs BC's `1,002,060.00`); pre-formatted
-  columns match exactly.
+- The only recurring difference remained the **`decimalformatter` gap
+  ([#4](https://github.com/TKapitan/bc-word-layout-mcp/issues/4) — since fixed)**: columns whose BC
+  export carries raw numbers rendered unformatted in the mock (`1002060.00` vs BC's `1,002,060.00`);
+  pre-formatted columns matched exactly. The formatter is now applied at load with the export's
+  `formatRegion` culture, so the next round's comparison should show no such difference.
 - **One new mock-fidelity gap, found in post-round review of P07's page 2** (maintainer-reported):
   BC repeats the repeater table's `w:tblHeader` header row on every page, the mock does not. The
   LAYOUT is correct — `insert_repeater_table` marks the header row and BC honours it; the loss is in
