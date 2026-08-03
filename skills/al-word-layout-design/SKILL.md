@@ -122,7 +122,7 @@ buildable equivalent, and it is the shape BC verified.
   static text otherwise [verified: P07].
 - The header row repeats on every page of a multi-page table without you doing anything —
   `insert_repeater_table` always marks it `w:tblHeader`, a corpus-observed shape [stock: 1304,
-  115]. BC honours it [verified: P07]; only the mock preview loses the repetition (#19, §6).
+  115]. BC honours it [verified: P07], and since the #19 fix the mock preview repeats it too.
 - Two buildable looks, both BC-proven:
   - **Open** [stock: 1304, 1322]: no table style, single ½ pt rule under the header row —
     `set_cell_borders` `row=0, edges="bottom", size=4`.
@@ -189,10 +189,10 @@ buildable equivalent, and it is the shape BC verified.
 
 ## 6. Design-time mock caveats
 
-One known mock-preview gap looks like a design mistake but isn't — don't redesign around it
-(sandbox render is the sign-off, per al-word-layout §4):
-
-- A repeated table header row never spans pages in the mock even when BC repeats it — #19.
+No known mock-preview gap currently looks like a design mistake. The one that did — a repeated
+table header row never spanning pages in the mock even when BC repeats it — is fixed (#19): the
+mock now repeats it exactly as BC does. Sandbox render stays the sign-off (al-word-layout §4);
+a newly discovered gap gets listed here so nobody redesigns around a mock artefact.
 
 ## 7. Handover checklist
 
@@ -203,4 +203,4 @@ One known mock-preview gap looks like a design mistake but isn't — don't redes
 - [ ] Numeric columns + their captions right-aligned; description widest; ½ pt rules only.
 - [ ] Totals: bold amount, top rule, right-anchored.
 - [ ] `validate_layout level=full` passes 0/0 and the preview pages were actually looked at
-      (`render_preview_pages`), modulo the §6 caveats.
+      (`render_preview_pages`), modulo any §6 caveats.
