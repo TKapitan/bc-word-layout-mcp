@@ -27,6 +27,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Tool descriptions and error hints no longer claim a missing `partName` targets "the FIRST
   header/footer part": resolution has always preferred the first section's DEFAULT part, and the
   wording now says so and points at `partDetails`.
+- **New tool `insert_page_number`** (GitHub issue #29): emits the Word `PAGE`/`NUMPAGES` field-code
+  construct every stock BC document header carries — by default the full "X / Y" shape (`PAGE`
+  field, literal `" / "`, `NUMPAGES` field), or the bare `PAGE` field with `includeTotal=false` —
+  exactly as captured in the four corpus layouts that carry it (StandardSalesQuote,
+  StandardPurchaseOrder, StandardSalesInvoiceVatSpec, SalespersonCommission), including the
+  instruction spacing and the `w:noProof` cached-result run. Field codes are plain runs (no content
+  control), so like `insert_text` the response's `controlId` is `0`. Supports the same locations,
+  header/footer targeting, on-demand part scaffolding, and optional `bold`/`fontSizePoints` as
+  `insert_text`. The stock idiom's leading caption stays a composed `insert_label` (`Page_Lbl`) +
+  `insert_text` separator, so it remains a translatable dataset binding.
 
 ## [1.0.0] - 2026-08-03
 
