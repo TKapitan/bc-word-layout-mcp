@@ -30,11 +30,16 @@ public static class ReadTools
                  + "parent repeater, and for each control its structural LEVEL - run/block/cell/row/runRuby - "
                  + "plus its tableIndex/rowIndex/colIndex when it sits in a table), a TABLES section "
                  + "describing every table's grid (rowCount, columnCount, gridColumnWidths) and, per row and "
-                 + "cell, which control owns it and the cell's visible text, and a quick validation status "
-                 + "summary. IMPORTANT for editing: a control whose level is 'cell' wraps a whole table cell "
-                 + "(one column) - e.g. BC header address fields; removing it is safe (remove_control never "
-                 + "deletes the cell/column), but use this table detail to understand what a control occupies "
-                 + "before editing.")]
+                 + "cell, which control owns it and the cell's visible text, a PART DETAILS section giving "
+                 + "each OOXML part's kind and header/footer ROLE (default/first/even - plus isDefaultTarget, "
+                 + "the part a header/footer edit with no partName lands in) alongside hasTitlePage (whether "
+                 + "page 1 renders the 'first'-role parts INSTEAD of the default ones), and a quick "
+                 + "validation status summary. IMPORTANT for editing: a control whose level is 'cell' wraps "
+                 + "a whole table cell (one column) - e.g. BC header address fields; removing it is safe "
+                 + "(remove_control never deletes the cell/column), but use this table detail to understand "
+                 + "what a control occupies before editing. Check partDetails BEFORE any header/footer edit: "
+                 + "the package-order first part is frequently the even-page or first-page one, not the "
+                 + "everyday default.")]
     public static ToolResponse GetLayoutInfo(
         [Description("Absolute path to the .docx layout file.")] string layoutPath)
     {
@@ -67,7 +72,9 @@ public static class ReadTools
                 ControlSummary: summary,
                 Parts: inventory.Parts,
                 Controls: controls,
-                Tables: inventory.Tables.Select(ToTableDto).ToList());
+                Tables: inventory.Tables.Select(ToTableDto).ToList(),
+                PartDetails: inventory.PartDetails.Select(ToPartInfoDto).ToList(),
+                HasTitlePage: inventory.HasTitlePage);
 
             return ToolResponse.Success(dto);
         });

@@ -189,7 +189,10 @@ Conventions that hold across the surface:
   tableIndex?, row?, col?, searchText?, layoutPart?, partName?}`. Edits stay deterministic without the
   agent knowing OOXML positions. `layoutPart: header|footer` with no `partName` resolves the **first
   section's default** header/footer — not the first part in the package, which is frequently the even-page
-  or first-page one.
+  or first-page one. `get_layout_info` surfaces those facts (`partDetails`: per-part kind/role/
+  default-target, plus `hasTitlePage`), and an insert landing in the default part of a `w:titlePg`
+  layout without an explicit `partName` says so in its summary — issue #5's fix, so an agent can reason
+  about first-page visibility from the tool surface alone.
 - **Coordinates round-trip.** The `tableIndex`/`row`/`col` an agent reads from `get_layout_info` address
   the same physical spot in every editing tool, by construction: reader and editor share
   `TableGridNavigator` rather than keeping parallel implementations.

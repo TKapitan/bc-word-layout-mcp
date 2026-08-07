@@ -5,6 +5,29 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `get_layout_info` now reports each OOXML part's rendering facts alongside the flat `parts` list
+  (GitHub issue #5): a `partDetails` section giving every part's `kind` (`document`/`header`/`footer`),
+  its header/footer `role` (`default`/`first`/`even`, from the section's
+  `w:headerReference`/`w:footerReference`; `null` when no section references it), and
+  `isDefaultTarget` — the part a `layoutPart='header'/'footer'` location with no explicit `partName`
+  actually resolves to, computed through the same selection logic the edit tools use. A new top-level
+  `hasTitlePage` flag says whether the layout renders a distinct first page (`w:titlePg`), in which
+  case page 1 shows the `first`-role parts instead of the default ones.
+- The insert tools (`insert_field`, `insert_label`, `insert_text`, `insert_picture`) now append a
+  warning to their summary when content lands in the DEFAULT header/footer of a `w:titlePg` layout
+  without an explicit `partName` — the "correctly inserted but invisible on a one-page render" trap
+  that previously cost a sandbox round to diagnose.
+
+### Changed
+
+- Tool descriptions and error hints no longer claim a missing `partName` targets "the FIRST
+  header/footer part": resolution has always preferred the first section's DEFAULT part, and the
+  wording now says so and points at `partDetails`.
+
 ## [1.0.0] - 2026-08-03
 
 Initial release — the first stable version. The only earlier tags are the `v1.0.0-rc.1`/`v1.0.0-rc.2`
