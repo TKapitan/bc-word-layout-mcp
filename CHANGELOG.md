@@ -31,6 +31,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `bold`/`fontSizePoints` for the stock grand-total look. The row is a direct child of the table,
   never part of a repeating section, so it renders exactly once — verified against a real merge.
   Works on body and header/footer tables; vMerge tables are rejected like every structure op.
+- `get_layout_info` now reports each OOXML part's rendering facts alongside the flat `parts` list
+  (GitHub issue #5): a `partDetails` section giving every part's `kind` (`document`/`header`/`footer`),
+  its header/footer `role` (`default`/`first`/`even`, from the section's
+  `w:headerReference`/`w:footerReference`; `null` when no section references it), and
+  `isDefaultTarget` — the part a `layoutPart='header'/'footer'` location with no explicit `partName`
+  actually resolves to, computed through the same selection logic the edit tools use. A new top-level
+  `hasTitlePage` flag says whether the layout renders a distinct first page (`w:titlePg`), in which
+  case page 1 shows the `first`-role parts instead of the default ones.
+- The insert tools (`insert_field`, `insert_label`, `insert_text`, `insert_picture`) now append a
+  warning to their summary when content lands in the DEFAULT header/footer of a `w:titlePg` layout
+  without an explicit `partName` — the "correctly inserted but invisible on a one-page render" trap
+  that previously cost a sandbox round to diagnose.
 - **New tool `insert_page_number`** (GitHub issue #29): emits the Word `PAGE`/`NUMPAGES` field-code
   construct every stock BC document header carries — by default the full "X / Y" shape (`PAGE`
   field, literal `" / "`, `NUMPAGES` field), or the bare `PAGE` field with `includeTotal=false` —
@@ -41,6 +53,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   header/footer targeting, on-demand part scaffolding, and optional `bold`/`fontSizePoints` as
   `insert_text`. The stock idiom's leading caption stays a composed `insert_label` (`Page_Lbl`) +
   `insert_text` separator, so it remains a translatable dataset binding.
+
+### Changed
+
+- Tool descriptions and error hints no longer claim a missing `partName` targets "the FIRST
+  header/footer part": resolution has always preferred the first section's DEFAULT part, and the
+  wording now says so and points at `partDetails`.
 
 ## [1.0.0] - 2026-08-03
 

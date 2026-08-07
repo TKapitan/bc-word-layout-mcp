@@ -282,7 +282,8 @@ public static class TableTools
                      + "to leave it unstyled.")] double? fontSizePoints = null,
         [Description("Which OOXML part the table is in: 'body' (default), 'header', or 'footer'.")] string layoutPart = "body",
         [Description("Only used when layoutPart is 'header'/'footer': a specific part file name (e.g. "
-                     + "'header2.xml'); omit to use the first header/footer part.")] string? partName = null)
+                     + "'header2.xml'); omit to target the DEFAULT header/footer part (see get_layout_info's "
+                     + "partDetails for each part's role).")] string? partName = null)
     {
         return GuardTableEdit(layoutPath, doc =>
         {
@@ -368,7 +369,8 @@ public static class TableTools
                      + "table's columnCount).")] string widths,
         [Description("Which OOXML part the table is in: 'body' (default), 'header', or 'footer'.")] string layoutPart = "body",
         [Description("Only used when layoutPart is 'header'/'footer': a specific part file name (e.g. "
-                     + "'header2.xml'); omit to use the first header/footer part.")] string? partName = null)
+                     + "'header2.xml'); omit to target the DEFAULT header/footer part (see get_layout_info's "
+                     + "partDetails for each part's role).")] string? partName = null)
     {
         return GuardTableEdit(layoutPath, doc =>
         {
@@ -423,7 +425,8 @@ public static class TableTools
         int? width = null,
         [Description("Which OOXML part the table is in: 'body' (default), 'header', or 'footer'.")] string layoutPart = "body",
         [Description("Only used when layoutPart is 'header'/'footer': a specific part file name (e.g. "
-                     + "'header2.xml'); omit to use the first header/footer part.")] string? partName = null)
+                     + "'header2.xml'); omit to target the DEFAULT header/footer part (see get_layout_info's "
+                     + "partDetails for each part's role).")] string? partName = null)
     {
         return GuardTableEdit(layoutPath, doc =>
         {
@@ -460,7 +463,8 @@ public static class TableTools
         [Description("0-based GRID column index to remove (0..columnCount-1 from get_layout_info).")] int column,
         [Description("Which OOXML part the table is in: 'body' (default), 'header', or 'footer'.")] string layoutPart = "body",
         [Description("Only used when layoutPart is 'header'/'footer': a specific part file name (e.g. "
-                     + "'header2.xml'); omit to use the first header/footer part.")] string? partName = null)
+                     + "'header2.xml'); omit to target the DEFAULT header/footer part (see get_layout_info's "
+                     + "partDetails for each part's role).")] string? partName = null)
     {
         return GuardTableEdit(layoutPath, doc =>
         {
@@ -550,7 +554,8 @@ public static class TableTools
                      + "the real BC corpus uses.")] int size = CellBorderOptions.DefaultSizeEighthPoints,
         [Description("Which OOXML part the table is in: 'body' (default), 'header', or 'footer'.")] string layoutPart = "body",
         [Description("Only used when layoutPart is 'header'/'footer': a specific part file name (e.g. "
-                     + "'header2.xml'); omit to use the first header/footer part.")] string? partName = null)
+                     + "'header2.xml'); omit to target the DEFAULT header/footer part (see get_layout_info's "
+                     + "partDetails for each part's role).")] string? partName = null)
     {
         return GuardTableEdit(layoutPath, doc =>
         {

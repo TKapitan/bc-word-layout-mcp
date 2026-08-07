@@ -830,6 +830,26 @@ internal static class ToolGuards
         _ => "unknown",
     };
 
+    internal static PartInfoDto ToPartInfoDto(LayoutPartInfo p) =>
+        new(p.Name, ToPartKindString(p.Kind), ToRoleString(p.Role), p.IsDefaultTarget);
+
+    /// <summary>Camel-cases the <see cref="LayoutPartKind"/> enum name for the JSON contract (document/header/footer).</summary>
+    private static string ToPartKindString(LayoutPartKind kind) => kind switch
+    {
+        LayoutPartKind.Header => "header",
+        LayoutPartKind.Footer => "footer",
+        _ => "document",
+    };
+
+    /// <summary>Camel-cases the <see cref="HeaderFooterRole"/> enum name for the JSON contract (default/first/even, null when unreferenced).</summary>
+    private static string? ToRoleString(HeaderFooterRole? role) => role switch
+    {
+        HeaderFooterRole.Default => "default",
+        HeaderFooterRole.First => "first",
+        HeaderFooterRole.Even => "even",
+        _ => null,
+    };
+
     internal static TableDto ToTableDto(TableStructure t) =>
         new(t.Part, t.TableIndex, t.RowCount, t.ColumnCount, t.GridColumnWidths,
             t.Rows.Select(r => new TableRowDto(
@@ -1088,7 +1108,8 @@ internal static class ToolGuards
         "layoutpart" =>
             "layoutPart must be one of: 'body' (default), 'header', or 'footer' (case-insensitive); "
             + "partName (optional) only applies when layoutPart is 'header'/'footer' and names a specific "
-            + "part file (e.g. 'header2.xml') — omit it to use the first header/footer part.",
+            + "part file (e.g. 'header2.xml') — omit it to target the DEFAULT header/footer part (see "
+            + "get_layout_info's partDetails for each part's role).",
 
         "location" =>
             "The location you targeted is not valid for this operation (see the message above for which "
@@ -1241,8 +1262,8 @@ internal static class ToolGuards
 
         NotFoundTarget.NamedHeaderFooterPart =>
             "partName does not match any header/footer part in this layout; call get_layout_info and "
-            + "check controls[].part for the real header/footer file names present (e.g. 'header1.xml'), "
-            + "or omit partName to use the first header/footer part.",
+            + "check partDetails for the real header/footer file names present (e.g. 'header1.xml') and "
+            + "each part's role, or omit partName to target the DEFAULT part.",
 
         NotFoundTarget.HeaderFooterParts =>
             "This layout has no header/footer parts at all, so layoutPart='header'/'footer' cannot "

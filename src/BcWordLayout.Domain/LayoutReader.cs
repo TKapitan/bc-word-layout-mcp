@@ -36,14 +36,72 @@ public static class LayoutReader
 
         var controls = new List<LayoutControl>();
         var parts = new List<string>();
+        var partDetails = new List<LayoutPartInfo>();
+        var roles = HeaderFooterPartRoles.Read(main);
+        var defaultHeader = DefaultTargetPartName(doc, LayoutPart.Header);
+        var defaultFooter = DefaultTargetPartName(doc, LayoutPart.Footer);
 
-        foreach (var (root, partName) in PartWalker.ContentParts(main))
+        foreach (var (root, host, partName) in PartWalker.ContentPartsWithHost(main))
         {
             parts.Add(partName);
+            partDetails.Add(DescribePart(host, partName, roles, defaultHeader, defaultFooter));
             Walk(root, partName, parentRepeater: null, coords, controls, depth: 0);
         }
 
-        return new LayoutInventory { Controls = controls, Parts = parts, Tables = tables };
+        return new LayoutInventory
+        {
+            Controls = controls,
+            Parts = parts,
+            PartDetails = partDetails,
+            HasTitlePage = roles.HasTitlePage,
+            Tables = tables,
+        };
+    }
+
+    /// <summary>
+    /// The part a <c>layoutPart='header'/'footer'</c> location with NO explicit part name resolves to —
+    /// asked of <see cref="LocationResolver.ResolvePart"/> itself (the very code path every edit goes
+    /// through) rather than re-deriving its selection rules here, so the answer can never drift from where
+    /// an edit actually lands. Null when the layout has no part of that kind at all.
+    /// </summary>
+    private static string? DefaultTargetPartName(WordprocessingDocument doc, LayoutPart part)
+    {
+        try
+        {
+            return LocationResolver.ResolvePart(doc, part, partName: null).PartName;
+        }
+        catch (NotFoundException)
+        {
+            return null;
+        }
+    }
+
+    private static LayoutPartInfo DescribePart(
+        OpenXmlPart host,
+        string partName,
+        HeaderFooterPartRoles roles,
+        string? defaultHeader,
+        string? defaultFooter)
+    {
+        var kind = host switch
+        {
+            HeaderPart => LayoutPartKind.Header,
+            FooterPart => LayoutPartKind.Footer,
+            _ => LayoutPartKind.Document,
+        };
+
+        return new LayoutPartInfo
+        {
+            Name = partName,
+            Kind = kind,
+            Role = kind == LayoutPartKind.Document ? null : roles.RoleOf(partName),
+            IsDefaultTarget = kind switch
+            {
+                LayoutPartKind.Header => string.Equals(partName, defaultHeader, StringComparison.OrdinalIgnoreCase),
+                LayoutPartKind.Footer => string.Equals(partName, defaultFooter, StringComparison.OrdinalIgnoreCase),
+                _ => false,
+            },
+        };
     }
 
     /// <summary>

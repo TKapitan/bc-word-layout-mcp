@@ -317,7 +317,7 @@ public static class LocationResolver
         {
             throw new NotFoundException(
                 $"Layout has no {kindLabel} parts; cannot resolve a location targeting {kindLabel} part "
-                + $"{(partName is null ? "(unspecified, would use the first one)" : $"'{partName}'")}.",
+                + $"{(partName is null ? "(unspecified, would use the default one)" : $"'{partName}'")}.",
                 NotFoundTarget.HeaderFooterParts);
         }
 

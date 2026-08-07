@@ -124,13 +124,36 @@ public sealed record TableDto(
     IReadOnlyList<int> GridColumnWidths,
     IReadOnlyList<TableRowDto> Rows);
 
+/// <summary>
+/// One content part of the layout, with its RENDERING facts: <see cref="Kind"/> is
+/// <c>document</c>/<c>header</c>/<c>footer</c>; <see cref="Role"/> is which pages the section reference
+/// assigns it (<c>default</c> = everyday pages, <c>first</c> = the first page — only rendered when the
+/// layout sets <c>w:titlePg</c>, see <see cref="LayoutInfoDto.HasTitlePage"/> — <c>even</c> = even pages;
+/// null for the document part or a part no section references). <see cref="IsDefaultTarget"/> marks the
+/// part a <c>layoutPart='header'/'footer'</c> location WITHOUT an explicit <c>partName</c> resolves to —
+/// computed through the same selection logic the edit tools use, so it cannot disagree with where an edit
+/// lands.
+/// </summary>
+public sealed record PartInfoDto(string Name, string Kind, string? Role, bool IsDefaultTarget);
+
+/// <summary>
+/// <c>get_layout_info</c>'s payload. <see cref="Parts"/> is the flat part-name list (kept stable);
+/// <see cref="PartDetails"/> is the same list with each part's kind/role/default-target facts — what a
+/// caller must consult before addressing a header/footer edit, because the package-order FIRST part is
+/// frequently NOT the everyday default one (see <see cref="PartInfoDto"/>). <see cref="HasTitlePage"/> is
+/// true when the first section renders a DIFFERENT FIRST PAGE (<c>w:titlePg</c>): page 1 then shows the
+/// <c>first</c>-role header/footer (or none), not the <c>default</c> one — the reason a correctly
+/// inserted default-header field can be invisible on a one-page render (GitHub issue #5).
+/// </summary>
 public sealed record LayoutInfoDto(
     ReportInfoDto Report,
     ValidationSummaryDto Validation,
     ControlSummaryDto ControlSummary,
     IReadOnlyList<string> Parts,
     IReadOnlyList<ControlDto> Controls,
-    IReadOnlyList<TableDto> Tables);
+    IReadOnlyList<TableDto> Tables,
+    IReadOnlyList<PartInfoDto> PartDetails,
+    bool HasTitlePage);
 
 public sealed record ColumnDto(string Name, string Path, bool IsLabel, bool? Bound);
 
