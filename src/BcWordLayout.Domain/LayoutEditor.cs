@@ -113,6 +113,77 @@ public static class LayoutEditor
     }
 
     /// <summary>
+    /// Inserts the Word <c>PAGE</c>/<c>NUMPAGES</c> field-code runs every stock BC document header uses
+    /// for its page chrome (<c>"1 / 3"</c>) at <paramref name="location"/> — see
+    /// <see cref="PageNumberFieldFactory"/> for the corpus-mirrored shape and evidence. With
+    /// <paramref name="includeTotal"/> (the default, the stock shape) the sequence is
+    /// PAGE-field, literal <c>" / "</c>, NUMPAGES-field; without it, the PAGE field alone.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// LIKE <see cref="InsertText"/>, THIS CREATES NO CONTROL — field codes are plain runs, so the result's
+    /// <see cref="EditResult.ControlId"/> is 0 and the runs cannot afterwards be addressed by
+    /// <c>remove_control</c> or used as an <c>afterControl</c> anchor. The stock idiom's leading label
+    /// ("Page") is deliberately not emitted here: bind the dataset's <c>Page_Lbl</c> via
+    /// <c>insert_label</c> (it stays translatable that way) and chain this after it — the corpus shape is
+    /// label, two literal spaces (<c>insert_text</c>), then these fields.
+    /// </para>
+    /// <para>
+    /// The numbers a MOCK preview shows for these fields come from the PDF converter (Word/LibreOffice)
+    /// recalculating them, exactly like BC's own rendering does — the cached <c>1</c> in the emitted runs
+    /// is only what displays in an editor that has never repaginated the document.
+    /// </para>
+    /// </remarks>
+    /// <exception cref="ArgumentException">
+    /// <paramref name="format"/> sets an alignment (a paragraph/cell concern — see
+    /// <see cref="TryPrepareRunFormat"/>) or an out-of-range font size.
+    /// </exception>
+    /// <exception cref="NotFoundException">Propagated from <see cref="LocationResolver.Resolve"/>.</exception>
+    public static EditResult InsertPageNumber(
+        WordprocessingDocument doc, Location location, bool includeTotal = true, CellTextFormat? format = null)
+    {
+        ArgumentNullException.ThrowIfNull(doc);
+        ArgumentNullException.ThrowIfNull(location);
+
+        var runs = includeTotal
+            ? PageNumberFieldFactory.BuildPageOfTotal()
+            : PageNumberFieldFactory.BuildPageNumber();
+        foreach (var run in runs)
+        {
+            ApplyRunFormat(run, format, "insert_page_number");
+        }
+
+        var scaffolded = EnsureTargetPartExists(doc, location);
+        var anchor = LocationResolver.Resolve(location, doc);
+
+        // The construct is a SEQUENCE of sibling runs; InsertInline places the first one per the anchor's
+        // own rule (in the existing run flow, or a fresh paragraph), and the rest chain directly after it
+        // so the whole sequence stays contiguous regardless of which rule applied.
+        anchor.InsertInline(runs[0]);
+        for (var i = 1; i < runs.Count; i++)
+        {
+            runs[i - 1].InsertAfterSelf(runs[i]);
+        }
+
+        var shape = includeTotal ? "PAGE / NUMPAGES (\"1 / 3\")" : "PAGE (current page number)";
+        return new EditResult
+        {
+            Operation = "insert_page_number",
+            ControlId = 0, // field codes are plain runs; no content control exists to carry an id
+            Kind = "PageNumberField",
+            Part = anchor.PartName,
+            Summary = $"Inserted {shape} field codes at {DescribeLocation(location, anchor.PartName)}. "
+                + "They are plain field-code runs, not a content control, so there is no controlId and they "
+                + "cannot be targeted by remove_control or used as an afterControl anchor. Word/BC "
+                + "recalculates the numbers on render; the visible '1' is only the cached placeholder."
+                + (scaffolded
+                    ? $" The layout had no {location.Part.ToString().ToLowerInvariant()} part, so an empty "
+                      + $"{anchor.PartName} was created and wired into the page setup first."
+                    : string.Empty),
+        };
+    }
+
+    /// <summary>
     /// Inserts a PICTURE content control bound to <paramref name="datasetPath"/> at
     /// <paramref name="location"/> — the placeholder BC fills with a real image at render time, e.g. the
     /// company logo (<c>/Header/CompanyPicture</c>) a from-scratch layout could not carry at all before this

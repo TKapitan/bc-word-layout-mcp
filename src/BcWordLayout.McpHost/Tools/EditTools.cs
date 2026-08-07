@@ -146,6 +146,53 @@ public static class EditTools
         });
     }
 
+    [McpServerTool(Name = "insert_page_number")]
+    [Description("Insert Word PAGE/NUMPAGES field codes - the 'Page X / Y' chrome every stock BC document "
+                 + "header carries (corpus-verified in StandardSalesQuote, StandardPurchaseOrder, "
+                 + "StandardSalesInvoiceVatSpec and SalespersonCommission; identical construct in all "
+                 + "four). By default emits the full stock shape: a PAGE field, a literal ' / ' separator, "
+                 + "and a NUMPAGES field; pass includeTotal=false for the current page number alone. Word "
+                 + "and BC recalculate the numbers on render. The stock idiom's leading caption is NOT "
+                 + "emitted - compose it yourself so it stays translatable: insert_label the dataset's "
+                 + "Page_Lbl, insert_text two spaces after it (afterControl), then this tool. IMPORTANT: "
+                 + "field codes are plain runs, NOT a content control - the response's controlId is 0 and "
+                 + "the runs cannot later be targeted by remove_control or used as an afterControl anchor "
+                 + "(reach them with an 'atText' location if needed). Page numbers belong in a header/"
+                 + "footer (pass layoutPart) - a body-placed field renders where it sits and does not "
+                 + "repeat per page. With locationType='documentEnd' and no partName, a layout with NO "
+                 + "header/footer part yet gets an empty one scaffolded automatically, like insert_field. "
+                 + "Same write/validate/save-or-reject safety as insert_field.")]
+    public static ToolResponse InsertPageNumber(
+        [Description("Absolute path to the .docx layout file.")] string layoutPath,
+        [Description("Where to insert: 'documentEnd', 'afterControl', 'tableCell', or 'atText' "
+                     + "(case-insensitive).")] string locationType,
+        [Description("Required for 'afterControl': the w:id of the control to insert after.")] int? controlId = null,
+        [Description("Required for 'tableCell': 0-based table index in document order.")] int? tableIndex = null,
+        [Description("Required for 'tableCell': 0-based row index within the table.")] int? row = null,
+        [Description("Required for 'tableCell': 0-based cell/column index within the row.")] int? col = null,
+        [Description("Required for 'atText': substring to search for in existing run text (ordinal match).")]
+        string? searchText = null,
+        [Description("When true (default), emit the full stock 'X / Y' shape (PAGE, ' / ', NUMPAGES); "
+                     + "false emits the PAGE field alone.")] bool includeTotal = true,
+        [Description("Which OOXML part locationType resolves within: 'body' (default), 'header', or "
+                     + "'footer' (case-insensitive). Page numbers belong in a header or footer.")]
+        string layoutPart = "body",
+        [Description("Only used when layoutPart is 'header'/'footer': a specific part file name, e.g. "
+                     + "'header2.xml' (see get_layout_info's controls[].part for the names actually present). "
+                     + "Omit to target the DEFAULT part - the everyday header/footer, which is often NOT "
+                     + "the first part in the package.")] string? partName = null,
+        [Description("Optional: true makes the field runs bold, false strips bold; omit to leave them "
+                     + "unstyled so they inherit whatever surrounds them.")] bool? bold = null,
+        [Description("Optional font size in points (4-96, halves allowed); omit to leave the runs "
+                     + "unstyled.")] double? fontSizePoints = null)
+    {
+        return GuardEdit(layoutPath, doc =>
+        {
+            var location = BuildLocation(locationType, controlId, tableIndex, row, col, searchText, layoutPart, partName);
+            return LayoutEditor.InsertPageNumber(doc, location, includeTotal, ControlFormat(bold, fontSizePoints));
+        });
+    }
+
     [McpServerTool(Name = "insert_picture")]
     [Description("Insert a PICTURE content control bound to a picture dataset path (e.g. "
                  + "'/Header/CompanyPicture' - the company logo every real BC document header carries), at "

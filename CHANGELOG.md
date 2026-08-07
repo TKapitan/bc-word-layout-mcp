@@ -21,6 +21,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `bold`/`fontSizePoints` for the stock grand-total look. The row is a direct child of the table,
   never part of a repeating section, so it renders exactly once — verified against a real merge.
   Works on body and header/footer tables; vMerge tables are rejected like every structure op.
+- **New tool `insert_page_number`** (GitHub issue #29): emits the Word `PAGE`/`NUMPAGES` field-code
+  construct every stock BC document header carries — by default the full "X / Y" shape (`PAGE`
+  field, literal `" / "`, `NUMPAGES` field), or the bare `PAGE` field with `includeTotal=false` —
+  exactly as captured in the four corpus layouts that carry it (StandardSalesQuote,
+  StandardPurchaseOrder, StandardSalesInvoiceVatSpec, SalespersonCommission), including the
+  instruction spacing and the `w:noProof` cached-result run. Field codes are plain runs (no content
+  control), so like `insert_text` the response's `controlId` is `0`. Supports the same locations,
+  header/footer targeting, on-demand part scaffolding, and optional `bold`/`fontSizePoints` as
+  `insert_text`. The stock idiom's leading caption stays a composed `insert_label` (`Page_Lbl`) +
+  `insert_text` separator, so it remains a translatable dataset binding.
 
 ## [1.0.0] - 2026-08-03
 
