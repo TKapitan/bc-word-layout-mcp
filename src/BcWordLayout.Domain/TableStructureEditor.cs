@@ -645,8 +645,8 @@ public static class TableStructureEditor
     /// is what makes it render exactly once. It is deliberately NOT wrapped in any <c>w:sdt</c>: the
     /// corpus totals rows' own cell-level sdt wrappers are a binding vehicle, and this factory's inline
     /// controls (the shape every tool-built bound cell already uses, BC-verified in the sandbox rounds)
-    /// carry the same bindings without them. Rows INSIDE a repeater's item (per-group subtotals) are a
-    /// separate operation — GitHub issue #30.
+    /// carry the same bindings without them. Rows INSIDE a repeater's item (per-group subtotals) are the
+    /// sibling operation <see cref="LayoutEditor.InsertSubtotalRow"/>.
     /// </remarks>
     /// <exception cref="ArgumentException">
     /// <paramref name="cells"/> is empty or its spans do not sum to the grid column count;

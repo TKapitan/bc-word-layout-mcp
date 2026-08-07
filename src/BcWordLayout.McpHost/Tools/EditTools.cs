@@ -8,8 +8,10 @@ using static BcWordLayout.McpHost.Tools.ToolGuards;
 namespace BcWordLayout.McpHost.Tools;
 
 /// <summary>
-/// MCP tools for editing an EXISTING layout's content: inserting a bound field/label control
-/// (<c>insert_field</c>, <c>insert_label</c>), removing a control (<c>remove_control</c>), and setting/
+/// MCP tools for editing an EXISTING layout's content: inserting a bound field/label/picture control
+/// (<c>insert_field</c>, <c>insert_label</c>, <c>insert_picture</c>), inserting plain runs — static text
+/// (<c>insert_text</c>) and PAGE/NUMPAGES field codes (<c>insert_page_number</c>) — removing a control
+/// (<c>remove_control</c>), and setting/
 /// clearing a PLAIN-TEXT table cell (<c>set_cell_text</c>, <c>clear_cell_text</c>). Table-STRUCTURE edits
 /// (adding/removing/resizing/merging/splitting columns, and the repeater-table author tool) live in
 /// <see cref="TableTools"/> instead. Every mutating tool here routes through <see cref="ToolGuards"/>'s
@@ -181,9 +183,10 @@ public static class EditTools
                      + "'footer' (case-insensitive). Page numbers belong in a header or footer.")]
         string layoutPart = "body",
         [Description("Only used when layoutPart is 'header'/'footer': a specific part file name, e.g. "
-                     + "'header2.xml' (see get_layout_info's controls[].part for the names actually present). "
-                     + "Omit to target the DEFAULT part - the everyday header/footer, which is often NOT "
-                     + "the first part in the package.")] string? partName = null,
+                     + "'header2.xml'. Omit to target the DEFAULT part - the everyday header/footer, which "
+                     + "is often NOT the first part in the package (get_layout_info's partDetails gives "
+                     + "each part's role; in a hasTitlePage layout, page 1 renders the 'first'-role part "
+                     + "instead of the default one).")] string? partName = null,
         [Description("Optional: true makes the field runs bold, false strips bold; omit to leave them "
                      + "unstyled so they inherit whatever surrounds them.")] bool? bold = null,
         [Description("Optional font size in points (4-96, halves allowed); omit to leave the runs "

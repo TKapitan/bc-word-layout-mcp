@@ -57,6 +57,53 @@ public class PackagingMetadataTests
     }
 
     /// <summary>
+    /// The MCP registry's server.json schema (2025-10-17) caps every <c>description</c> at 100
+    /// characters — the registry rejects a manifest over the limit, and the original manifest shipped
+    /// three descriptions over it (found 2026-08-08 via the IDE's schema validation). Walks the whole
+    /// document so a description added anywhere later (a new environment variable, say) is covered
+    /// without this test knowing the paths.
+    /// </summary>
+    [Fact]
+    public void NuGet_server_manifest_descriptions_fit_the_registry_schema_limit()
+    {
+        using var doc = JsonDocument.Parse(File.ReadAllText(PackagingFile("server.json")));
+
+        var over = new List<string>();
+        void Walk(JsonElement element, string path)
+        {
+            switch (element.ValueKind)
+            {
+                case JsonValueKind.Object:
+                    foreach (var property in element.EnumerateObject())
+                    {
+                        if (property.Name == "description"
+                            && property.Value.ValueKind == JsonValueKind.String
+                            && property.Value.GetString()!.Length > 100)
+                        {
+                            over.Add($"{path}.description ({property.Value.GetString()!.Length} chars)");
+                        }
+
+                        Walk(property.Value, $"{path}.{property.Name}");
+                    }
+
+                    break;
+                case JsonValueKind.Array:
+                    var index = 0;
+                    foreach (var item in element.EnumerateArray())
+                    {
+                        Walk(item, $"{path}[{index++}]");
+                    }
+
+                    break;
+            }
+        }
+
+        Walk(doc.RootElement, "$");
+        Assert.True(over.Count == 0,
+            "server.json descriptions over the registry's 100-char cap: " + string.Join("; ", over));
+    }
+
+    /// <summary>
     /// Covers both plugin manifests: the Claude Code one (<c>.claude-plugin/plugin.json</c>) and the
     /// VS Code / GitHub Copilot one (root <c>plugin.json</c>). They pin the same dnx reference and
     /// must both follow a version bump.

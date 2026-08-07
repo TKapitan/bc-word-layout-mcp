@@ -282,6 +282,56 @@ public class PageNumberFieldTests
         }
     }
 
+    // ---- the first-page-visibility note (issue #5's mechanism, applied here) ----
+
+    [Fact]
+    public void InsertPageNumber_into_default_header_of_a_titlePg_layout_warns_it_is_invisible_on_page_1()
+    {
+        // A page number in the default header of a w:titlePg layout is the canonical instance of the
+        // issue-#5 trap: page 1 renders the first-page part, so the number never shows on a one-pager.
+        var path = CopyOfCorpus(Corpus.StandardPurchaseOrder);
+        try
+        {
+            EditResult result;
+            using (var doc = WordprocessingDocument.Open(path, true))
+            {
+                result = LayoutEditor.InsertPageNumber(
+                    doc, new Location { Type = LocationKind.DocumentEnd, Part = LayoutPart.Header });
+            }
+
+            Assert.Equal("header2.xml", result.Part); // the default header, not package-first header1.xml
+            Assert.Contains("DIFFERENT FIRST PAGE", result.Summary, StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void InsertPageNumber_into_the_header_of_a_layout_without_titlePg_gets_no_first_page_note()
+    {
+        // The valid sibling: JobQuote has the same even/default/first header trio but NO w:titlePg,
+        // so its default header does render on page 1 and the note must not fire.
+        var path = CopyOfCorpus(Corpus.JobQuote);
+        try
+        {
+            EditResult result;
+            using (var doc = WordprocessingDocument.Open(path, true))
+            {
+                result = LayoutEditor.InsertPageNumber(
+                    doc, new Location { Type = LocationKind.DocumentEnd, Part = LayoutPart.Header });
+            }
+
+            Assert.Equal("header2.xml", result.Part);
+            Assert.DoesNotContain("DIFFERENT FIRST PAGE", result.Summary, StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     // ---- the insert_page_number MCP tool ----
 
     [Fact]

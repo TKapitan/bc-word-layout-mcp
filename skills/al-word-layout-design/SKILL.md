@@ -58,7 +58,7 @@ the table index the insert response returns. The whole recipe below rendered cor
 | 4 | Info grid | `insert_table` 3×2, `columnWidths "2800,3000"`, then per row `insert_label` col 0 + `insert_field` col 1 | Caption **beside** value — see §4 for the caption-**above** stock alternative |
 | 5 | Section heading *(optional)* | `insert_text` | `bold=true, fontSizePoints=16` heading (e.g. `"ORDER LINES"`), plus a default-size note line [verified: P06] |
 | 6 | Line items | `insert_repeater_table`, `headerFromLabels=true`, `columnWidths`, `columnAlignments` | Numeric columns right, text left, description widest; `tableStyle="TableGrid"` for a full grid **or** no style + a header rule for the open look (§4) |
-| 7 | Totals | `insert_table` 1×2, `columnWidths "6200,2400"`, `columnAlignments "right,right"`, 2 fills, `set_cell_borders` | Totals text/label left, **bold** amount right, ½ pt rule on top (`edges="top", size=4`) |
+| 7 | Totals | Stock shape: `insert_table_row` on the line table (spacer row `"8:-"`-style, then the bound bold row), `set_cell_borders` for the rule — see §4. Simpler BC-verified alternative: `insert_table` 1×2, `columnWidths "6200,2400"`, `columnAlignments "right,right"`, 2 fills, `set_cell_borders` | Totals text/label left, **bold** amount right, ½ pt rule on top (`edges="top", size=4`) |
 
 Checkpoint rhythm: the verified builds ran one `validate_layout level=full` + one `preview_layout`
 at the very end and passed 0/0 — sufficient at this scale, though per-block `preview_layout` +
