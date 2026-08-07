@@ -683,6 +683,32 @@ def s16(ctx: Ctx):
                f"no labels-convention-hint under the default convention (got {kinds})")
 
 
+@scenario("s18-quote-totals-rows-inside-lines-table",
+          layout="StandardSalesQuote.docx",
+          desc="Append the stock inside-the-table totals shape to the quote lines table: a spacer row, "
+               "then a bold ruled grand-total row bound to two unused Totals columns (issue #28).")
+def s18(ctx: Ctx):
+    before = ctx.info()["tables"][2]
+    ctx.expect(before["columnCount"] == 8, "quote lines table has the corpus-verified 8 columns")
+    rows_before = before["rowCount"]
+
+    ctx.edit("insert_table_row", tableIndex=2, cells="8:-")  # the stock spacer row
+    result = ctx.edit("insert_table_row", tableIndex=2,
+                      cells="-,-,-,-,3:/Header/Totals/TotalExcludingVATText,/Header/Totals/TotalSubTotal",
+                      alignments="-,-,-,-,-,right", bold=True)["data"]
+    ctx.expect("renders exactly once" in result["summary"],
+               "summary pins the static (non-repeating) semantics")
+
+    after = ctx.info()["tables"][2]
+    ctx.expect(after["rowCount"] == rows_before + 2, "both rows joined the lines table itself")
+    last = next(r for r in after["rows"] if r["rowIndex"] == after["rowCount"] - 1)
+    ctx.expect(any("TotalSubTotal" in (c.get("text") or "") for c in last["cells"]),
+               "the grand-total amount cell is bound in the table's last row")
+
+    # The rule above the totals block - the remaining half of the stock look.
+    ctx.edit("set_cell_borders", tableIndex=2, row=after["rowCount"] - 1, edges="top")
+
+
 # ================================================================ CLI
 
 def main() -> int:
