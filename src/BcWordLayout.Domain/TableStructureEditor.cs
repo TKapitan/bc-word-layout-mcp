@@ -625,6 +625,138 @@ public static class TableStructureEditor
     }
 
     /// <summary>
+    /// Inserts ONE static (non-repeating) <c>w:tr</c> into the <paramref name="tableIndex"/>-th table at
+    /// row-slot position <paramref name="atRow"/> (0-based, the SAME numbering <c>get_layout_info</c>'s
+    /// <c>tables[]</c> uses, where a repeater's whole repeating section counts as one row; null appends
+    /// after the last row) — the stock BC shape for the totals block INSIDE the line-items table (GitHub
+    /// issue #28): every stock document layout ends its lines table with right-anchored trailing rows
+    /// (leading empty cells, <c>gridSpan</c>-merged content cells, bound totals fields — corpus:
+    /// <c>StandardSalesQuote</c>/<c>StandardPurchaseOrder</c>/<c>StandardSalesInvoiceVatSpec</c>) rather
+    /// than the separate totals table that used to be the only buildable route. Cell construction is
+    /// <see cref="SdtFactory.BuildStaticRow"/>'s (each <see cref="RepeaterRowCell.Columns"/> entry a FULL
+    /// dataset path; label-shaped paths become labels); the spans must cover the grid exactly, which the
+    /// grid-consistency guard also enforces mechanically before anything reaches disk. The optional
+    /// <paramref name="format"/> styles every bound cell's runs (the corpus grand-total rows are bold) via
+    /// the same path <c>insert_field</c> uses; a literal caption or a rule above the row are follow-up
+    /// <c>set_cell_text</c>/<c>set_cell_borders</c> calls on the reported row.
+    /// </summary>
+    /// <remarks>
+    /// The row is inserted as a DIRECT child of the <c>w:tbl</c>, never inside a repeating section — that
+    /// is what makes it render exactly once. It is deliberately NOT wrapped in any <c>w:sdt</c>: the
+    /// corpus totals rows' own cell-level sdt wrappers are a binding vehicle, and this factory's inline
+    /// controls (the shape every tool-built bound cell already uses, BC-verified in the sandbox rounds)
+    /// carry the same bindings without them. Rows INSIDE a repeater's item (per-group subtotals) are a
+    /// separate operation — GitHub issue #30.
+    /// </remarks>
+    /// <exception cref="ArgumentException">
+    /// <paramref name="cells"/> is empty or its spans do not sum to the grid column count;
+    /// <paramref name="atRow"/> is out of range; <paramref name="format"/> sets an alignment (per-cell
+    /// alignments belong on <paramref name="cells"/>); the table uses vMerge; or (propagated from
+    /// <see cref="SdtFactory.BuildStaticRow"/>) a path does not resolve to a leaf column.
+    /// </exception>
+    /// <exception cref="NotFoundException"><paramref name="tableIndex"/> is out of range for the part.</exception>
+    public static TableEditResult InsertStaticRow(
+        WordprocessingDocument doc,
+        LayoutPart part,
+        string? partName,
+        int tableIndex,
+        int? atRow,
+        IReadOnlyList<RepeaterRowCell> cells,
+        CellTextFormat? format = null)
+    {
+        ArgumentNullException.ThrowIfNull(doc);
+        ArgumentNullException.ThrowIfNull(cells);
+
+        if (cells.Count == 0)
+        {
+            throw new ArgumentException("At least one cell spec is required (cells was empty).", nameof(cells));
+        }
+
+        if (format?.Alignment is not null)
+        {
+            // Checked HERE rather than left to ApplyControlRunFormat below, which only runs for BOUND
+            // cells: an all-spacer row (a legitimate call — the corpus spacer rows) would otherwise
+            // silently swallow the unsupported knob instead of refusing it.
+            throw new ArgumentException(
+                "alignment is not supported as a row-level format on insert_table_row; pass per-cell "
+                + "alignments alongside the cell specs instead (one 'left'/'center'/'right' or '-' per cell).",
+                nameof(format));
+        }
+
+        var (table, partFile, gridCount) = ResolveTable(doc, part, partName, tableIndex);
+        RejectUnsupportedShape(table, "insert_table_row");
+
+        var spanSum = cells.Sum(c => c.Span);
+        if (spanSum != gridCount)
+        {
+            throw new ArgumentException(
+                $"The cells' spans sum to {spanSum} but table {tableIndex} has {gridCount} grid column(s); "
+                + "a static row must cover the grid exactly (use a spacer cell '-' with a span for the "
+                + "unused width, e.g. '4:-').",
+                nameof(cells));
+        }
+
+        var rowSlots = TableGridNavigator.Rows(table);
+        var target = atRow ?? rowSlots.Count;
+        if (target < 0 || target > rowSlots.Count)
+        {
+            throw new ArgumentException(
+                $"atRow {target} is out of range for table {tableIndex}; it has {rowSlots.Count} row(s), so "
+                + $"atRow must be between 0 and {rowSlots.Count} ({rowSlots.Count} = append after the last "
+                + "row, where a totals row goes).",
+                nameof(atRow));
+        }
+
+        // ResolveTable already guarantees a w:tblGrid exists (gridCount comes from it).
+        var gridColumns = table.GetFirstChild<TableGrid>()!.Elements<GridColumn>().ToList();
+        var widths = LayoutEditor.ComputeCellWidthsFromGrid(gridColumns, cells);
+
+        var schema = SchemaProvider.FromLayout(doc);
+        var nextId = LayoutEditor.MakeIdGenerator(doc);
+        var row = SdtFactory.BuildStaticRow(schema, cells, widths, nextId);
+
+        var boundControlIds = new List<int>();
+        foreach (var sdt in row.Descendants<SdtRun>())
+        {
+            LayoutEditor.ApplyControlRunFormat(sdt, format, "insert_table_row");
+            if (SdtInspector.ReadControlId(sdt) is { } id)
+            {
+                boundControlIds.Add(id);
+            }
+        }
+
+        if (target == rowSlots.Count)
+        {
+            // Rows are the last thing CT_Tbl's content model allows, so appending lands after the
+            // existing rows regardless of whether any exist.
+            table.AppendChild(row);
+        }
+        else
+        {
+            table.InsertBefore(row, rowSlots[target].RowChild);
+        }
+
+        var boundSummary = boundControlIds.Count == 0
+            ? "no bound cells (a spacer row)"
+            : $"{boundControlIds.Count} bound control(s) (id(s) {string.Join(", ", boundControlIds)})";
+
+        return new TableEditResult
+        {
+            Operation = "insert_table_row",
+            Part = partFile,
+            TableIndex = tableIndex,
+            ColumnIndex = null,
+            RowsAffected = 1,
+            ColumnCountBefore = gridCount,
+            ColumnCountAfter = gridCount,
+            Summary = $"Inserted a static (non-repeating) row at row index {target} of table {tableIndex} "
+                + $"with {cells.Count} cell(s) and {boundSummary}. It renders exactly once - it is a direct "
+                + "table row, not part of any repeating section. Follow up with set_cell_borders (row "
+                + $"{target}) for the rule a BC totals row carries, or set_cell_text for a literal caption.",
+        };
+    }
+
+    /// <summary>
     /// Removes the <paramref name="gridColumn"/>-th grid column of the <paramref name="tableIndex"/>-th
     /// table: the matching <c>w:gridCol</c>, and in every row the physical cell covering that grid column —
     /// deleted outright when it spans only that column (dropping a bound cell too, unlike

@@ -705,6 +705,62 @@ def s17(ctx: Ctx):
              layoutPart="footer")
 
 
+@scenario("s18-quote-totals-rows-inside-lines-table",
+          layout="StandardSalesQuote.docx",
+          desc="Append the stock inside-the-table totals shape to the quote lines table: a spacer row, "
+               "then a bold ruled grand-total row bound to two unused Totals columns (issue #28).")
+def s18(ctx: Ctx):
+    before = ctx.info()["tables"][2]
+    ctx.expect(before["columnCount"] == 8, "quote lines table has the corpus-verified 8 columns")
+    rows_before = before["rowCount"]
+
+    ctx.edit("insert_table_row", tableIndex=2, cells="8:-")  # the stock spacer row
+    result = ctx.edit("insert_table_row", tableIndex=2,
+                      cells="-,-,-,-,3:/Header/Totals/TotalExcludingVATText,/Header/Totals/TotalSubTotal",
+                      alignments="-,-,-,-,-,right", bold=True)["data"]
+    ctx.expect("renders exactly once" in result["summary"],
+               "summary pins the static (non-repeating) semantics")
+
+    after = ctx.info()["tables"][2]
+    ctx.expect(after["rowCount"] == rows_before + 2, "both rows joined the lines table itself")
+    last = next(r for r in after["rows"] if r["rowIndex"] == after["rowCount"] - 1)
+    ctx.expect(any("TotalSubTotal" in (c.get("text") or "") for c in last["cells"]),
+               "the grand-total amount cell is bound in the table's last row")
+
+    # The rule above the totals block - the remaining half of the stock look.
+    ctx.edit("set_cell_borders", tableIndex=2, row=after["rowCount"] - 1, edges="top")
+
+
+@scenario("s19-subinv-grouped-lines-with-subtotals",
+          layout="SalesInvoiceForSubscriptionBilling.docx",
+          desc="Build the grouped list shape from scratch: /Header/Line repeater, nested AssemblyLine "
+               "detail row, per-group spacer + bold subtotal rows (issue #30), closed by a static "
+               "grand-total row (issue #28).")
+def s19(ctx: Ctx):
+    table = ctx.edit("insert_repeater_table", dataItem="/Header/Line",
+                     columns="ItemNo_Line,Description_Line,Quantity_Line,LineAmount_Line",
+                     locationType="documentEnd", columnAlignments="left,left,right,right")["data"]
+
+    ctx.edit("insert_repeater_row", parentControlId=table["controlId"],
+             dataItem="/Header/Line/AssemblyLine", cells="-,2:Description_AssemblyLine,-")
+
+    # The corpus (SalespersonCommission) group order: spacer row first, bold subtotal row second.
+    ctx.edit("insert_subtotal_row", parentControlId=table["controlId"], cells="4:-")
+    subtotal = ctx.edit("insert_subtotal_row", parentControlId=table["controlId"],
+                        cells="2:-,/Header/Line/AmountExcludingVAT_Line_Lbl,/Header/Line/AmountExcludingVAT_Line",
+                        alignments="-,right,right", bold=True)["data"]
+    ctx.expect(subtotal["controlId"] == 0, "a static row carries no controlId of its own")
+    ctx.expect("once per group" in subtotal["summary"], "summary pins the per-group semantics")
+
+    grand = ctx.edit("insert_table_row", tableIndex=table["tableIndex"],
+                     cells="2:-,/Header/Totals/TotalIncludingVATText,/Header/Totals/TotalAmountIncludingVAT",
+                     alignments="-,right,right", bold=True)["data"]
+    ctx.expect("renders exactly once" in grand["summary"], "the grand total is table-static, not per-group")
+
+    after = ctx.info()["tables"][table["tableIndex"]]
+    ctx.edit("set_cell_borders", tableIndex=table["tableIndex"], row=after["rowCount"] - 1, edges="top")
+
+
 # ================================================================ CLI
 
 def main() -> int:

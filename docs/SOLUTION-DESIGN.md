@@ -166,15 +166,15 @@ alongside the quick checks in `Domain.LayoutValidator`.
 
 ## 4. Tool surface
 
-**24 tools.** [`README.md`](../README.md) is the per-parameter reference; this is the shape and the grouping.
+**26 tools.** [`README.md`](../README.md) is the per-parameter reference; this is the shape and the grouping.
 
 | Group | Tools |
 |---|---|
 | Inspect | `get_layout_info`, `list_dataset_fields` |
 | Validate | `validate_layout` (`quick` \| `full`) |
 | Preview | `preview_layout`, `render_preview_pages` |
-| Author | `create_layout`, `insert_field`, `insert_label`, `insert_text`, `insert_page_number`, `insert_picture`, `insert_table`, `insert_repeater_table`, `insert_repeater_row` |
-| Table structure | `insert_column`, `remove_column`, `set_column_widths`, `merge_cells`, `split_cells`, `set_cell_text`, `clear_cell_text`, `set_cell_borders` |
+| Author | `create_layout`, `insert_field`, `insert_label`, `insert_text`, `insert_page_number`, `insert_picture`, `insert_table`, `insert_repeater_table`, `insert_repeater_row`, `insert_subtotal_row` |
+| Table structure | `insert_table_row`, `insert_column`, `remove_column`, `set_column_widths`, `merge_cells`, `split_cells`, `set_cell_text`, `clear_cell_text`, `set_cell_borders` |
 | Lifecycle | `remove_control`, `refresh_xml_part` |
 
 Conventions that hold across the surface:

@@ -141,11 +141,59 @@ public static class TableTools
             LayoutEditor.InsertRepeaterRow(doc, parentControlId, dataItem, ParseRepeaterRowCells(cells, alignments)));
     }
 
+    [McpServerTool(Name = "insert_subtotal_row")]
+    [Description("Append a STATIC per-group row at the END of an existing repeater's item - the stock BC "
+                 + "shape for GROUP SUBTOTALS (corpus: SalespersonCommission ends each salesperson's "
+                 + "repeating item with an empty spacer row and a bold subtotal row, AFTER the nested "
+                 + "detail rows). The row renders once per PARENT row (per group), never per detail row - "
+                 + "unlike insert_table_row, whose row renders exactly once for the whole table. "
+                 + "parentControlId is the repeater's controlId (from insert_repeater_table's result or "
+                 + "get_layout_info). cells: same DSL as insert_table_row - '-' = empty spacer cell, a FULL "
+                 + "dataset path = a bound cell (a subtotal row binds whatever the dataset provides: the "
+                 + "corpus binds a sibling non-repeating Subtotals item's columns and Labels captions; "
+                 + "label-shaped paths become label controls), 'a+b' chains paths in one cell, optional "
+                 + "'N:' span prefix; spans must sum to the parent table's columnCount. Repeated calls "
+                 + "stack rows in order - the stock shape is one all-spacer row (e.g. '9:-') then the bold "
+                 + "subtotal row (bold=true, right-aligned amount cells). The GROUP-HEADER half of the "
+                 + "stock group shape needs no extra call: the repeater's own line row (built by "
+                 + "insert_repeater_table) is the per-group header. The response's controlId is 0 (the row "
+                 + "is a plain w:tr; its bound cells' ids are in the summary). Same "
+                 + "write/validate/save-or-reject safety as insert_field, plus the grid-consistency "
+                 + "backstop.")]
+    public static ToolResponse InsertSubtotalRow(
+        [Description("Absolute path to the .docx layout file.")] string layoutPath,
+        [Description("The repeater's controlId (from insert_repeater_table's result or "
+                     + "get_layout_info).")] int parentControlId,
+        [Description("Comma-separated cell specs laying the row on the parent table's grid: '-' = empty "
+                     + "spacer, a FULL dataset path = one bound cell, 'a+b' = several paths inline in one "
+                     + "cell, optional 'N:' span prefix. Spans must sum to the parent table's columnCount.")]
+        string cells,
+        [Description("Optional comma-separated per-cell alignments ('left'/'center'/'right', or '-' to keep "
+                     + "the default), one per cell spec - subtotal amounts are right-aligned in the corpus.")]
+        string? alignments = null,
+        [Description("Optional: true makes every bound cell's text bold (the corpus subtotal look), false "
+                     + "strips bold; omit to leave the controls unstyled.")] bool? bold = null,
+        [Description("Optional font size in points (4-96, halves allowed) for the bound cells' text; omit "
+                     + "to leave it unstyled.")] double? fontSizePoints = null)
+    {
+        return GuardEdit(layoutPath, doc =>
+        {
+            var format = bold is null && fontSizePoints is null
+                ? null
+                : new CellTextFormat { Bold = bold, FontSizePoints = fontSizePoints };
+            return LayoutEditor.InsertSubtotalRow(
+                doc, parentControlId, ParseRepeaterRowCells(cells, alignments), format);
+        });
+    }
+
     /// <summary>
-    /// Parses <c>insert_repeater_row</c>'s cells DSL (<c>[N:]name(+name)*</c> or <c>-</c>, comma-separated)
-    /// plus the optional per-cell alignment list into <see cref="RepeaterRowCell"/>s. Malformed input throws
-    /// <see cref="ArgumentException"/> (mapped to <c>invalid_argument</c>); semantic validation (columns
-    /// exist, spans cover the grid) is the domain layer's.
+    /// Parses the cells DSL (<c>[N:]entry(+entry)*</c> or <c>-</c>, comma-separated) plus the optional
+    /// per-cell alignment list into <see cref="RepeaterRowCell"/>s — shared by <c>insert_repeater_row</c>
+    /// (entries are leaf column names of the child data item) and <c>insert_table_row</c> (entries are
+    /// FULL dataset paths); the syntax is identical, only what an entry means differs, and that is the
+    /// domain layer's to validate. Malformed input throws <see cref="ArgumentException"/> (mapped to
+    /// <c>invalid_argument</c>); semantic validation (columns/paths exist, spans cover the grid) is the
+    /// domain layer's.
     /// </summary>
     private static List<RepeaterRowCell> ParseRepeaterRowCells(string cells, string? alignments)
     {
@@ -194,6 +242,58 @@ public static class TableTools
         }
 
         return result;
+    }
+
+    [McpServerTool(Name = "insert_table_row")]
+    [Description("Insert ONE STATIC (non-repeating) row into an EXISTING table - the stock BC shape for "
+                 + "the totals block INSIDE the line-items table: every stock document layout ends its "
+                 + "lines table with right-anchored totals rows (leading empty spacer cells + a gridSpan-"
+                 + "merged caption cell + the amount cell, bold, with a rule) rather than a separate table. "
+                 + "cells lays the row out on the table's grid, comma-separated, one entry per cell: '-' is "
+                 + "an empty spacer cell, a FULL dataset path (e.g. '/Header/Totals/TotalAmountIncludingVAT' "
+                 + "- unlike insert_repeater_row's leaf names, because a totals row binds whatever the "
+                 + "dataset provides, typically a NON-repeating Totals item; label-shaped paths become "
+                 + "label controls) is a bound cell, 'a+b' chains several paths inline in ONE cell, and an "
+                 + "optional 'N:' prefix makes the cell span N grid columns (e.g. "
+                 + "'4:-,3:/Header/Totals/TotalIncludingVATText,/Header/Totals/TotalAmountIncludingVAT'). "
+                 + "The spans MUST sum to the table's columnCount. atRow is the 0-based row position to "
+                 + "insert at (a repeater's whole repeating section counts as ONE row - the same numbering "
+                 + "get_layout_info's tables[] uses); omit it to append after the last row, where a totals "
+                 + "row goes. The row renders exactly ONCE - it is never part of a repeating section (for "
+                 + "per-group subtotal rows inside a repeater's item, see GitHub issue #30). Use bold=true "
+                 + "for the stock grand-total look and alignments for right-anchored amounts, then "
+                 + "set_cell_borders for the rule and set_cell_text for any literal caption. REJECTED for "
+                 + "tables using w:vMerge. Same write/validate/save-or-reject safety as insert_field, plus "
+                 + "the grid-consistency backstop.")]
+    public static ToolResponse InsertTableRow(
+        [Description("Absolute path to the .docx layout file.")] string layoutPath,
+        [Description("0-based table index in document order (see get_layout_info's tables[]).")] int tableIndex,
+        [Description("Comma-separated cell specs laying the row on the table's grid: '-' = empty spacer, "
+                     + "a FULL dataset path = one bound cell, 'a+b' = several paths inline in one cell, "
+                     + "optional 'N:' span prefix. Spans must sum to the table's columnCount.")] string cells,
+        [Description("Optional 0-based row position (0..rowCount). Omit, or pass the table's rowCount, to "
+                     + "append after the last row - where a totals row goes.")] int? atRow = null,
+        [Description("Optional comma-separated per-cell alignments ('left'/'center'/'right', or '-' to keep "
+                     + "the default), one per cell spec - amounts in a BC totals row are right-aligned.")]
+        string? alignments = null,
+        [Description("Optional: true makes every bound cell's text bold (the stock grand-total look), false "
+                     + "strips bold; omit to leave the controls unstyled.")] bool? bold = null,
+        [Description("Optional font size in points (4-96, halves allowed) for the bound cells' text; omit "
+                     + "to leave it unstyled.")] double? fontSizePoints = null,
+        [Description("Which OOXML part the table is in: 'body' (default), 'header', or 'footer'.")] string layoutPart = "body",
+        [Description("Only used when layoutPart is 'header'/'footer': a specific part file name (e.g. "
+                     + "'header2.xml'); omit to target the DEFAULT header/footer part (see get_layout_info's "
+                     + "partDetails for each part's role).")] string? partName = null)
+    {
+        return GuardTableEdit(layoutPath, doc =>
+        {
+            var part = ParseLayoutPartOrThrow(layoutPart);
+            var cellList = ParseRepeaterRowCells(cells, alignments);
+            var format = bold is null && fontSizePoints is null
+                ? null
+                : new CellTextFormat { Bold = bold, FontSizePoints = fontSizePoints };
+            return TableStructureEditor.InsertStaticRow(doc, part, partName, tableIndex, atRow, cellList, format);
+        });
     }
 
     [McpServerTool(Name = "insert_table")]

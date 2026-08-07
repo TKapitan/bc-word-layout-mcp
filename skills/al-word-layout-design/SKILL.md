@@ -82,9 +82,14 @@ at the very end and passed 0/0 — sufficient at this scale, though per-block `p
 
 Stock contrast [stock: 115, 1016]: Microsoft's list reports are ONE table with group-header rows
 and per-group subtotal rows inside the repeat, and put the chrome (title, date, page, user,
-printed filter expressions) in the running header part. Group-header/subtotal *rows* inside a
-repeater are not tool-reachable (§5) — nested detail rows plus a separate totals table is the
-buildable equivalent, and it is the shape BC verified.
+printed filter expressions) in the running header part. That grouped shape is buildable
+[stock: 115 — its exact item structure]: the repeater's own line row IS the group header
+(salesperson code/name — `insert_repeater_table`), the nested detail rows are
+`insert_repeater_row`, and the trailing per-group rows are `insert_subtotal_row` — first an
+all-spacer row (`cells="9:-"` on a 9-column grid), then the bold subtotal row binding the
+dataset's per-group totals (in 115, a sibling non-repeating `Subtotals` item), amounts
+right-aligned. Grand totals close the table as a static `insert_table_row` (or the separate
+totals table, which is the BC-verified simpler shape [verified: P07]).
 
 ## 4. Per-element conventions
 
@@ -135,15 +140,20 @@ buildable equivalent, and it is the shape BC verified.
 - ½ pt (`size=4`) is the only rule weight observed anywhere in the corpus — use it unless asked.
 
 ### Totals block
-- Tool recipe [verified: P01, P06, P07]: a **separate** borderless 1×2 table directly after the
-  line table — `columnWidths "6200,2400"`, `columnAlignments "right,right"`, totals TEXT field (or
-  label) in col 0, amount field with `bold=true` in col 1, then `set_cell_borders`
-  `edges="top", size=4` on row 0.
-- A totals *ladder* (excl. VAT / VAT / incl. VAT [stock: 1322]) is the same table with more rows:
-  amounts share the right column, the grand-total row gets the bold + rule treatment.
-- Stock layouts put totals **inside** the line table as trailing right-anchored rows — not
-  reachable for a tool-built repeater (§5). Preserve that shape when *editing* a stock layout;
-  build the separate table when *creating*.
+- **The stock shape — trailing rows INSIDE the line table — is buildable** [stock: 1304, 1322,
+  1306]: `insert_table_row` on the line table (omit `atRow` to append), cells laid on the same
+  grid — leading spacer cells (`-`), a spanned caption cell bound to the totals TEXT field, the
+  amount cell right-aligned, `bold=true`; then `set_cell_borders` on the new row for the rule.
+  Example on an 8-column stock lines table:
+  `cells="-,-,-,-,3:/Header/Totals/TotalIncludingVATText,/Header/Totals/TotalAmountIncludingVAT"`,
+  `alignments="-,-,-,-,-,right"`. A spacer row before it (`cells="8:-"`) is the stock spacing.
+- A totals *ladder* (excl. VAT / VAT / incl. VAT [stock: 1322]) is repeated `insert_table_row`
+  calls: amounts share the right column, the grand-total row gets the bold + rule treatment.
+- The **separate** borderless 1×2 totals table directly after the line table remains BC-verified
+  [verified: P01, P06, P07] and is the simpler recipe when stock fidelity is not the goal —
+  `columnWidths "6200,2400"`, `columnAlignments "right,right"`, totals TEXT field (or label) in
+  col 0, amount field with `bold=true` in col 1, then `set_cell_borders` `edges="top", size=4` on
+  row 0.
 
 ### Chrome: title, logo, date, page numbers
 - Two BC-accepted placements:
@@ -183,9 +193,7 @@ buildable equivalent, and it is the shape BC verified.
 
 | Stock idiom | Why no tool | Route |
 |---|---|---|
-| Totals as trailing rows inside the line table [stock: 1304, 1322, 1306] | No tool appends static rows inside a repeater table (#28) | Separate totals table (§4) when creating; preserve when editing stock |
 | Page-position-CONDITIONAL content (`IF PAGE = NUMPAGES`) | Blocked on add-in-compatible OOXML evidence (#11); plain `PAGE`/`NUMPAGES` itself IS buildable — `insert_page_number` (§4 Chrome) | `templatePath` shell carrying the construct, or hand-edit + `validate_layout` |
-| Group-header / subtotal rows inside a repeat [stock: 115] | Repeater internals aren't row-editable (#30) | Nested `insert_repeater_row` detail rows + separate totals [verified: P07] |
 | Colour header bands / accent colours [stock: 1306] | No shading tool (#15) | Branded `templatePath` or hand-edit + validate |
 | Hide-if-empty add-in controls | Deferred, OOXML never captured (#8) | Reserve the rows/cells; stock layouts render empty lines too |
 | Whole-body per-entity repeat with page breaks [stock: 1316] | Repeaters are tables only (#31) | Export the stock layout and edit; don't build from scratch |

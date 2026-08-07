@@ -9,6 +9,28 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **New tool `insert_subtotal_row`** (GitHub issue #30): append a static per-group row at the END
+  of an existing repeater's item — the stock BC shape for group subtotals, exactly as
+  SalespersonCommission (115) closes each salesperson's group with a spacer row and a bold subtotal
+  row INSIDE the `repeatingSectionItem`, after the nested detail rows. The row renders once per
+  PARENT row (per group), never per detail row — verified against a real merge with a nested
+  detail repeater in play. Cells use the same DSL as `insert_table_row` (full dataset paths — the
+  corpus subtotal binds a sibling non-repeating `Subtotals` item and `Labels` captions); repeated
+  calls stack rows in the corpus order (spacer, then subtotal). Together with
+  `insert_repeater_table` (whose line row is the per-group header) and `insert_repeater_row`
+  (nested details), the whole Microsoft grouped-list-report shape is now buildable from scratch.
+- **New tool `insert_table_row`** (GitHub issue #28): insert ONE static (non-repeating) row into an
+  existing table — the stock BC shape for the totals block INSIDE the line-items table, which every
+  stock document layout ends with (right-anchored trailing rows: leading spacer cells, a
+  `gridSpan`-merged bound caption cell, a right-aligned bound amount cell — corpus:
+  StandardSalesQuote/StandardPurchaseOrder/StandardSalesInvoiceVatSpec) and which previously could
+  only be approximated with a separate totals table. Cells use the `insert_repeater_row` DSL but
+  bind FULL dataset paths (a totals row binds whatever the dataset provides, typically a
+  non-repeating `Totals` item; label-shaped paths become label controls); `atRow` positions the row
+  anywhere (append by default — where a totals row goes); optional per-cell alignments and
+  `bold`/`fontSizePoints` for the stock grand-total look. The row is a direct child of the table,
+  never part of a repeating section, so it renders exactly once — verified against a real merge.
+  Works on body and header/footer tables; vMerge tables are rejected like every structure op.
 - `get_layout_info` now reports each OOXML part's rendering facts alongside the flat `parts` list
   (GitHub issue #5): a `partDetails` section giving every part's `kind` (`document`/`header`/`footer`),
   its header/footer `role` (`default`/`first`/`even`, from the section's
