@@ -82,9 +82,14 @@ at the very end and passed 0/0 — sufficient at this scale, though per-block `p
 
 Stock contrast [stock: 115, 1016]: Microsoft's list reports are ONE table with group-header rows
 and per-group subtotal rows inside the repeat, and put the chrome (title, date, page, user,
-printed filter expressions) in the running header part. Group-header/subtotal *rows* inside a
-repeater are not tool-reachable (§5) — nested detail rows plus a separate totals table is the
-buildable equivalent, and it is the shape BC verified.
+printed filter expressions) in the running header part. That grouped shape is buildable
+[stock: 115 — its exact item structure]: the repeater's own line row IS the group header
+(salesperson code/name — `insert_repeater_table`), the nested detail rows are
+`insert_repeater_row`, and the trailing per-group rows are `insert_subtotal_row` — first an
+all-spacer row (`cells="9:-"` on a 9-column grid), then the bold subtotal row binding the
+dataset's per-group totals (in 115, a sibling non-repeating `Subtotals` item), amounts
+right-aligned. Grand totals close the table as a static `insert_table_row` (or the separate
+totals table, which is the BC-verified simpler shape [verified: P07]).
 
 ## 4. Per-element conventions
 
@@ -186,7 +191,6 @@ buildable equivalent, and it is the shape BC verified.
 | Stock idiom | Why no tool | Route |
 |---|---|---|
 | `PAGE`/`NUMPAGES` page numbering [stock: 1304, 1322, 1306] | `insert_text` is literal text, no field codes (#29; conditional variants #11) | `templatePath` shell carrying the header, or hand-edit + `validate_layout` |
-| Group-header / subtotal rows inside a repeat [stock: 115] | Repeater internals aren't row-editable (#30) | Nested `insert_repeater_row` detail rows + separate totals [verified: P07] |
 | Colour header bands / accent colours [stock: 1306] | No shading tool (#15) | Branded `templatePath` or hand-edit + validate |
 | Hide-if-empty add-in controls | Deferred, OOXML never captured (#8) | Reserve the rows/cells; stock layouts render empty lines too |
 | Whole-body per-entity repeat with page breaks [stock: 1316] | Repeaters are tables only (#31) | Export the stock layout and edit; don't build from scratch |

@@ -385,27 +385,10 @@ public static class LayoutEditor
         ArgumentNullException.ThrowIfNull(doc);
         ArgumentNullException.ThrowIfNull(cells);
 
-        var body = doc.MainDocumentPart?.Document?.Body
-            ?? throw new InvalidDataException("Layout has no document body.");
-
-        var parent = body.Descendants<SdtRow>()
-                .FirstOrDefault(s => SdtInspector.ReadControlId(s) == parentRepeaterId)
-            ?? throw new NotFoundException(
-                $"No row-level repeater control with id {parentRepeaterId} exists in the document body. "
-                + "Pass the controlId insert_repeater_table returned (or the repeater's id from "
-                + "get_layout_info's control inventory).",
-                NotFoundTarget.Control);
-
-        if (!SdtInspector.IsRepeater(parent))
-        {
-            throw new ArgumentException(
-                $"Control {parentRepeaterId} is not a repeater (repeating section); a detail row can only "
-                + "be added inside a repeater's item.",
-                nameof(parentRepeaterId));
-        }
+        var context = ResolveRepeaterItem(doc, parentRepeaterId, cells, rowNoun: "a detail row");
 
         // The parent's bound data item, from its own alias ('#Nav: /Header/Line').
-        var parentAlias = SdtInspector.ReadAlias(parent);
+        var parentAlias = SdtInspector.ReadAlias(context.Parent);
         var parentPath = parentAlias is not null && parentAlias.StartsWith("#Nav:", StringComparison.Ordinal)
             ? parentAlias["#Nav:".Length..].Trim()
             : null;
@@ -422,54 +405,15 @@ public static class LayoutEditor
                 nameof(dataItemPath));
         }
 
-        // The parent table's grid is the row's coordinate system: spans must cover it exactly.
-        var table = parent.Ancestors<Table>().FirstOrDefault()
-            ?? throw new ArgumentException(
-                $"Repeater {parentRepeaterId} does not sit inside a table; detail rows only apply to "
-                + "repeater TABLES.",
-                nameof(parentRepeaterId));
-        var gridColumns = table.GetFirstChild<TableGrid>()?.Elements<GridColumn>().ToList() ?? [];
-        var spanSum = cells.Sum(c => c.Span);
-        if (spanSum != gridColumns.Count)
-        {
-            throw new ArgumentException(
-                $"The cells' spans sum to {spanSum} but the parent table has {gridColumns.Count} grid "
-                + "column(s); a detail row must cover the grid exactly (use a spacer cell '-' with a span "
-                + "for the unused width).",
-                nameof(cells));
-        }
-
-        var widths = ComputeCellWidthsFromGrid(gridColumns, cells);
-
-        var itemSdt = parent.GetFirstChild<SdtContentRow>()?.Elements<SdtRow>()
-                .FirstOrDefault(s => s.SdtProperties?.GetFirstChild<Office2013Word.SdtRepeatedSectionItem>() is not null)
-            ?? throw new ArgumentException(
-                $"Repeater {parentRepeaterId} has no repeatingSectionItem row to add a detail row to "
-                + "(unexpected shape).",
-                nameof(parentRepeaterId));
-        var itemContent = itemSdt.GetFirstChild<SdtContentRow>()
-            ?? throw new ArgumentException(
-                $"Repeater {parentRepeaterId}'s item has no content container (unexpected shape).",
-                nameof(parentRepeaterId));
+        var widths = ComputeCellWidthsFromGrid(context.GridColumns, cells);
 
         var schema = SchemaProvider.FromLayout(doc);
         var nextId = MakeIdGenerator(doc);
         var detailRow = SdtFactory.BuildDetailRepeaterRow(schema, normalizedChild, cells, widths, nextId);
-        itemContent.AppendChild(detailRow);
+        context.ItemContent.AppendChild(detailRow);
 
         var controlId = SdtInspector.ReadControlId(detailRow)
             ?? throw new InvalidOperationException("The newly built detail repeater row has no w:id (unexpected).");
-
-        var tables = TableGridNavigator.Tables(body);
-        var tableIndex = -1;
-        for (var i = 0; i < tables.Count; i++)
-        {
-            if (ReferenceEquals(tables[i], table))
-            {
-                tableIndex = i;
-                break;
-            }
-        }
 
         return new EditResult
         {
@@ -479,11 +423,169 @@ public static class LayoutEditor
             XPath = SdtInspector.ReadXPath(detailRow),
             Kind = ControlKind.Repeater.ToString(),
             ColumnCount = cells.Count,
-            TableIndex = tableIndex >= 0 ? tableIndex : null,
+            TableIndex = context.TableIndex,
             Part = "document.xml",
             Summary = $"Added a nested '{normalizedChild}' detail row (id {controlId}) inside repeater "
                 + $"{parentRepeaterId}'s item - it expands once per parent row, below the line row.",
         };
+    }
+
+    /// <summary>
+    /// Appends one STATIC row at the END of an existing repeater's item — the stock BC shape for per-group
+    /// SUBTOTAL (and spacer) rows (GitHub issue #30): <c>SalespersonCommission.docx</c> (115) ends each
+    /// salesperson's <c>repeatingSectionItem</c> with an empty spacer <c>w:tr</c> and a bold subtotal
+    /// <c>w:tr</c>, AFTER the nested <c>Cust_Ledger_Entry</c> detail repeater — so the row renders once per
+    /// PARENT row (per group), never per detail row. Cell construction is
+    /// <see cref="SdtFactory.BuildStaticRow"/>'s (each <see cref="RepeaterRowCell.Columns"/> entry a FULL
+    /// dataset path — the corpus subtotal binds a sibling non-repeating <c>Subtotals</c> item's columns);
+    /// the spans must cover the parent table's grid exactly. Repeated calls stack rows in authoring order,
+    /// exactly like <see cref="InsertRepeaterRow"/> — the corpus order is spacer first, subtotal second.
+    /// The GROUP-HEADER half of the stock group shape needs no tool: the repeater's own line row (built by
+    /// <see cref="InsertRepeaterTable"/>) is the per-group header row.
+    /// </summary>
+    /// <remarks>
+    /// LIKE <see cref="InsertText"/>, THIS CREATES NO SINGLE CONTROL: the row is a plain <c>w:tr</c> whose
+    /// bound cells are ordinary inline field/label controls, so the result's
+    /// <see cref="EditResult.ControlId"/> is 0 (the bound cells' own ids are in the summary). At merge
+    /// time the whole item — this row included — is cloned once per data row, which is exactly what makes
+    /// the subtotal per-group; the merge engine's per-level XPath re-anchoring covers the row's bindings
+    /// the same way it covers the corpus original's.
+    /// </remarks>
+    /// <exception cref="ArgumentException">
+    /// <paramref name="parentRepeaterId"/> is not a row-level repeater in a table, or its item shape is
+    /// unrecognized; <paramref name="cells"/> is empty or its spans don't sum to the parent grid;
+    /// <paramref name="format"/> sets an alignment (per-cell alignments belong on the cell specs); or
+    /// propagated from <see cref="SdtFactory.BuildStaticRow"/> (a path that does not resolve).
+    /// </exception>
+    /// <exception cref="NotFoundException">No control with <paramref name="parentRepeaterId"/> exists in the body.</exception>
+    public static EditResult InsertSubtotalRow(
+        WordprocessingDocument doc, int parentRepeaterId, IReadOnlyList<RepeaterRowCell> cells, CellTextFormat? format = null)
+    {
+        ArgumentNullException.ThrowIfNull(doc);
+        ArgumentNullException.ThrowIfNull(cells);
+
+        if (format?.Alignment is not null)
+        {
+            // Same rule (and reason) as insert_table_row: ApplyControlRunFormat below only runs for BOUND
+            // cells, so an all-spacer row would silently swallow the knob instead of refusing it.
+            throw new ArgumentException(
+                "alignment is not supported as a row-level format on insert_subtotal_row; pass per-cell "
+                + "alignments alongside the cell specs instead (one 'left'/'center'/'right' or '-' per cell).",
+                nameof(format));
+        }
+
+        var context = ResolveRepeaterItem(doc, parentRepeaterId, cells, rowNoun: "a subtotal row");
+        var widths = ComputeCellWidthsFromGrid(context.GridColumns, cells);
+
+        var schema = SchemaProvider.FromLayout(doc);
+        var nextId = MakeIdGenerator(doc);
+        var row = SdtFactory.BuildStaticRow(schema, cells, widths, nextId);
+
+        var boundControlIds = new List<int>();
+        foreach (var sdt in row.Descendants<SdtRun>())
+        {
+            ApplyControlRunFormat(sdt, format, "insert_subtotal_row");
+            if (SdtInspector.ReadControlId(sdt) is { } id)
+            {
+                boundControlIds.Add(id);
+            }
+        }
+
+        context.ItemContent.AppendChild(row);
+
+        var boundSummary = boundControlIds.Count == 0
+            ? "no bound cells (a spacer row)"
+            : $"{boundControlIds.Count} bound control(s) (id(s) {string.Join(", ", boundControlIds)})";
+
+        return new EditResult
+        {
+            Operation = "insert_subtotal_row",
+            ControlId = 0, // a plain w:tr; its bound cells carry their own ids (see boundSummary)
+            Kind = "StaticRow",
+            ColumnCount = cells.Count,
+            TableIndex = context.TableIndex,
+            Part = "document.xml",
+            Summary = $"Appended a static row with {cells.Count} cell(s) and {boundSummary} at the end of "
+                + $"repeater {parentRepeaterId}'s item - it renders once per group (per parent row), after "
+                + "the line row and any nested detail rows. Repeated calls stack further rows below it "
+                + "(the stock shape is a spacer row, then the bold subtotal row).",
+        };
+    }
+
+    /// <summary>The resolved insertion context both repeater-item row inserts share — see <see cref="ResolveRepeaterItem"/>.</summary>
+    private readonly record struct RepeaterItemContext(
+        SdtRow Parent, SdtContentRow ItemContent, Table Table, IReadOnlyList<GridColumn> GridColumns, int? TableIndex);
+
+    /// <summary>
+    /// The shared plumbing of <see cref="InsertRepeaterRow"/> and <see cref="InsertSubtotalRow"/>: find the
+    /// row-level repeater with <paramref name="parentRepeaterId"/> in the body, require it to actually BE a
+    /// repeater sitting inside a table, require <paramref name="cells"/>' spans to cover that table's grid
+    /// exactly, and descend to its <c>repeatingSectionItem</c>'s content container — the element both
+    /// operations append their row to. <paramref name="rowNoun"/> ("a detail row"/"a subtotal row") only
+    /// feeds the error messages.
+    /// </summary>
+    private static RepeaterItemContext ResolveRepeaterItem(
+        WordprocessingDocument doc, int parentRepeaterId, IReadOnlyList<RepeaterRowCell> cells, string rowNoun)
+    {
+        var body = doc.MainDocumentPart?.Document?.Body
+            ?? throw new InvalidDataException("Layout has no document body.");
+
+        var parent = body.Descendants<SdtRow>()
+                .FirstOrDefault(s => SdtInspector.ReadControlId(s) == parentRepeaterId)
+            ?? throw new NotFoundException(
+                $"No row-level repeater control with id {parentRepeaterId} exists in the document body. "
+                + "Pass the controlId insert_repeater_table returned (or the repeater's id from "
+                + "get_layout_info's control inventory).",
+                NotFoundTarget.Control);
+
+        if (!SdtInspector.IsRepeater(parent))
+        {
+            throw new ArgumentException(
+                $"Control {parentRepeaterId} is not a repeater (repeating section); {rowNoun} can only "
+                + "be added inside a repeater's item.",
+                nameof(parentRepeaterId));
+        }
+
+        // The parent table's grid is the row's coordinate system: spans must cover it exactly.
+        var table = parent.Ancestors<Table>().FirstOrDefault()
+            ?? throw new ArgumentException(
+                $"Repeater {parentRepeaterId} does not sit inside a table; {rowNoun} only applies to "
+                + "repeater TABLES.",
+                nameof(parentRepeaterId));
+        var gridColumns = table.GetFirstChild<TableGrid>()?.Elements<GridColumn>().ToList() ?? [];
+        var spanSum = cells.Sum(c => c.Span);
+        if (spanSum != gridColumns.Count)
+        {
+            throw new ArgumentException(
+                $"The cells' spans sum to {spanSum} but the parent table has {gridColumns.Count} grid "
+                + $"column(s); {rowNoun} must cover the grid exactly (use a spacer cell '-' with a span "
+                + "for the unused width).",
+                nameof(cells));
+        }
+
+        var itemSdt = parent.GetFirstChild<SdtContentRow>()?.Elements<SdtRow>()
+                .FirstOrDefault(s => s.SdtProperties?.GetFirstChild<Office2013Word.SdtRepeatedSectionItem>() is not null)
+            ?? throw new ArgumentException(
+                $"Repeater {parentRepeaterId} has no repeatingSectionItem row to add {rowNoun} to "
+                + "(unexpected shape).",
+                nameof(parentRepeaterId));
+        var itemContent = itemSdt.GetFirstChild<SdtContentRow>()
+            ?? throw new ArgumentException(
+                $"Repeater {parentRepeaterId}'s item has no content container (unexpected shape).",
+                nameof(parentRepeaterId));
+
+        var tables = TableGridNavigator.Tables(body);
+        int? tableIndex = null;
+        for (var i = 0; i < tables.Count; i++)
+        {
+            if (ReferenceEquals(tables[i], table))
+            {
+                tableIndex = i;
+                break;
+            }
+        }
+
+        return new RepeaterItemContext(parent, itemContent, table, gridColumns, tableIndex);
     }
 
     /// <summary>
