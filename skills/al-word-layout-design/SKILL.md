@@ -154,8 +154,11 @@ buildable equivalent, and it is the shape BC verified.
     [P07, plus a stock-layout header/footer probe in the same sandbox rounds] — but remember the
     first-vs-default part trap (issue #5): with `titlePg`, page 1 renders the FIRST-page part, so
     an edit landing in the default part is invisible on page 1.
-- Stock page numbers are `Page_Lbl` + Word `PAGE`/`NUMPAGES` field codes — no tool inserts field
-  codes (§5). Tool-buildable header/footer content is bound labels/fields plus static text.
+- Stock page numbers are `Page_Lbl` + two literal spaces + Word `PAGE`/`NUMPAGES` field codes
+  [stock: 1304, 1322, 1306, 115 — identical construct in all four]. Buildable: `insert_label` the
+  `Page_Lbl`, `insert_text` `"  "` (`afterControl` on the label), then `insert_page_number`
+  (`afterControl` again) — it emits the exact stock field construct (`X / Y` by default;
+  `includeTotal=false` for the bare page number).
 - Inline sequences anywhere: insert the control first, then `insert_text` with
   `locationType="afterControl"` anchored to it — `documentEnd` appends a NEW paragraph per call.
   Separators are literal runs (`" "`, `"  |  "`, `", "`) [stock: every multi-control line;
@@ -181,7 +184,7 @@ buildable equivalent, and it is the shape BC verified.
 | Stock idiom | Why no tool | Route |
 |---|---|---|
 | Totals as trailing rows inside the line table [stock: 1304, 1322, 1306] | No tool appends static rows inside a repeater table (#28) | Separate totals table (§4) when creating; preserve when editing stock |
-| `PAGE`/`NUMPAGES` page numbering [stock: 1304, 1322, 1306] | `insert_text` is literal text, no field codes (#29; conditional variants #11) | `templatePath` shell carrying the header, or hand-edit + `validate_layout` |
+| Page-position-CONDITIONAL content (`IF PAGE = NUMPAGES`) | Blocked on add-in-compatible OOXML evidence (#11); plain `PAGE`/`NUMPAGES` itself IS buildable — `insert_page_number` (§4 Chrome) | `templatePath` shell carrying the construct, or hand-edit + `validate_layout` |
 | Group-header / subtotal rows inside a repeat [stock: 115] | Repeater internals aren't row-editable (#30) | Nested `insert_repeater_row` detail rows + separate totals [verified: P07] |
 | Colour header bands / accent colours [stock: 1306] | No shading tool (#15) | Branded `templatePath` or hand-edit + validate |
 | Hide-if-empty add-in controls | Deferred, OOXML never captured (#8) | Reserve the rows/cells; stock layouts render empty lines too |

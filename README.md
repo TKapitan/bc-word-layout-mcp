@@ -5,7 +5,7 @@ Microsoft Word report layouts for Microsoft Dynamics 365 Business Central** thro
 typed tools — instead of free-hand OOXML editing, which is unreliable in a file format where a
 single misplaced element silently corrupts the document.
 
-**23 typed MCP tools** over stdio: inspect any layout, validate it (structurally, and via a real
+**24 typed MCP tools** over stdio: inspect any layout, validate it (structurally, and via a real
 dry-run merge), render an offline mock PDF preview the agent can look at, and author edits — fields,
 labels, repeater tables, nested detail rows, table structure, full lifecycle refresh. One uniform
 response envelope; nothing throws across the MCP boundary; every mutating edit is validated *before*
@@ -164,6 +164,7 @@ other tool is conversion-free and works everywhere the server runs.
 | `insert_field` | Insert a plain-text FIELD content control bound to a dataset path, in the body, a header, or a footer. |
 | `insert_label` | Insert a plain-text LABEL content control bound to a label-suffixed (`Lbl`/`_Lbl`) dataset path. |
 | `insert_text` | Insert plain STATIC text — a literal run, not a content control: the separator space, colon or `" / "` that glues two inline controls together (without it, chained controls render as `Document NoDOCU-0150`). Creates no control, so it has no `controlId` and cannot be targeted by `remove_control`. |
+| `insert_page_number` | Insert Word `PAGE`/`NUMPAGES` field codes — the "Page X / Y" chrome every stock BC document header carries (by default the full `X / Y` shape; `includeTotal=false` for the current page alone). Field codes are plain runs, so no `controlId`. |
 | `insert_repeater_table` | Insert a complete repeater table (label/static header row + one bound data row) for a repeating data item — the flagship editing tool. Draws the BC-native look by default (no grid, one rule under the header row); optional per-column widths and alignments. |
 | `insert_repeater_row` | Add a nested DETAIL ROW repeater inside an existing repeater's item — the standard BC shape for per-line detail (assembly components, serial/lot nos): a row under each line, aligned to the parent grid via spans, repeating once per parent row. |
 | `insert_picture` | Insert a PICTURE content control bound to a picture dataset path (e.g. `/Header/CompanyPicture`) — the logo placeholder a from-scratch layout needs; BC fills it at render time. |
@@ -194,7 +195,7 @@ options the SDK applies to every other tool, so parsers see an identical shape e
 
 On failure, `data` is `null` and `error` is populated with `{ code, message, hint }` — `hint` is always
 a non-empty, agent-actionable next step (which argument to fix and its valid values, or which
-inspection tool to call first). Nothing throws across the MCP boundary. The fifteen mutating tools
+inspection tool to call first). Nothing throws across the MCP boundary. The sixteen mutating tools
 (`insert_field`, `insert_label`, `insert_text`, `insert_picture`, `insert_repeater_table`, `remove_control`, `set_cell_text`,
 `clear_cell_text`, `set_column_widths`, `insert_column`, `remove_column`, `merge_cells`, `split_cells`,
 `set_cell_borders`, `refresh_xml_part`) additionally run `OpenXmlValidator` *before* saving — a write that would introduce a
@@ -367,7 +368,7 @@ Or write the requests to a file of your own and pipe it (`Get-Content requests.j
 | `src/BcWordLayout.Domain` | Core: dataset models, `SchemaProvider` (schema parsing), `LayoutReader` (control inventory), `LayoutValidator` (quick validation), `LayoutEditor`/`SdtFactory`/`Location`+`LocationResolver` (edits), `LayoutBuilder` (`create_layout`), `LayoutRefresher` (`refresh_xml_part`). |
 | `src/BcWordLayout.Merge` | `SampleDataGenerator` (seeded, type-aware fakes), `MergeEngine` (binding fill, repeater expansion incl. nested/re-anchored XPaths, picture placeholders), `FullValidator` (the dry-run merge behind `validate_layout level=full`). |
 | `src/BcWordLayout.Render` | `IPdfConverter` + `WordComConverter` (primary) / `LibreOfficeConverter` (fallback) + `PdfConverterFactory` (auto-selection) + PDF output sanity checks. |
-| `src/BcWordLayout.McpHost` | The MCP stdio server (console app): the 23 tool definitions (`Tools/ReadTools.cs`, `Tools/EditTools.cs`, `Tools/TableTools.cs`, `Tools/LifecycleTools.cs`, sharing `Tools/ToolGuards.cs`) and the `{ok,data,error}` envelope (`ToolContracts.cs`). |
+| `src/BcWordLayout.McpHost` | The MCP stdio server (console app): the 24 tool definitions (`Tools/ReadTools.cs`, `Tools/EditTools.cs`, `Tools/TableTools.cs`, `Tools/LifecycleTools.cs`, sharing `Tools/ToolGuards.cs`) and the `{ok,data,error}` envelope (`ToolContracts.cs`). |
 | `tests/BcWordLayout.Tests` | 684 xUnit tests: the 10 real corpus layouts in `tests/corpus/` plus synthetic fixtures — reader/validator/merge/editor/refresher/converter coverage, snapshot tests, MCP host tool tests, packaging-manifest guards, and the fidelity harness. |
 
 ## Contributing and security
