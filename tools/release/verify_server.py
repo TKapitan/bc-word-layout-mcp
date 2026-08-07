@@ -3,7 +3,7 @@
 Usage:  python tools/release/verify_server.py [--expect-tools N] -- <command> [args...]
 
 Exit 0 iff the server starts, completes the MCP handshake, and tools/list returns the expected
-number of tools (default 23). This is the release-channel smoke test: point it at `dnx ...`, a
+number of tools (default 26). This is the release-channel smoke test: point it at `dnx ...`, a
 published exe from a release zip, or `dotnet run` - the same check proves each install channel
 actually starts a working server (release plan R3/G8).
 
@@ -15,7 +15,7 @@ import subprocess
 import sys
 import threading
 
-EXPECTED_TOOLS_DEFAULT = 23
+EXPECTED_TOOLS_DEFAULT = 26
 
 
 def main() -> int:
