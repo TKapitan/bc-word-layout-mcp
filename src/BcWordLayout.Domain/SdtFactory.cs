@@ -363,6 +363,71 @@ public static class SdtFactory
         }
 
         var dataItem = ResolveRepeaterDataItem(schema, dataItemPath);
+
+        var row = BuildRowFromCells(schema, cells, cellWidths, nextId, column =>
+        {
+            ValidateColumnOfItem(dataItem, dataItemPath, column);
+            return $"{dataItem.Path}/{column}";
+        });
+
+        return BuildRepeaterRow(schema, dataItem, row, nextId);
+    }
+
+    /// <summary>
+    /// Builds one STATIC (non-repeating) <c>w:tr</c> whose cells carry inline bound controls — the row
+    /// shape the stock totals blocks INSIDE a line-items table are made of (GitHub issue #28): every stock
+    /// document layout ends its lines table with right-anchored trailing rows (leading empty cells,
+    /// <c>gridSpan</c>-merged content cells, bound totals fields) rather than a separate table —
+    /// corpus-verified in <c>StandardSalesQuote.docx</c> (1304), <c>StandardPurchaseOrder.docx</c> (1322)
+    /// and <c>StandardSalesInvoiceVatSpec.docx</c> (1306), and the same static-rows-in-a-table shape carries
+    /// <c>SalespersonCommission.docx</c>'s (115) grand-totals row. Unlike
+    /// <see cref="BuildDetailRepeaterRow"/>, each <see cref="RepeaterRowCell.Columns"/> entry here is a
+    /// FULL dataset path (e.g. <c>/Header/Totals/TotalAmountIncludingVAT</c> — typically a leaf of a
+    /// NON-repeating data item), not a leaf name of some parent item — a totals row binds whatever the
+    /// dataset provides, not the repeater's own columns. Label-shaped paths become label controls;
+    /// placement is the caller's job (see <see cref="TableStructureEditor.InsertStaticRow"/>).
+    /// </summary>
+    /// <param name="cellWidths">Explicit <c>w:tcW</c> per cell (the sum of the grid columns it covers), one per cell.</param>
+    /// <exception cref="ArgumentException">
+    /// <paramref name="cells"/> is empty; a span is &lt; 1; an alignment is unknown; or (propagated from
+    /// <see cref="BuildField"/>/<see cref="BuildLabel"/>) a path does not resolve to a leaf column, or
+    /// <paramref name="schema"/>'s report has no storeItemID.
+    /// </exception>
+    public static TableRow BuildStaticRow(
+        DatasetTree schema,
+        IReadOnlyList<RepeaterRowCell> cells,
+        IReadOnlyList<int> cellWidths,
+        Func<int> nextId)
+    {
+        ArgumentNullException.ThrowIfNull(schema);
+        ArgumentNullException.ThrowIfNull(cells);
+        ArgumentNullException.ThrowIfNull(cellWidths);
+        ArgumentNullException.ThrowIfNull(nextId);
+
+        if (cells.Count == 0)
+        {
+            throw new ArgumentException("At least one cell is required.", nameof(cells));
+        }
+
+        return BuildRowFromCells(schema, cells, cellWidths, nextId, path => path);
+    }
+
+    /// <summary>
+    /// The one row-from-cell-specs builder <see cref="BuildDetailRepeaterRow"/> and
+    /// <see cref="BuildStaticRow"/> share: one <c>w:tc</c> per <see cref="RepeaterRowCell"/> (explicit
+    /// <c>w:tcW</c>, <c>gridSpan</c> when spanning, compact single-spaced paragraph, optional
+    /// justification), each cell's entries resolved to full dataset paths by
+    /// <paramref name="resolveEntryToPath"/> and chained inline in one paragraph — label-shaped paths (per
+    /// the active <see cref="LabelConvention"/>) as label controls, the rest as fields, with no separator
+    /// between them (the corpus shape).
+    /// </summary>
+    private static TableRow BuildRowFromCells(
+        DatasetTree schema,
+        IReadOnlyList<RepeaterRowCell> cells,
+        IReadOnlyList<int> cellWidths,
+        Func<int> nextId,
+        Func<string, string> resolveEntryToPath)
+    {
         var convention = LabelConvention.Current;
 
         var row = new TableRow();
@@ -387,10 +452,9 @@ public static class SdtFactory
                     new Justification { Val = CellTextEditor.ParseAlignment(alignment, nameof(cells)) };
             }
 
-            foreach (var column in cell.Columns)
+            foreach (var entry in cell.Columns)
             {
-                ValidateColumnOfItem(dataItem, dataItemPath, column);
-                var path = $"{dataItem.Path}/{column}";
+                var path = resolveEntryToPath(entry);
                 var segments = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
                 paragraph.AppendChild<OpenXmlElement>(convention.IsLabelPath(segments)
                     ? BuildLabel(schema, path, id: nextId())
@@ -410,7 +474,7 @@ public static class SdtFactory
             row.AppendChild(new TableCell(tcPr, paragraph));
         }
 
-        return BuildRepeaterRow(schema, dataItem, row, nextId);
+        return row;
     }
 
     /// <summary>Splits, naming-convention-checks, and schema-validates a dataset path; returns its segments.</summary>

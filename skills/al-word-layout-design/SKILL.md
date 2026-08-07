@@ -135,15 +135,20 @@ buildable equivalent, and it is the shape BC verified.
 - ½ pt (`size=4`) is the only rule weight observed anywhere in the corpus — use it unless asked.
 
 ### Totals block
-- Tool recipe [verified: P01, P06, P07]: a **separate** borderless 1×2 table directly after the
-  line table — `columnWidths "6200,2400"`, `columnAlignments "right,right"`, totals TEXT field (or
-  label) in col 0, amount field with `bold=true` in col 1, then `set_cell_borders`
-  `edges="top", size=4` on row 0.
-- A totals *ladder* (excl. VAT / VAT / incl. VAT [stock: 1322]) is the same table with more rows:
-  amounts share the right column, the grand-total row gets the bold + rule treatment.
-- Stock layouts put totals **inside** the line table as trailing right-anchored rows — not
-  reachable for a tool-built repeater (§5). Preserve that shape when *editing* a stock layout;
-  build the separate table when *creating*.
+- **The stock shape — trailing rows INSIDE the line table — is buildable** [stock: 1304, 1322,
+  1306]: `insert_table_row` on the line table (omit `atRow` to append), cells laid on the same
+  grid — leading spacer cells (`-`), a spanned caption cell bound to the totals TEXT field, the
+  amount cell right-aligned, `bold=true`; then `set_cell_borders` on the new row for the rule.
+  Example on an 8-column stock lines table:
+  `cells="-,-,-,-,3:/Header/Totals/TotalIncludingVATText,/Header/Totals/TotalAmountIncludingVAT"`,
+  `alignments="-,-,-,-,-,right"`. A spacer row before it (`cells="8:-"`) is the stock spacing.
+- A totals *ladder* (excl. VAT / VAT / incl. VAT [stock: 1322]) is repeated `insert_table_row`
+  calls: amounts share the right column, the grand-total row gets the bold + rule treatment.
+- The **separate** borderless 1×2 totals table directly after the line table remains BC-verified
+  [verified: P01, P06, P07] and is the simpler recipe when stock fidelity is not the goal —
+  `columnWidths "6200,2400"`, `columnAlignments "right,right"`, totals TEXT field (or label) in
+  col 0, amount field with `bold=true` in col 1, then `set_cell_borders` `edges="top", size=4` on
+  row 0.
 
 ### Chrome: title, logo, date, page numbers
 - Two BC-accepted placements:
@@ -180,7 +185,6 @@ buildable equivalent, and it is the shape BC verified.
 
 | Stock idiom | Why no tool | Route |
 |---|---|---|
-| Totals as trailing rows inside the line table [stock: 1304, 1322, 1306] | No tool appends static rows inside a repeater table (#28) | Separate totals table (§4) when creating; preserve when editing stock |
 | `PAGE`/`NUMPAGES` page numbering [stock: 1304, 1322, 1306] | `insert_text` is literal text, no field codes (#29; conditional variants #11) | `templatePath` shell carrying the header, or hand-edit + `validate_layout` |
 | Group-header / subtotal rows inside a repeat [stock: 115] | Repeater internals aren't row-editable (#30) | Nested `insert_repeater_row` detail rows + separate totals [verified: P07] |
 | Colour header bands / accent colours [stock: 1306] | No shading tool (#15) | Branded `templatePath` or hand-edit + validate |

@@ -439,20 +439,7 @@ public static class LayoutEditor
                 nameof(cells));
         }
 
-        // Each cell's w:tcW = the sum of the grid columns it covers (unparsable widths fall back evenly).
-        var widths = new int[cells.Count];
-        var cursor = 0;
-        for (var i = 0; i < cells.Count; i++)
-        {
-            var width = 0;
-            for (var g = cursor; g < cursor + cells[i].Span; g++)
-            {
-                width += int.TryParse(gridColumns[g].Width?.Value, out var w) && w > 0 ? w : 2000;
-            }
-
-            widths[i] = width;
-            cursor += cells[i].Span;
-        }
+        var widths = ComputeCellWidthsFromGrid(gridColumns, cells);
 
         var itemSdt = parent.GetFirstChild<SdtContentRow>()?.Elements<SdtRow>()
                 .FirstOrDefault(s => s.SdtProperties?.GetFirstChild<Office2013Word.SdtRepeatedSectionItem>() is not null)
@@ -497,6 +484,32 @@ public static class LayoutEditor
             Summary = $"Added a nested '{normalizedChild}' detail row (id {controlId}) inside repeater "
                 + $"{parentRepeaterId}'s item - it expands once per parent row, below the line row.",
         };
+    }
+
+    /// <summary>
+    /// Each cell's <c>w:tcW</c> for a row laid out on an existing table's grid: the sum of the grid-column
+    /// widths the cell covers, walking <paramref name="cells"/>' spans left to right (an unparsable/absent
+    /// <c>w:gridCol</c> width falls back to 2000 twips per column). Shared by <see cref="InsertRepeaterRow"/>
+    /// and <see cref="TableStructureEditor.InsertStaticRow"/> — the same arithmetic, kept in one place. The
+    /// caller has already verified the spans sum to the grid count, so indexing cannot overrun.
+    /// </summary>
+    internal static int[] ComputeCellWidthsFromGrid(IReadOnlyList<GridColumn> gridColumns, IReadOnlyList<RepeaterRowCell> cells)
+    {
+        var widths = new int[cells.Count];
+        var cursor = 0;
+        for (var i = 0; i < cells.Count; i++)
+        {
+            var width = 0;
+            for (var g = cursor; g < cursor + cells[i].Span; g++)
+            {
+                width += int.TryParse(gridColumns[g].Width?.Value, out var w) && w > 0 ? w : 2000;
+            }
+
+            widths[i] = width;
+            cursor += cells[i].Span;
+        }
+
+        return widths;
     }
 
     /// <summary>
@@ -752,9 +765,15 @@ public static class LayoutEditor
         ApplyRunProperties(run.RunProperties, format!.Bold, halfPoints);
     }
 
-    private static void ApplyControlRunFormat(SdtRun sdt, CellTextFormat? format)
+    /// <summary>
+    /// Applies the inline run-format knobs to a freshly built control: onto every run inside its content
+    /// AND its <c>w:sdtPr/w:rPr</c>. Internal (with a caller-supplied <paramref name="opName"/> for the
+    /// rejection message) so <see cref="TableStructureEditor.InsertStaticRow"/> can style its bound cells
+    /// through the exact same path <c>insert_field</c>/<c>insert_label</c> use.
+    /// </summary>
+    internal static void ApplyControlRunFormat(SdtRun sdt, CellTextFormat? format, string opName = "insert_field/insert_label")
     {
-        if (!TryPrepareRunFormat(format, "insert_field/insert_label", out var halfPoints))
+        if (!TryPrepareRunFormat(format, opName, out var halfPoints))
         {
             return;
         }

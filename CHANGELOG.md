@@ -5,6 +5,23 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **New tool `insert_table_row`** (GitHub issue #28): insert ONE static (non-repeating) row into an
+  existing table — the stock BC shape for the totals block INSIDE the line-items table, which every
+  stock document layout ends with (right-anchored trailing rows: leading spacer cells, a
+  `gridSpan`-merged bound caption cell, a right-aligned bound amount cell — corpus:
+  StandardSalesQuote/StandardPurchaseOrder/StandardSalesInvoiceVatSpec) and which previously could
+  only be approximated with a separate totals table. Cells use the `insert_repeater_row` DSL but
+  bind FULL dataset paths (a totals row binds whatever the dataset provides, typically a
+  non-repeating `Totals` item; label-shaped paths become label controls); `atRow` positions the row
+  anywhere (append by default — where a totals row goes); optional per-cell alignments and
+  `bold`/`fontSizePoints` for the stock grand-total look. The row is a direct child of the table,
+  never part of a repeating section, so it renders exactly once — verified against a real merge.
+  Works on body and header/footer tables; vMerge tables are rejected like every structure op.
+
 ## [1.0.0] - 2026-08-03
 
 Initial release — the first stable version. The only earlier tags are the `v1.0.0-rc.1`/`v1.0.0-rc.2`

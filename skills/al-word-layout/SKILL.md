@@ -31,12 +31,12 @@ inspect → edit → validate → preview → (repeat as needed)
 | Stage | Tools | Purpose |
 |---|---|---|
 | **Inspect** | `get_layout_info`, `list_dataset_fields` | Orient before touching anything: what controls exist, what dataset paths are available/bound, and the real `controlId`s/part names to address edits against. |
-| **Edit** | `insert_field`, `insert_label`, `insert_text`, `insert_picture`, `insert_table`, `insert_repeater_table`, `insert_repeater_row`, `remove_control`, `set_cell_text`, `clear_cell_text`, and the table-structure tools (`insert_column`, `remove_column`, `set_column_widths`, `merge_cells`, `split_cells`, `set_cell_borders`) — plus `create_layout` / `refresh_xml_part` for lifecycle events | Make one deterministic, typed change at a time. |
+| **Edit** | `insert_field`, `insert_label`, `insert_text`, `insert_picture`, `insert_table`, `insert_repeater_table`, `insert_repeater_row`, `insert_table_row`, `remove_control`, `set_cell_text`, `clear_cell_text`, and the table-structure tools (`insert_column`, `remove_column`, `set_column_widths`, `merge_cells`, `split_cells`, `set_cell_borders`) — plus `create_layout` / `refresh_xml_part` for lifecycle events | Make one deterministic, typed change at a time. |
 | **Validate** | `validate_layout` — `level=quick` while iterating, `level=full` before calling it done | Confirm the edit didn't break structure or bindings; `full` dry-run-merges sample data so unresolved bindings surface as findings. |
 | **Preview** | `preview_layout` | Visual/structural sanity check: merges sample (or real override) data and renders an offline PDF. |
 | **Sandbox verify (OUTER, unchanged)** | *(outside this server)* AL build → publish to dev sandbox (`al-mcp-app` tooling) → run the report | The **only** real sign-off. `preview_layout`'s PDF is a mock — see §3 and §4. |
 
-Every mutating tool — all fifteen of them, from `insert_field` through the table-structure tools to
+Every mutating tool — all sixteen of them, from `insert_field` through the table-structure tools to
 `refresh_xml_part` — already runs its own post-edit `quick` validation and folds it into the response —
 you don't need a separate `validate_layout` call just to see whether an edit broke something, but a
 `full` pass is still worth running before moving on to preview/sandbox.
@@ -112,7 +112,7 @@ match). `layoutPart` picks which OOXML part `locationType` resolves within — `
 
 ### Table structure (mutating — same write safety, plus a grid-consistency guard)
 
-All six are addressed by the SAME `tableIndex`/`row`/cell indices `get_layout_info` reports, take
+All seven are addressed by the SAME `tableIndex`/`row`/cell indices `get_layout_info` reports, take
 `layoutPart`=`"body"` (also `"header"`/`"footer"`) + `partName`=`null`, and pass the shared
 grid-consistency backstop that rejects (`edit_would_break_table`, file untouched) any edit desyncing
 a row from its `w:tblGrid`. Rows that skip grid columns (`w:gridBefore`/`w:gridAfter` — real BC
@@ -121,6 +121,7 @@ every tool here except `set_cell_borders`.
 
 | Tool | Key params (defaults) | Returns | Reach for it when… |
 |---|---|---|---|
+| `insert_table_row` | `layoutPath`, `tableIndex`, `cells` (comma-separated specs laid on the table's grid: `-` = empty spacer, a **FULL dataset path** = one bound cell — unlike `insert_repeater_row`'s leaf names, because a totals row binds whatever the dataset provides, typically a non-repeating `Totals` item; label-shaped paths become labels; `a+b` chains paths in one cell; optional `N:` span prefix — spans must sum to `columnCount`), `atRow`=`null` (0-based row position; a repeater's whole repeating section counts as ONE row; omit to append after the last row, where a totals row goes), `alignments`=`null` (per-cell, `-` to skip), `bold`=`null`, `fontSizePoints`=`null` | Same shape as `set_cell_text` (`rowsAffected` 1; the bound control ids are in `summary`) | The stock totals block INSIDE the line-items table — every stock document layout ends its lines table with static right-anchored rows (e.g. `cells="-,-,-,-,3:/Header/Totals/TotalIncludingVATText,/Header/Totals/TotalAmountIncludingVAT"`, `alignments="-,-,-,-,-,right"`, `bold=true`), or a spacer row (`cells="8:-"`). The row renders exactly ONCE, never per data row. Follow with `set_cell_borders` for the rule and `set_cell_text` for a literal caption. |
 | `insert_column` | `layoutPath`, `tableIndex`, `mode` = `"field"` \| `"label"` \| `"plainText"`, `dataPath` (for `field`/`label`: full dataset path, exactly as `insert_field`/`insert_label` take), `headerText`=`null` (omit to humanize the `dataPath` leaf), `headerLabelPath`=`null` (bind the header cell to a label column instead of static text), `atColumn`=`null` (0-based GRID position; omit to append at the far right), `width`=`null` (twips; omit for the mean of existing columns) | Same shape as `insert_field` | Adding a column to a line-items or plain table. Bound control lands in the repeater's DATA row; header rows get a header cell; right-anchored totals-block rows are widened, not celled, so the block keeps its look. An interior `atColumn` that falls INSIDE a spanned content cell is refused, naming the cell (`split_cells` there first). |
 | `remove_column` | `layoutPath`, `tableIndex`, `column` (0-based GRID index) | Same shape as `insert_field` | "Remove the GST Amount column from the lines." Drops each row's covering cell — including a bound one, whose binding goes with it (UNLIKE `remove_control`, which preserves the cell) — or decrements its `gridSpan`; removes the `w:gridCol`; redistributes the width proportionally (follow with `set_column_widths` for a different distribution). The last remaining column cannot be removed. |
 | `set_column_widths` | `layoutPath`, `tableIndex`, `widths` (comma-separated twips, exactly one per GRID column) | Same shape as `set_cell_text` | Resizing columns; `gridSpan`-aware — each cell becomes the sum of the columns it spans. |
@@ -150,7 +151,8 @@ every tool here except `set_cell_borders`.
 - Static text (`insert_text`, with optional `bold`/`fontSizePoints`), plain unbound tables
   (`insert_table`), and picture controls (`insert_picture`, mm-sized); existing and inserted picture
   controls get a placeholder image blip during merge (counted in `stats.picturesFilled`).
-- **Table-structure changes**: `insert_column` / `remove_column` / `set_column_widths` /
+- **Table-structure changes**: `insert_table_row` (a static totals/spacer row inside an existing
+  table — the stock BC totals-block shape), `insert_column` / `remove_column` / `set_column_widths` /
   `merge_cells` / `split_cells` (all `gridSpan`-aware and grid-column-addressed, guarded against
   desyncing a row from its `w:tblGrid`; rows skipping grid columns via `w:gridBefore`/`w:gridAfter`
   are handled) and `set_cell_borders` for the per-cell rules BC documents get their look from.
