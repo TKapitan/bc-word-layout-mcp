@@ -39,10 +39,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   actually resolves to, computed through the same selection logic the edit tools use. A new top-level
   `hasTitlePage` flag says whether the layout renders a distinct first page (`w:titlePg`), in which
   case page 1 shows the `first`-role parts instead of the default ones.
-- The insert tools (`insert_field`, `insert_label`, `insert_text`, `insert_picture`) now append a
+- The insert tools (`insert_field`, `insert_label`, `insert_text`, `insert_page_number`,
+  `insert_picture`) now append a
   warning to their summary when content lands in the DEFAULT header/footer of a `w:titlePg` layout
   without an explicit `partName` — the "correctly inserted but invisible on a one-page render" trap
-  that previously cost a sandbox round to diagnose.
+  that previously cost a sandbox round to diagnose. (A page number in the default header of a
+  `w:titlePg` layout is the canonical instance of that trap.)
 - **New tool `insert_page_number`** (GitHub issue #29): emits the Word `PAGE`/`NUMPAGES` field-code
   construct every stock BC document header carries — by default the full "X / Y" shape (`PAGE`
   field, literal `" / "`, `NUMPAGES` field), or the bare `PAGE` field with `includeTotal=false` —
@@ -59,6 +61,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Tool descriptions and error hints no longer claim a missing `partName` targets "the FIRST
   header/footer part": resolution has always preferred the first section's DEFAULT part, and the
   wording now says so and points at `partDetails`.
+
+### Fixed
+
+- The NuGet MCP registry manifest (`.mcp/server.json`) shipped three `description` values over the
+  registry schema's 100-character cap (the 2025-10-17 schema enforces it); all are shortened and a
+  packaging test now walks the whole manifest so any future description stays within the limit.
 
 ## [1.0.0] - 2026-08-03
 

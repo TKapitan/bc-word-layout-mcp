@@ -180,7 +180,10 @@ public static class LayoutEditor
                 + (scaffolded
                     ? $" The layout had no {location.Part.ToString().ToLowerInvariant()} part, so an empty "
                       + $"{anchor.PartName} was created and wired into the page setup first."
-                    : string.Empty),
+                    : string.Empty)
+                // A page number in the default header/footer of a w:titlePg layout is EXACTLY the
+                // trap this note exists for (issue #5): page 1 renders the first-page part instead.
+                + FirstPageVisibilityNote(doc, location, anchor.PartName),
         };
     }
 

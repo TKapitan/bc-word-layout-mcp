@@ -10,12 +10,15 @@ namespace BcWordLayout.McpHost.Tools;
 /// <summary>
 /// MCP tools that add or change a table's STRUCTURE (as opposed to <see cref="EditTools"/>, which edits an
 /// existing control's or plain-text cell's content): authoring a whole new repeater table
-/// (<c>insert_repeater_table</c>), resizing columns (<c>set_column_widths</c>), adding/removing a column
+/// (<c>insert_repeater_table</c>), appending static rows — table-level totals/spacer rows
+/// (<c>insert_table_row</c>) and per-group rows inside a repeater's item (<c>insert_subtotal_row</c>) —
+/// resizing columns (<c>set_column_widths</c>), adding/removing a column
 /// (<c>insert_column</c>/<c>remove_column</c>), and horizontally merging/splitting cells within a row
 /// (<c>merge_cells</c>/<c>split_cells</c>). <c>insert_repeater_table</c> sits here rather than in
 /// <see cref="EditTools"/> because it is fundamentally a table-shape operation (it builds the table's grid
 /// and rows from scratch), even though its edit-safety wrapper is the content-control one
-/// (<see cref="ToolGuards.GuardEdit"/>) — the other five route through
+/// (<see cref="ToolGuards.GuardEdit"/>, which <c>insert_subtotal_row</c> — a repeater-item edit — also
+/// uses); the table-structure rest route through
 /// <see cref="ToolGuards.GuardTableEdit"/>. Both wrappers, and the grid-consistency backstop
 /// <see cref="ToolGuards.GuardMutate{TResult}"/> runs for every mutating tool, live in <see cref="ToolGuards"/>,
 /// which also holds the single shared per-path edit lock these tools serialize against alongside every
@@ -32,12 +35,14 @@ public static class TableTools
                  + "repeating-section control, with one bound field control per column. This is the flagship "
                  + "tool for adding a new line-items-style table to a layout. By default the table gets the "
                  + "BC-NATIVE look (look='bc'): no drawn grid, just a rule under the header row, exactly like "
-                 + "every real BC lines table - add the rule above a totals block with set_cell_borders. "
+                 + "every real BC lines table. TOTALS: the stock shape puts them INSIDE this table as trailing "
+                 + "static rows - append them with insert_table_row (+ set_cell_borders for the rule). "
                  + "The result reports tableIndex and dataRowIndex - the new table's own 0-based index and "
                  + "the 0-based index of its repeating DATA row - so follow-up edits need no re-read. "
                  + "NESTING: for per-line detail (components, serial/lot nos), the STANDARD BC shape is a "
                  + "detail ROW under the line row - use insert_repeater_row with this call's returned "
-                 + "controlId. Hosting a whole nested TABLE inside a cell (locationType='tableCell' with "
+                 + "controlId; per-GROUP spacer/subtotal rows are insert_subtotal_row on the same id. "
+                 + "Hosting a whole nested TABLE inside a cell (locationType='tableCell' with "
                  + "this call's tableIndex/dataRowIndex) also works but is NOT how standard BC documents "
                  + "are laid out - prefer insert_repeater_row. "
                  + "v1 SCOPE: only supports the main "
@@ -260,7 +265,7 @@ public static class TableTools
                  + "insert at (a repeater's whole repeating section counts as ONE row - the same numbering "
                  + "get_layout_info's tables[] uses); omit it to append after the last row, where a totals "
                  + "row goes. The row renders exactly ONCE - it is never part of a repeating section (for "
-                 + "per-group subtotal rows inside a repeater's item, see GitHub issue #30). Use bold=true "
+                 + "per-group subtotal rows inside a repeater's item, use insert_subtotal_row). Use bold=true "
                  + "for the stock grand-total look and alignments for right-anchored amounts, then "
                  + "set_cell_borders for the rule and set_cell_text for any literal caption. REJECTED for "
                  + "tables using w:vMerge. Same write/validate/save-or-reject safety as insert_field, plus "
@@ -299,8 +304,9 @@ public static class TableTools
     [McpServerTool(Name = "insert_table")]
     [Description("Insert a NEW plain (unbound) table - the building block for every NON-repeating layout "
                  + "section a real BC document is made of: side-by-side address columns, label/value "
-                 + "header-info grids, right-anchored totals blocks. (For the LINE-ITEMS table bound to a "
-                 + "repeating data item, use insert_repeater_table instead.) The table is rows x columns of "
+                 + "header-info grids, and a stand-alone right-anchored totals block. (For the LINE-ITEMS "
+                 + "table bound to a repeating data item use insert_repeater_table instead, and for the "
+                 + "stock totals-INSIDE-the-lines-table shape use insert_table_row on that table.) The table is rows x columns of "
                  + "empty single-column cells, borderless by default (the corpus shape for those blocks; pass "
                  + "withBorders=true for the same explicit single-line grid insert_repeater_table draws). "
                  + "columnWidths (twips, comma-separated, one per column) defaults to an even split of the "
