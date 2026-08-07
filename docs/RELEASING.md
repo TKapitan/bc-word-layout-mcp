@@ -75,7 +75,7 @@ inactive, restart its window on nuget.org before tagging.
 ## 5. Post-publish verification — on a machine that is not yours
 
 ```pwsh
-# Channel A: dnx fetches from NuGet and the server answers with all 23 tools
+# Channel A: dnx fetches from NuGet and the server answers with all 26 tools
 python tools/release/verify_server.py -- dnx BcWordLayout.Mcp@1.2.3 --yes
 
 # Channel B: the installer downloads, checksum-verifies, unpacks, and the installed exe works
