@@ -709,6 +709,36 @@ def s18(ctx: Ctx):
     ctx.edit("set_cell_borders", tableIndex=2, row=after["rowCount"] - 1, edges="top")
 
 
+@scenario("s19-subinv-grouped-lines-with-subtotals",
+          layout="SalesInvoiceForSubscriptionBilling.docx",
+          desc="Build the grouped list shape from scratch: /Header/Line repeater, nested AssemblyLine "
+               "detail row, per-group spacer + bold subtotal rows (issue #30), closed by a static "
+               "grand-total row (issue #28).")
+def s19(ctx: Ctx):
+    table = ctx.edit("insert_repeater_table", dataItem="/Header/Line",
+                     columns="ItemNo_Line,Description_Line,Quantity_Line,LineAmount_Line",
+                     locationType="documentEnd", columnAlignments="left,left,right,right")["data"]
+
+    ctx.edit("insert_repeater_row", parentControlId=table["controlId"],
+             dataItem="/Header/Line/AssemblyLine", cells="-,2:Description_AssemblyLine,-")
+
+    # The corpus (SalespersonCommission) group order: spacer row first, bold subtotal row second.
+    ctx.edit("insert_subtotal_row", parentControlId=table["controlId"], cells="4:-")
+    subtotal = ctx.edit("insert_subtotal_row", parentControlId=table["controlId"],
+                        cells="2:-,/Header/Line/AmountExcludingVAT_Line_Lbl,/Header/Line/AmountExcludingVAT_Line",
+                        alignments="-,right,right", bold=True)["data"]
+    ctx.expect(subtotal["controlId"] == 0, "a static row carries no controlId of its own")
+    ctx.expect("once per group" in subtotal["summary"], "summary pins the per-group semantics")
+
+    grand = ctx.edit("insert_table_row", tableIndex=table["tableIndex"],
+                     cells="2:-,/Header/Totals/TotalIncludingVATText,/Header/Totals/TotalAmountIncludingVAT",
+                     alignments="-,right,right", bold=True)["data"]
+    ctx.expect("renders exactly once" in grand["summary"], "the grand total is table-static, not per-group")
+
+    after = ctx.info()["tables"][table["tableIndex"]]
+    ctx.edit("set_cell_borders", tableIndex=table["tableIndex"], row=after["rowCount"] - 1, edges="top")
+
+
 # ================================================================ CLI
 
 def main() -> int:
