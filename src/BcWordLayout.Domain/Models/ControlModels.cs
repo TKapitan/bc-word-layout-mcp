@@ -89,6 +89,65 @@ public sealed class LayoutControl
     public int? ColIndex { get; init; }
 }
 
+/// <summary>What kind of content part a <see cref="LayoutPartInfo"/> describes.</summary>
+public enum LayoutPartKind
+{
+    /// <summary>The main document part (<c>document.xml</c>).</summary>
+    Document,
+
+    /// <summary>A header part (<c>headerN.xml</c>).</summary>
+    Header,
+
+    /// <summary>A footer part (<c>footerN.xml</c>).</summary>
+    Footer,
+}
+
+/// <summary>
+/// The role a section's <c>w:headerReference</c>/<c>w:footerReference</c> assigns to a header/footer part
+/// — which pages actually render it. See <see cref="BcWordLayout.Domain.HeaderFooterPartRoles"/> for how
+/// this is read (and why a part LIST alone misled callers — GitHub issue #5).
+/// </summary>
+public enum HeaderFooterRole
+{
+    /// <summary>The everyday header/footer (an absent <c>w:type</c> counts as default per the spec).</summary>
+    Default,
+
+    /// <summary>Rendered on the FIRST page only — and only when the section sets <c>w:titlePg</c>.</summary>
+    First,
+
+    /// <summary>Rendered on EVEN pages only — and only when the document enables even/odd headers.</summary>
+    Even,
+}
+
+/// <summary>
+/// One content part of a layout, with the rendering facts a caller needs before addressing an edit at it:
+/// which role its section reference assigns it (<see cref="Role"/>), and whether it is the part a
+/// <c>layoutPart='header'/'footer'</c> location with no explicit <c>partName</c> resolves to
+/// (<see cref="IsDefaultTarget"/>).
+/// </summary>
+public sealed class LayoutPartInfo
+{
+    /// <summary>The OOXML part file name, e.g. <c>document.xml</c>, <c>header2.xml</c>.</summary>
+    public required string Name { get; init; }
+
+    /// <summary>Whether this is the main document, a header, or a footer part.</summary>
+    public required LayoutPartKind Kind { get; init; }
+
+    /// <summary>
+    /// The role the first section-reference in document order assigns this part (see
+    /// <see cref="HeaderFooterRole"/>); null for the document part, and for a header/footer part no
+    /// section references (present in the package, rendered on no page).
+    /// </summary>
+    public HeaderFooterRole? Role { get; init; }
+
+    /// <summary>
+    /// True when this is the part a header/footer-targeted location WITHOUT an explicit part name resolves
+    /// to — computed through the SAME selection logic <see cref="BcWordLayout.Domain.LocationResolver"/>
+    /// applies, so it can never disagree with where an edit actually lands.
+    /// </summary>
+    public bool IsDefaultTarget { get; init; }
+}
+
 /// <summary>The result of reading a layout: the flat control inventory plus the parts that were walked.</summary>
 public sealed class LayoutInventory
 {
@@ -96,6 +155,18 @@ public sealed class LayoutInventory
 
     /// <summary>Names of the OOXML parts walked (document.xml + header/footer parts).</summary>
     public required IReadOnlyList<string> Parts { get; init; }
+
+    /// <summary>
+    /// Per-part detail for every entry in <see cref="Parts"/>, same order: part kind, header/footer role,
+    /// and whether a partName-less header/footer location resolves to it. See <see cref="LayoutPartInfo"/>.
+    /// </summary>
+    public IReadOnlyList<LayoutPartInfo> PartDetails { get; init; } = Array.Empty<LayoutPartInfo>();
+
+    /// <summary>
+    /// True when the first section sets <c>w:titlePg</c> (a distinct first page): page 1 renders the
+    /// <c>first</c>-role header/footer — or none when no such part is referenced — NOT the default one.
+    /// </summary>
+    public bool HasTitlePage { get; init; }
 
     /// <summary>
     /// Every table found across all walked parts, described structurally (grid, rows, cells, and which

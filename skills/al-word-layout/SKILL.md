@@ -72,7 +72,7 @@ never throws.
 
 | Tool | Key params (defaults) | Returns | Reach for it when… |
 |---|---|---|---|
-| `get_layout_info` | `layoutPath` | Report name/id/namespace/`storeItemID`, full control inventory (`kind`, `alias`, `tag`, `xpath`, `storeItemID`, `part`, `sdtId`, `usesW15Binding`, parent repeater), a control-kind summary count, the list of OOXML parts, and a `quick` validation summary. | First call on any layout. Also how you look up a real `controlId`/`part`/`partName` before addressing an edit — never guess these. |
+| `get_layout_info` | `layoutPath` | Report name/id/namespace/`storeItemID`, full control inventory (`kind`, `alias`, `tag`, `xpath`, `storeItemID`, `part`, `sdtId`, `usesW15Binding`, parent repeater), a control-kind summary count, the list of OOXML parts plus `partDetails` (each part's `kind`, header/footer `role` — `default`/`first`/`even`, `null` when unreferenced — and `isDefaultTarget`, the part a `partName`-less header/footer edit lands in) and `hasTitlePage` (whether page 1 renders the `first`-role parts INSTEAD of the default ones), and a `quick` validation summary. | First call on any layout. Also how you look up a real `controlId`/`part`/`partName` before addressing an edit — never guess these. Check `partDetails`/`hasTitlePage` before any header/footer edit: the package-order first part is frequently the even-page or first-page one. |
 | `list_dataset_fields` | `source` (`.docx` layout **or** standalone schema `.xml`) | Nested data-item hierarchy; each column flagged `isLabel`; when `source` is a layout, each column is also flagged `bound`/`unbound`. | Finding the exact dataset path to pass to `insert_field` / `insert_label` / `insert_repeater_table`, or checking what's still unbound. |
 
 ### Validate
@@ -94,8 +94,12 @@ never throws.
 is one of `documentEnd` (end of body), `afterControl` (needs `controlId`), `tableCell` (needs
 `tableIndex` + `row` + `col`, all 0-based), or `atText` (needs `searchText`, an ordinal substring
 match). `layoutPart` picks which OOXML part `locationType` resolves within — `body` (default),
-`header`, or `footer` — with an optional `partName` to pick a specific part when more than one exists
-(omit it to use the first matching part).
+`header`, or `footer` — with an optional `partName` to pick a specific part when more than one exists.
+Omitting `partName` targets the first section's **default** part (the everyday header/footer — often
+NOT the first part in the package; `get_layout_info`'s `partDetails` gives each part's role). In a
+layout with `hasTitlePage` (a distinct first page), the default header/footer does **not** render on
+page 1 — content that must appear there needs the `first`-role part too, and the insert tools warn in
+their summary when an edit lands in that trap.
 
 | Tool | Key params (defaults) | Returns | Reach for it when… |
 |---|---|---|---|
@@ -232,7 +236,9 @@ every tool here except `set_cell_borders`.
   sandbox render even when the preview looks "right."
 - **Don't guess a `controlId`, table index, or header/footer `partName`.** They are per-document and
   not sequential or guessable — always look them up via `get_layout_info` (`controls[].sdtId`,
-  `controls[].part`) first.
+  `controls[].part`, `partDetails[]`) first. In particular, never assume `header1.xml` is "the"
+  header: in most stock BC layouts it is the even-page or first-page part — `partDetails[].role`
+  says which is which.
 
 ## 5. Error handling
 

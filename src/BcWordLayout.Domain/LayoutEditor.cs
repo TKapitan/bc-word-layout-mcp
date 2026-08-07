@@ -108,7 +108,8 @@ public static class LayoutEditor
                 + (scaffolded
                     ? $" The layout had no {location.Part.ToString().ToLowerInvariant()} part, so an empty "
                       + $"{anchor.PartName} was created and wired into the page setup first."
-                    : string.Empty),
+                    : string.Empty)
+                + FirstPageVisibilityNote(doc, location, anchor.PartName),
         };
     }
 
@@ -260,7 +261,8 @@ public static class LayoutEditor
                 + (scaffolded
                     ? $" The layout had no {location.Part.ToString().ToLowerInvariant()} part, so an empty "
                       + $"{anchor.PartName} was created and wired into the page setup first."
-                    : string.Empty),
+                    : string.Empty)
+                + FirstPageVisibilityNote(doc, location, anchor.PartName),
         };
     }
 
@@ -923,8 +925,44 @@ public static class LayoutEditor
                 + (scaffolded
                     ? $" The layout had no {location.Part.ToString().ToLowerInvariant()} part, so an empty "
                       + $"{anchor.PartName} was created and wired into the page setup first."
-                    : string.Empty),
+                    : string.Empty)
+                + FirstPageVisibilityNote(doc, location, anchor.PartName),
         };
+    }
+
+    /// <summary>
+    /// The warning an insert summary carries when its content landed somewhere a one-page render never
+    /// shows: the layout renders a distinct first page (<c>w:titlePg</c> on the first section) and the
+    /// edit resolved to the DEFAULT header/footer without the caller naming a part explicitly — the exact
+    /// trap that cost a whole sandbox round to diagnose (GitHub issue #5), since page 1 then renders the
+    /// <c>first</c>-role part (or nothing) instead. Empty when the situation does not apply: a body edit,
+    /// an explicit <see cref="Location.PartName"/> (the caller chose deliberately), a layout with no
+    /// <c>w:titlePg</c>, or a resolved part whose role is not <see cref="HeaderFooterRole.Default"/>.
+    /// </summary>
+    private static string FirstPageVisibilityNote(WordprocessingDocument doc, Location location, string resolvedPartName)
+    {
+        if (location.Part == LayoutPart.Body || location.PartName is not null)
+        {
+            return string.Empty;
+        }
+
+        var main = doc.MainDocumentPart;
+        if (main is null)
+        {
+            return string.Empty;
+        }
+
+        var roles = HeaderFooterPartRoles.Read(main);
+        if (!roles.HasTitlePage || roles.RoleOf(resolvedPartName) != HeaderFooterRole.Default)
+        {
+            return string.Empty;
+        }
+
+        var kind = location.Part.ToString().ToLowerInvariant();
+        return $" NOTE: this layout renders a DIFFERENT FIRST PAGE (w:titlePg), so the default {kind} this "
+            + $"landed in is not shown on page 1 — a one-page document will not display it at all. If it must "
+            + $"appear on page 1, target the first-page part instead/as well (see get_layout_info's "
+            + $"partDetails for the part with role 'first', and pass it as partName).";
     }
 
     /// <summary>

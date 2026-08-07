@@ -53,7 +53,8 @@ public static class EditTools
                      + "'footer' (case-insensitive).")] string layoutPart = "body",
         [Description("Only used when layoutPart is 'header'/'footer': a specific part file name, e.g. "
                      + "'header2.xml' (see get_layout_info's controls[].part for the names actually present). "
-                     + "Omit to use the FIRST header/footer part.")] string? partName = null,
+                     + "Omit to target the DEFAULT part - the everyday header/footer, which is often NOT the first "
+                     + "part in the package (get_layout_info's partDetails gives each part's role).")] string? partName = null,
         [Description("Optional: true makes the control's text bold, false strips bold; omit to leave the "
                      + "control's runs unstyled (a control in a fresh plain-table cell has nothing to "
                      + "inherit).")] bool? bold = null,
@@ -89,7 +90,8 @@ public static class EditTools
                      + "'footer' (case-insensitive).")] string layoutPart = "body",
         [Description("Only used when layoutPart is 'header'/'footer': a specific part file name, e.g. "
                      + "'header2.xml' (see get_layout_info's controls[].part for the names actually present). "
-                     + "Omit to use the FIRST header/footer part.")] string? partName = null,
+                     + "Omit to target the DEFAULT part - the everyday header/footer, which is often NOT the first "
+                     + "part in the package (get_layout_info's partDetails gives each part's role).")] string? partName = null,
         [Description("Optional: true makes the control's text bold, false strips bold; omit to leave the "
                      + "control's runs unstyled (a control in a fresh plain-table cell has nothing to "
                      + "inherit).")] bool? bold = null,
@@ -133,7 +135,8 @@ public static class EditTools
                      + "'footer' (case-insensitive).")] string layoutPart = "body",
         [Description("Only used when layoutPart is 'header'/'footer': a specific part file name, e.g. "
                      + "'header2.xml' (see get_layout_info's controls[].part for the names actually present). "
-                     + "Omit to use the FIRST header/footer part.")] string? partName = null,
+                     + "Omit to target the DEFAULT part - the everyday header/footer, which is often NOT the first "
+                     + "part in the package (get_layout_info's partDetails gives each part's role).")] string? partName = null,
         [Description("Optional: true makes the text bold, false strips bold; omit to leave it unstyled so it "
                      + "inherits whatever surrounds it.")] bool? bold = null,
         [Description("Optional font size in points (4-96, halves allowed); omit to leave it unstyled.")]
@@ -224,7 +227,8 @@ public static class EditTools
         [Description("Which OOXML part locationType resolves within: 'body' (default), 'header', or "
                      + "'footer' (case-insensitive).")] string layoutPart = "body",
         [Description("Only used when layoutPart is 'header'/'footer': a specific part file name, e.g. "
-                     + "'header2.xml'. Omit to use the FIRST header/footer part.")] string? partName = null)
+                     + "'header2.xml'. Omit to target the DEFAULT part - the everyday header/footer, which is often "
+                     + "NOT the first part in the package (see get_layout_info's partDetails).")] string? partName = null)
     {
         return GuardEdit(layoutPath, doc =>
         {
@@ -286,7 +290,8 @@ public static class EditTools
         [Description("The plain text to put in the cell (replaces whatever text was there).")] string text,
         [Description("Which OOXML part the cell is in: 'body' (default), 'header', or 'footer'.")] string layoutPart = "body",
         [Description("Only used when layoutPart is 'header'/'footer': a specific part file name (e.g. "
-                     + "'header2.xml'); omit to use the first header/footer part.")] string? partName = null,
+                     + "'header2.xml'); omit to target the DEFAULT header/footer part (see get_layout_info's "
+                     + "partDetails for each part's role).")] string? partName = null,
         [Description("Optional: true makes the text bold, false strips bold; omit to keep the cell's "
                      + "existing weight.")] bool? bold = null,
         [Description("Optional paragraph alignment 'left'/'center'/'right'; omit to keep the cell's "
@@ -322,7 +327,8 @@ public static class EditTools
         [Description("0-based cell/column index within the row.")] int col,
         [Description("Which OOXML part the cell is in: 'body' (default), 'header', or 'footer'.")] string layoutPart = "body",
         [Description("Only used when layoutPart is 'header'/'footer': a specific part file name (e.g. "
-                     + "'header2.xml'); omit to use the first header/footer part.")] string? partName = null)
+                     + "'header2.xml'); omit to target the DEFAULT header/footer part (see get_layout_info's "
+                     + "partDetails for each part's role).")] string? partName = null)
     {
         return GuardCellEdit(layoutPath, doc =>
         {

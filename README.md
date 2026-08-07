@@ -155,7 +155,7 @@ other tool is conversion-free and works everywhere the server runs.
 
 | Tool | Purpose |
 |---|---|
-| `get_layout_info` | Inspect a layout: report name/id, dataset namespace, `storeItemID`, the full control inventory (kind, alias, tag, xpath, part, parent repeater), and a quick validation summary. |
+| `get_layout_info` | Inspect a layout: report name/id, dataset namespace, `storeItemID`, the full control inventory (kind, alias, tag, xpath, part, parent repeater), per-part details (kind, header/footer role `default`/`first`/`even`, and which part a `partName`-less header/footer edit targets) plus a `hasTitlePage` flag, and a quick validation summary. |
 | `list_dataset_fields` | List the dataset hierarchy (data items + columns) from a `.docx` layout or a standalone schema `.xml`; flags labels and, for a layout, bound/unbound columns. |
 | `validate_layout` | Validate a layout: `level=quick` (structural + binding checks) or `level=full` (adds a dry-run merge that surfaces every unresolved binding as a finding). |
 | `preview_layout` | Mock preview: merges deterministic (or supplied) sample data into a working copy and converts it to PDF via Word COM or LibreOffice. |

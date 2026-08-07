@@ -53,6 +53,31 @@ public class McpHostToolTests
             .SingleOrDefault(cell => cell.ControlId == -2064325541);
         Assert.NotNull(owningCell);
         Assert.True(owningCell!.IsControlCell);
+
+        // partDetails mirrors parts one to one and carries each part's kind/role facts.
+        Assert.Equal(dto.Parts, dto.PartDetails.Select(p => p.Name).ToList());
+        Assert.Equal("document", dto.PartDetails.Single(p => p.Name == "document.xml").Kind);
+    }
+
+    [Fact]
+    public void GetLayoutInfo_reports_header_footer_roles_and_titlePg()
+    {
+        // StandardPurchaseOrder is the corpus's canonical issue-#5 layout: w:titlePg set, and the
+        // package-order FIRST header part (header1.xml) is the EVEN-page one, not the everyday default.
+        var response = ReadTools.GetLayoutInfo(Corpus.Path(Corpus.StandardPurchaseOrder));
+
+        Assert.True(response.Ok);
+        var dto = Assert.IsType<LayoutInfoDto>(response.Data);
+
+        Assert.True(dto.HasTitlePage);
+        Assert.Equal("even", dto.PartDetails.Single(p => p.Name == "header1.xml").Role);
+        Assert.Equal("first", dto.PartDetails.Single(p => p.Name == "header3.xml").Role);
+
+        var header2 = dto.PartDetails.Single(p => p.Name == "header2.xml");
+        Assert.Equal("header", header2.Kind);
+        Assert.Equal("default", header2.Role);
+        Assert.True(header2.IsDefaultTarget);
+        Assert.False(dto.PartDetails.Single(p => p.Name == "header1.xml").IsDefaultTarget);
     }
 
     [Fact]

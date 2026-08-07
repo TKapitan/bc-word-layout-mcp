@@ -59,8 +59,10 @@ public sealed class Location
     /// Optional specific header/footer part file name (e.g. <c>"header2.xml"</c>), matched case-
     /// insensitively. Only meaningful when <see cref="Part"/> is <see cref="LayoutPart.Header"/> or
     /// <see cref="LayoutPart.Footer"/> (silently ignored otherwise, same as every other kind-specific field
-    /// on this type — see <see cref="Validate"/>'s own remarks). When null, the FIRST header/footer part
-    /// (in the document's own part-collection order) is used. A layout with no header/footer parts at all,
+    /// on this type — see <see cref="Validate"/>'s own remarks). When null, the first section's DEFAULT
+    /// header/footer part is used (falling back to the first part in the document's own part-collection
+    /// order only when no default is referenced — see
+    /// <see cref="LocationResolver"/>'s default-part selection). A layout with no header/footer parts at all,
     /// or none matching this name, surfaces as a <see cref="NotFoundException"/> from
     /// <see cref="LocationResolver.Resolve"/> — the same "does this actually resolve against THIS document"
     /// category as an unknown <see cref="ControlId"/> or an out-of-range <see cref="TableIndex"/>, so there
