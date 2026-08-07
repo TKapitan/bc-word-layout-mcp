@@ -683,6 +683,28 @@ def s16(ctx: Ctx):
                f"no labels-convention-hint under the default convention (got {kinds})")
 
 
+@scenario("s17-quote-page-number-in-footer",
+          layout="StandardSalesQuote.docx",
+          desc="Compose the stock 'Page X / Y' idiom in the default footer: Page_Lbl label, two literal "
+               "spaces, then insert_page_number's PAGE/NUMPAGES field codes (issue #29).")
+def s17(ctx: Ctx):
+    label = ctx.edit("insert_label", label="/Header/Page_Lbl", locationType="documentEnd",
+                     layoutPart="footer")["data"]
+    ctx.expect(label["part"].startswith("footer"),
+               f"label resolved into a footer part ({label['part']})")
+
+    # Each afterControl insert lands IMMEDIATELY after its anchor, so the inline sequence is built
+    # outside-in: the fields first, then the separator spaces between label and fields — the same
+    # anchoring rule the skill documents for any label/separator/value line.
+    fields = ctx.edit("insert_page_number", locationType="afterControl", controlId=label["controlId"],
+                      layoutPart="footer")["data"]
+    ctx.expect(fields["controlId"] == 0, "field codes are plain runs - no controlId to address")
+    ctx.expect(fields["part"] == label["part"], "fields landed in the same footer part as the label")
+    ctx.expect("PAGE / NUMPAGES" in fields["summary"], "summary names the emitted construct")
+    ctx.edit("insert_text", text="  ", locationType="afterControl", controlId=label["controlId"],
+             layoutPart="footer")
+
+
 # ================================================================ CLI
 
 def main() -> int:
