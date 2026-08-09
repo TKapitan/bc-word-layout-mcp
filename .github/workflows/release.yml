@@ -24,7 +24,7 @@ jobs:
       contents: write   # create the GitHub Release
       id-token: write   # GitHub OIDC token for NuGet Trusted Publishing
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       # The tag is the trigger but Directory.Build.props is the version source — if they disagree,
       # the workflow would pack and publish packages for a DIFFERENT (immutable, unreclaimable)
