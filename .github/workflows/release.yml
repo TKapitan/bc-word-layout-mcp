@@ -41,7 +41,7 @@ jobs:
             throw "Tag version '$tag' does not match <Version>$version</Version> in Directory.Build.props. Bump the version (see docs/RELEASING.md) or fix the tag."
           }
 
-      - uses: actions/setup-dotnet@v5
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
 
