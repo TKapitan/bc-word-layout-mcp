@@ -742,7 +742,7 @@ public class RepeaterTableTests
             Assert.Equal("TableGrid", table.GetFirstChild<TableProperties>()!.GetFirstChild<TableStyle>()!.Val!.Value);
 
             var quick = LayoutValidator.Quick(reopened);
-            Assert.Empty(quick.Findings.Where(f => f.Check == "table-style-resolves"));
+            Assert.DoesNotContain(quick.Findings, f => f.Check == "table-style-resolves");
             Assert.True(quick.Passed);
             AssertNoOpenXmlErrors(reopened);
         }
