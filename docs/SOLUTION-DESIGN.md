@@ -287,6 +287,29 @@ fidelity by regression test. The workflow consequence — a brand-new layout sta
 BC export that produces the schema artifact — is documented in the skill's §1 and
 [ADR-0006](adr/0006-schema-transplanted-never-synthesized.md).
 
+**9. OOXML fidelity is asserted at the markup level, not the OPC-plumbing level.** Everything this server
+promises about matching real BC layouts — corpus-observed elements, attribute-for-attribute shapes (ADR-0005)
+— is about the *markup inside* the parts. The *packaging* around it is the OpenXML SDK's business, and two of
+its choices differ cosmetically from what Word writes ([#56](https://github.com/TKapitan/bc-word-layout-mcp/issues/56)):
+
+- `[Content_Types].xml` declares `Default Extension="xml"` as the **main document** content type, with an
+  `Override` for every other XML part. Word does the inverse (`application/xml` default plus an override for
+  `/word/document.xml`). The default is established by the first `.xml` part created, which for any package
+  the SDK builds is `document.xml`.
+- An `ImagePart` lands at `/media/image.png` (package root) rather than under `/word/media/`, where every
+  corpus layout keeps its images. This is the SDK's own placement and is **not** a consequence of how the
+  part is requested — `AddNewPart<ImagePart>(contentType)` and the typed `AddImagePart(ImagePartType.Png)`
+  produce the same URI, on the main document part as well as on a header/footer part.
+
+Neither is a defect: both are valid OPC, `OpenXmlValidator` and `validate_layout` pass, BC accepts and
+renders the layouts (the from-scratch sandbox pack included pictures), and Word silently normalises both on
+its first save. Neither is *reachable* either — DocumentFormat.OpenXml exposes no API for choosing a part URI
+or a content-type default, so changing them would mean post-write repackaging: rewriting the content-types
+part by hand and moving zip entries while patching the relationships that point at them. That is the most
+fragile code in the codebase, in the one place (`LayoutBuilder`'s atomic build) where a mistake silently ships
+a broken layout, bought for a difference no consumer observes. **Deliberately not done.** If a future SDK
+version exposes part-URI control, adopting it is a one-line change and this note comes out.
+
 ## 7. Testing strategy
 
 - **Corpus**: 10 real BC layouts in `tests/corpus/` (provenance per file in
