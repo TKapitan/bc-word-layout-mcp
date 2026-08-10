@@ -173,6 +173,74 @@ public class LayoutBuilderTests
     }
 
     [Fact]
+    public void Created_blank_layout_declares_compatibility_mode_15_so_Word_preserves_its_repeaters()
+    {
+        // A layout that declares no compatibility mode is mode 12 to Word - Word 2007, where
+        // repeating-section content controls do not exist - so an interactive Word save converted every
+        // repeater to a plain rich-text control and dropped its w15:dataBinding (GitHub issue #51). The
+        // scaffolded part declares what every stock corpus layout declares.
+        var outputPath = TempOutputPath();
+        try
+        {
+            LayoutBuilder.Create(Corpus.Path(Corpus.SalesInvoice), outputPath);
+
+            using var doc = WordprocessingDocument.Open(outputPath, false);
+            var main = doc.MainDocumentPart!;
+            var settingsPart = main.DocumentSettingsPart;
+            Assert.NotNull(settingsPart);
+
+            var compat = settingsPart!.Settings!.GetFirstChild<Compatibility>();
+            Assert.NotNull(compat);
+            var setting = Assert.Single(compat!.Elements<CompatibilitySetting>());
+            Assert.Equal(CompatSettingNameValues.CompatibilityMode, setting.Name!.Value);
+            Assert.Equal("http://schemas.microsoft.com/office/word", setting.Uri!.Value);
+            Assert.Equal("15", setting.Val!.Value);
+
+            // The value the rest of the tool reasons about, read back through the public helper.
+            Assert.Equal(15, DocumentSettingsScaffold.ReadCompatibilityMode(main));
+
+            AssertNoOpenXmlErrors(doc);
+            AssertQuickPasses(doc);
+        }
+        finally
+        {
+            File.Delete(outputPath);
+        }
+    }
+
+    [Fact]
+    public void Blank_build_with_a_repeater_is_free_of_the_compatibility_mode_warning_end_to_end()
+    {
+        // The end-to-end point of the scaffold: author the construct that the missing mode used to put at
+        // risk, and the layout comes out clean - no compatibility-mode finding anywhere in its own
+        // post-edit validation.
+        var outputPath = TempOutputPath();
+        try
+        {
+            LayoutBuilder.Create(Corpus.Path(Corpus.SalesInvoice), outputPath);
+
+            using (var doc = WordprocessingDocument.Open(outputPath, true))
+            {
+                LayoutEditor.InsertRepeaterTable(
+                    doc,
+                    "/Header/Line",
+                    ["ItemNo_Line", "Description_Line"],
+                    new Location { Type = LocationKind.DocumentEnd },
+                    new RepeaterTableOptions());
+                doc.MainDocumentPart!.Document!.Save();
+            }
+
+            var result = LayoutValidator.Quick(outputPath);
+            Assert.DoesNotContain(result.Findings, f => f.Check == "compatibility-mode");
+            Assert.True(result.Passed);
+        }
+        finally
+        {
+            File.Delete(outputPath);
+        }
+    }
+
+    [Fact]
     public void Created_blank_layout_can_take_a_footer_insert_immediately()
     {
         // The end-to-end point of the scaffolding above, through the real edit path.
@@ -675,6 +743,43 @@ public class LayoutBuilderTests
             using var doc = WordprocessingDocument.Open(outputPath, false);
             Assert.Empty(doc.MainDocumentPart!.HeaderParts);
             Assert.Empty(doc.MainDocumentPart.FooterParts);
+        }
+        finally
+        {
+            if (File.Exists(templatePath))
+            {
+                File.Delete(templatePath);
+            }
+
+            if (File.Exists(outputPath))
+            {
+                File.Delete(outputPath);
+            }
+        }
+    }
+
+    [Fact]
+    public void Create_with_templatePath_never_injects_a_settings_part_into_the_templates_own_shell()
+    {
+        // Same BLANK-build-only contract as the two scaffolds around this test, and for a sharper reason:
+        // compatibility mode also selects Word's layout metrics, so retrofitting a mode onto a shell that
+        // already renders somehow could move its pagination. The risk a low-mode template introduces is
+        // REPORTED instead, by LayoutValidator's compatibility-mode check (and only once the layout actually
+        // contains a repeater) - see DocumentSettingsScaffold's remarks.
+        var templatePath = SyntheticLayout.Create(SyntheticLayout.PlainParagraph("template body"));
+        var outputPath = TempOutputPath();
+        try
+        {
+            var result = LayoutBuilder.Create(Corpus.Path(Corpus.SalesInvoice), outputPath, templatePath);
+            Assert.True(result.UsedTemplate);
+
+            using var doc = WordprocessingDocument.Open(outputPath, false);
+            Assert.Null(doc.MainDocumentPart!.DocumentSettingsPart);
+
+            // No repeater in the template shell, so the mode it lacks is not yet a risk and must not be
+            // reported - the create-time envelope stays clean.
+            Assert.DoesNotContain(
+                result.QuickValidation.Findings, f => f.Check == "compatibility-mode");
         }
         finally
         {
