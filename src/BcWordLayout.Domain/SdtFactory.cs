@@ -316,7 +316,7 @@ public static class SdtFactory
             }
         }
 
-        var tblPr = BuildTableProperties(options);
+        var tblPr = BuildTableProperties(options, widths);
         var tblGrid = new TableGrid(widths.Select(w => (OpenXmlElement)new GridColumn { Width = w.ToString(CultureInfo.InvariantCulture) }));
 
         var headerRowChildren = new List<OpenXmlElement> { new TableRowProperties(new TableHeader()) };
@@ -782,20 +782,25 @@ public static class SdtFactory
     /// <c>w:tblBorders</c> at all, exactly like every real corpus lines table: its look comes from the
     /// per-cell header rule <see cref="BuildRepeaterTable"/> applies instead.
     /// </summary>
-    private static TableProperties BuildTableProperties(RepeaterTableOptions options)
+    private static TableProperties BuildTableProperties(RepeaterTableOptions options, IReadOnlyList<int> widths)
     {
         var tblPr = new TableProperties();
         if (!string.IsNullOrEmpty(options.TableStyle))
         {
-            tblPr.Append(new TableStyle { Val = options.TableStyle });
+            tblPr.TableStyle = new TableStyle { Val = options.TableStyle };
         }
+
+        // Pin the grid the caller asked for; without this Word autofits and recomputes every width from
+        // cell content (see FixedTableLayout). Assigned through typed properties throughout this method so
+        // each element lands at its schema position regardless of the order they are set in.
+        FixedTableLayout.ApplyTo(tblPr, widths);
 
         if (options.Look != TableBorderLook.Grid)
         {
             return tblPr;
         }
 
-        tblPr.Append(new TableBorders
+        tblPr.TableBorders = new TableBorders
         {
             TopBorder = new TopBorder { Val = BorderValues.Single, Size = 4, Space = 0, Color = "auto" },
             LeftBorder = new LeftBorder { Val = BorderValues.Single, Size = 4, Space = 0, Color = "auto" },
@@ -805,7 +810,7 @@ public static class SdtFactory
                 new InsideHorizontalBorder { Val = BorderValues.Single, Size = 4, Space = 0, Color = "auto" },
             InsideVerticalBorder =
                 new InsideVerticalBorder { Val = BorderValues.Single, Size = 4, Space = 0, Color = "auto" },
-        });
+        };
 
         return tblPr;
     }
