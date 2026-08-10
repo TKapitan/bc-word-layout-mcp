@@ -280,6 +280,87 @@ public class LayoutValidatorNegativeTests
     }
 
     [Fact]
+    public void Downgraded_repeater_is_flagged_but_a_real_repeater_and_an_ordinary_field_are_not()
+    {
+        // All three controls in one document, so the check has to discriminate rather than fire on anything
+        // that looks vaguely repeater-ish: what Word's compatibility downgrade leaves of a repeater (alias
+        // naming a DATA ITEM, no repeatingSection, no binding), a genuine repeater carrying the same alias,
+        // and an ordinary bound field whose alias names a LEAF COLUMN (GitHub issue #54).
+        var body =
+            SyntheticLayout.DowngradedRepeater("/Header") +
+            SyntheticLayout.ProperRepeaterWithAlias(HeaderXPath, SyntheticLayout.GoodItemId, "/Header") +
+            SyntheticLayout.AliasedBoundField(
+                ValidFieldXPath, SyntheticLayout.GoodItemId, "/Header/CompanyName");
+        var path = SyntheticLayout.Create(body);
+
+        try
+        {
+            var result = LayoutValidator.Quick(path);
+
+            var finding = Assert.Single(result.Findings.Where(f => f.Check == "repeater-downgraded"));
+            Assert.Equal(FindingSeverity.Error, finding.Severity);
+            Assert.Contains("/Header", finding.Message);
+            Assert.Contains("insert_repeater_table", finding.Message);
+            Assert.False(result.Passed);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Word_placeholder_character_scale_is_a_warning_while_other_structural_errors_stay_errors()
+    {
+        // w:w=0 is what Word writes into a content control's placeholder run, so it appears in any layout
+        // that has been opened and saved in Word; ST_TextScale requires >= 1, so OpenXmlValidator reports
+        // it. It renders fine in Word and BC and no tool can edit run properties, so failing the layout on
+        // it left the caller with an unactionable error (GitHub issue #54). The orphaned
+        // repeatingSectionItem alongside it is a REAL structural defect and must keep Error severity - the
+        // tolerance is one named shape, not a softening of the gate.
+        var body =
+            SyntheticLayout.ControlWithCharacterScale(0) +
+            SyntheticLayout.OrphanRepeaterItem();
+        var path = SyntheticLayout.Create(body);
+
+        try
+        {
+            var result = LayoutValidator.Quick(path);
+
+            var scale = Assert.Single(result.Findings.Where(
+                f => f.Check == "openxml-structure" && f.Severity == FindingSeverity.Warning));
+            Assert.Contains("Microsoft Word itself writes", scale.Message);
+
+            Assert.NotEmpty(result.Findings.Where(f => f.Check == "repeater-shape"));
+            Assert.False(result.Passed);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void A_normal_character_scale_produces_no_structural_finding_at_all()
+    {
+        // The valid sibling: the same control with a legal w:w value must not be reported in either
+        // severity - the tolerance above must not have turned the check into a no-op.
+        var path = SyntheticLayout.Create(SyntheticLayout.ControlWithCharacterScale(100));
+
+        try
+        {
+            var result = LayoutValidator.Quick(path);
+
+            Assert.Empty(result.Findings.Where(f => f.Check == "openxml-structure"));
+            Assert.True(result.Passed);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void TblStyle_reference_in_a_layout_with_no_styles_part_at_all_is_flagged_as_a_warning()
     {
         // The exact pre-fix create_layout shape: a table referencing the documented 'TableGrid' example in
