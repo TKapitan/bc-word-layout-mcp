@@ -56,6 +56,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `insert_text`. The stock idiom's leading caption stays a composed `insert_label` (`Page_Lbl`) +
   `insert_text` separator, so it remains a translatable dataset binding.
 
+- **New `validate_layout` check `compatibility-mode`** (GitHub issue #51): warns when a layout that
+  CONTAINS repeating sections declares a Word compatibility mode below 15 — the state in which a Word
+  save silently converts them to plain rich-text controls. Warning, not error: Business Central
+  merges the repeater regardless, so the file is correct until someone edits it in Word. Deliberately
+  conditional on a repeater being present, so it stays silent on the field-only layouts (and stock
+  captures) where the risk does not exist.
+
 ### Changed
 
 - Tool descriptions and error hints no longer claim a missing `partName` targets "the FIRST
@@ -64,6 +71,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **A blank `create_layout` build now declares Word `compatibilityMode` 15** (GitHub issue #51). It
+  shipped no `word/settings.xml` at all, and a document that declares no mode is mode 12 — Word 2007
+  — to Word (measured: `Document.CompatibilityMode` reported `12`). Repeating-section content
+  controls do not exist in that mode, so the first time anyone opened a tool-authored layout in Word
+  and saved it, the Compatibility Checker converted every repeater to a plain rich-text control and
+  dropped its `w15:dataBinding`: the lines table silently stopped repeating and binding while still
+  looking like a layout. Blank builds now scaffold a minimal settings part declaring the mode every
+  stock corpus layout declares (`DocumentSettingsScaffold`), so the Word round trip the docs
+  recommend for restyling is safe. A `templatePath` build keeps its shell's own settings untouched —
+  compatibility mode also selects Word's layout metrics, so retrofitting one could move a template's
+  pagination; that case is reported instead, by the new check below.
 - The NuGet MCP registry manifest (`.mcp/server.json`) shipped three `description` values over the
   registry schema's 100-character cap (the 2025-10-17 schema enforces it); all are shortened and a
   packaging test now walks the whole manifest so any future description stays within the limit.
