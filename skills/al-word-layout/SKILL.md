@@ -86,7 +86,7 @@ never throws.
 | Tool | Key params (defaults) | Returns | Reach for it when… |
 |---|---|---|---|
 | `preview_layout` | `layoutPath`, `rows`=`3`, `seed`=`12345`, `converter`=`"auto"` (prefers Word, falls back to LibreOffice; or force `"word"`/`"libreoffice"`), `dataOverridesPath`=`null`, `outputDir`=`null` | `mergedDocxPath`, `pdfPath` (`null` if conversion failed), `converterUsed`, `converterAvailable`, `conversionOk`, `conversionError`, `stats` (`fieldsFilled`, `repeatersExpanded`, `rowsGenerated`, `unresolved`, `picturesFilled`), `warnings[]`, `quickValidation`, and a fixed mock-render `disclaimer` string. | Visual/structural sanity check after an edit. Pass `dataOverridesPath` (a real exported BC dataset — the report UI's *Send to → XML* export works as-is, `decimalformatter` columns included) instead of generated sample data for a realistic look. `rows` is capped per repeater by an internal safeguard (default cap 100) — a larger value is reported via a row-cap warning, never silently dropped or blown out. |
-| `render_preview_pages` | `pdfPath` (the `pdfPath` a `preview_layout` call returned), `firstPage`=`1` (1-based), `maxPages`=`3` (hard cap 10 per call), `dpi`=`120` (clamped 36–300) | The uniform JSON envelope as the result's FIRST text content block (including a `truncated` flag when the PDF has more pages than were returned), followed by one MCP **image content block** (PNG) per rendered page. | Looking at your own work: render the preview PDF's pages inline so you can visually inspect layout/structure without any external viewer. Page onward through a long document via `firstPage`. |
+| `render_preview_pages` | `pdfPath` (the `pdfPath` a `preview_layout` call returned), `firstPage`=`1` (1-based), `maxPages`=`3` (hard cap 10 per call), `dpi`=`120` (clamped 36–300), `outputDir`=`null` (also WRITE each page as `<pdf-basename>-pageNN.png` there; paths returned on `pages[].path`, directory created if missing, its lifetime is yours), `inlineImages`=`true` (`false` + `outputDir` writes the files without spending tokens on the images; `false` without `outputDir` is refused) | The uniform JSON envelope as the result's FIRST text content block (including a `truncated` flag when the PDF has more pages than were returned), followed by one MCP **image content block** (PNG) per rendered page. | Looking at your own work: render the preview PDF's pages inline so you can visually inspect layout/structure without any external viewer. Page onward through a long document via `firstPage`. **When a human asks to see the render**, pass `outputDir` — the inline blocks are visible to you only, so a file on disk is the only thing they can open. |
 
 ### Edit (mutating — body by default; write is validated before save, atomic, all-or-nothing)
 
@@ -167,7 +167,8 @@ every tool here except `set_cell_borders`.
   desyncing a row from its `w:tblGrid`; rows skipping grid columns via `w:gridBefore`/`w:gridAfter`
   are handled) and `set_cell_borders` for the per-cell rules BC documents get their look from.
 - Inline page images of the preview PDF (`render_preview_pages`), so you can visually inspect your
-  own work without an external viewer.
+  own work without an external viewer — and, via its `outputDir`, the same pages written to disk as
+  PNGs for a human to open.
 - `create_layout` (blank or from an unbound branded template) and `refresh_xml_part` (in-place dataset
   swap + binding reclassification) for layout lifecycle.
 - Both validation levels: `quick` (structural/binding) and `full` (dry-run merge).
