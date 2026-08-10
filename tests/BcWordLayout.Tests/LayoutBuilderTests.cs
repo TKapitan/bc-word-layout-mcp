@@ -1,4 +1,4 @@
-using System.Xml.Linq;
+﻿using System.Xml.Linq;
 using BcWordLayout.Domain;
 using BcWordLayout.Domain.Models;
 using DocumentFormat.OpenXml;
@@ -1019,11 +1019,22 @@ public class LayoutBuilderTests
     private static bool HasStrayBuildTempFiles(string directory) =>
         Directory.Exists(directory) && Directory.EnumerateFiles(directory, ".bcwl-build-*").Any();
 
+    /// <summary>
+    /// A private directory for the two stray-temp-file scans below. Create assembles into
+    /// '.bcwl-build-*' NEXT TO its outputPath, so scanning the SHARED temp directory made those two
+    /// assertions depend on no other test anywhere in the suite being mid-Create at that instant - true
+    /// within this class (xUnit serialises a class's own tests) but not across classes: McpHostToolTests
+    /// exercises create_layout in parallel, and CI caught the resulting flake. The scan needs a directory
+    /// only the scanning test writes to.
+    /// </summary>
+    private static string PrivateOutputDirectory() =>
+        Directory.CreateTempSubdirectory("bcwl-build-scan-").FullName;
+
     [Fact]
     public void Create_leaves_no_stray_build_temp_file_behind_after_a_successful_create()
     {
-        var outputPath = TempOutputPath();
-        var dir = Path.GetDirectoryName(Path.GetFullPath(outputPath))!;
+        var dir = PrivateOutputDirectory();
+        var outputPath = Path.Combine(dir, "created.docx");
         try
         {
             LayoutBuilder.Create(Corpus.Path(Corpus.SalesInvoice), outputPath);
@@ -1033,10 +1044,7 @@ public class LayoutBuilderTests
         }
         finally
         {
-            if (File.Exists(outputPath))
-            {
-                File.Delete(outputPath);
-            }
+            Directory.Delete(dir, recursive: true);
         }
     }
 
@@ -1048,7 +1056,8 @@ public class LayoutBuilderTests
         // the template would already have been copied directly onto outputPath before this was discovered,
         // corrupting/replacing whatever was there.
         var brokenTemplatePath = Path.Combine(Path.GetTempPath(), $"bcwl-template-nomainpart-{Guid.NewGuid():N}.docx");
-        var outputPath = TempOutputPath();
+        var dir = PrivateOutputDirectory();
+        var outputPath = Path.Combine(dir, "created.docx");
         try
         {
             using (WordprocessingDocument.Create(brokenTemplatePath, WordprocessingDocumentType.Document))
@@ -1064,7 +1073,6 @@ public class LayoutBuilderTests
 
             Assert.Equal(before, File.ReadAllBytes(outputPath));
 
-            var dir = Path.GetDirectoryName(Path.GetFullPath(outputPath))!;
             Assert.False(HasStrayBuildTempFiles(dir), "expected no leftover .bcwl-build-* temp file after a failure");
         }
         finally
@@ -1074,10 +1082,7 @@ public class LayoutBuilderTests
                 File.Delete(brokenTemplatePath);
             }
 
-            if (File.Exists(outputPath))
-            {
-                File.Delete(outputPath);
-            }
+            Directory.Delete(dir, recursive: true);
         }
     }
 
