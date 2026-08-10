@@ -771,9 +771,14 @@ public static class LayoutEditor
             .ToArray();
 
         var tblPr = new TableProperties();
+
+        // Pin the grid below to the widths resolved above; without this Word autofits and recomputes every
+        // column from cell content, making columnWidths advisory at best (see FixedTableLayout).
+        FixedTableLayout.ApplyTo(tblPr, widths);
+
         if (withBorders)
         {
-            tblPr.Append(new TableBorders
+            tblPr.TableBorders = new TableBorders
             {
                 TopBorder = new TopBorder { Val = BorderValues.Single, Size = 4, Space = 0, Color = "auto" },
                 LeftBorder = new LeftBorder { Val = BorderValues.Single, Size = 4, Space = 0, Color = "auto" },
@@ -783,7 +788,7 @@ public static class LayoutEditor
                     new InsideHorizontalBorder { Val = BorderValues.Single, Size = 4, Space = 0, Color = "auto" },
                 InsideVerticalBorder =
                     new InsideVerticalBorder { Val = BorderValues.Single, Size = 4, Space = 0, Color = "auto" },
-            });
+            };
         }
 
         var grid = new TableGrid(widths.Select(w =>

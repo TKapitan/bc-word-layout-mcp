@@ -188,6 +188,12 @@ totals table, which is the BC-verified simpler shape [verified: P07]).
 - Verified sums: address 9200, info grid 5800, line tables 9700–10206, totals 8600 — all
   BC-accepted, so table sums need not hit the margin exactly; pick round numbers that keep the
   proportions above.
+- The widths you pass are **binding**: every table the tools create declares `w:tblLayout="fixed"`
+  plus a `w:tblW` total equal to the grid's sum [stock: all 4 tables in 1322], so Word renders the
+  grid as specified. Before that they were autofit, i.e. advisory — Word recomputed them from
+  content, which is why a line table could read as near-uniform in Word while the mock preview
+  looked right ([#52](https://github.com/TKapitan/bc-word-layout-mcp/issues/52)). Proportion choices
+  are therefore worth making deliberately; nothing downstream will "fix" a bad split.
 
 ## 5. Stock idioms the tools cannot build — route, don't improvise
 

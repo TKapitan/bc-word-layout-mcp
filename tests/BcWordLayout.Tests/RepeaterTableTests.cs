@@ -792,4 +792,109 @@ public class RepeaterTableTests
             File.Delete(path);
         }
     }
+
+    [Fact]
+    public void Repeater_table_pins_its_grid_with_tblW_and_a_fixed_tblLayout()
+    {
+        // A line table is where autofit hurts most: without w:tblLayout, Word recomputes the column widths
+        // from the merged content, so the numeric columns a caller narrowed and the description column it
+        // widened drift apart from what was asked for (GitHub issue #52).
+        var path = CopyOfCorpus(Corpus.SalesInvoice);
+        try
+        {
+            InsertThreeColumnTable(path, new RepeaterTableOptions { ColumnWidths = new[] { 1500, 6000, 1200 } });
+
+            using var reopened = WordprocessingDocument.Open(path, false);
+            var table = reopened.MainDocumentPart!.Document!.Body!.Elements<Table>().Last();
+            var tblPr = table.GetFirstChild<TableProperties>()!;
+
+            Assert.Equal(TableLayoutValues.Fixed, tblPr.TableLayout!.Type!.Value);
+            Assert.Equal(TableWidthUnitValues.Dxa, tblPr.TableWidth!.Type!.Value);
+            Assert.Equal("8700", tblPr.TableWidth.Width!.Value);
+
+            Assert.Equal(
+                new[] { "1500", "6000", "1200" },
+                table.GetFirstChild<TableGrid>()!.Elements<GridColumn>().Select(c => c.Width!.Value).ToArray());
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Repeater_table_with_a_style_and_a_grid_look_orders_tblPr_children_as_the_schema_requires()
+    {
+        // CT_TblPrBase is a SEQUENCE: tblStyle, then tblW, then tblBorders, then tblLayout. This is the
+        // densest tblPr the tool can emit, so it is the one that would break first if the new elements were
+        // appended rather than assigned through the SDK's typed (order-aware) properties.
+        var path = CopyOfCorpus(Corpus.SalesInvoice);
+        try
+        {
+            InsertThreeColumnTable(
+                path,
+                new RepeaterTableOptions { TableStyle = "TableGrid", Look = TableBorderLook.Grid });
+
+            using var reopened = WordprocessingDocument.Open(path, false);
+            var table = reopened.MainDocumentPart!.Document!.Body!.Elements<Table>().Last();
+            var names = table.GetFirstChild<TableProperties>()!.ChildElements.Select(e => e.LocalName).ToList();
+
+            Assert.Equal(new[] { "tblStyle", "tblW", "tblBorders", "tblLayout" }, names);
+            Assert.Empty(new OpenXmlValidator(FileFormatVersions.Office2021).Validate(reopened));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Structure_ops_keep_a_tool_created_tables_declared_total_in_step_with_its_grid()
+    {
+        // Emitting tblW as a dxa total only stays honest if it is maintained: TableStructureEditor's
+        // SyncTableWidthToGrid recomputes it after every grid change, and this is the proof on a table this
+        // tool created (the sync predates the tblW emission, so nothing covered it end to end before).
+        var path = CopyOfCorpus(Corpus.SalesInvoice);
+        try
+        {
+            InsertThreeColumnTable(path, new RepeaterTableOptions { ColumnWidths = new[] { 1500, 6000, 1200 } });
+            var tableIndex = TableIndexOfLastBodyTable(path);
+
+            var afterInsert = TableTools.InsertColumn(
+                path, tableIndex, mode: "plainText", headerText: "Extra", width: 800);
+            Assert.True(afterInsert.Ok, afterInsert.Error?.Message);
+            AssertDeclaredTotalMatchesGrid(path, tableIndex, expectedTotal: 9500);
+
+            var afterRemove = TableTools.RemoveColumn(path, tableIndex, column: 0);
+            Assert.True(afterRemove.Ok, afterRemove.Error?.Message);
+            AssertDeclaredTotalMatchesGrid(path, tableIndex, expectedTotal: 9500);
+
+            var afterResize = TableTools.SetColumnWidths(path, tableIndex, "2000,2000,2000");
+            Assert.True(afterResize.Ok, afterResize.Error?.Message);
+            AssertDeclaredTotalMatchesGrid(path, tableIndex, expectedTotal: 6000);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    private static int TableIndexOfLastBodyTable(string path)
+    {
+        using var doc = WordprocessingDocument.Open(path, false);
+        return TableGridNavigator.Tables(doc.MainDocumentPart!.Document!.Body!).Count - 1;
+    }
+
+    private static void AssertDeclaredTotalMatchesGrid(string path, int tableIndex, int expectedTotal)
+    {
+        using var doc = WordprocessingDocument.Open(path, false);
+        var table = TableGridNavigator.Tables(doc.MainDocumentPart!.Document!.Body!)[tableIndex];
+        var gridSum = table.GetFirstChild<TableGrid>()!.Elements<GridColumn>()
+            .Sum(c => int.Parse(c.Width!.Value!, System.Globalization.CultureInfo.InvariantCulture));
+
+        Assert.Equal(expectedTotal, gridSum);
+        Assert.Equal(
+            gridSum.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            table.GetFirstChild<TableProperties>()!.TableWidth!.Width!.Value);
+    }
 }

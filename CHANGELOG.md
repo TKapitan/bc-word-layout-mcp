@@ -64,6 +64,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **`insert_table` and `insert_repeater_table` now pin the column widths they are given** (GitHub
+  issue #52). Both emitted a `w:tblGrid` and per-cell `w:tcW` but no `w:tblW` and no
+  `w:tblLayout` — and the OOXML default is AUTOFIT, so Word recomputed every column from cell
+  content and a caller's `columnWidths` were advisory at best: a 5-column line table authored at
+  `1500,4700,1200,1300,1300` read as near-uniform in Word, and one plain Word save rewrote an
+  untouched 2-column grid from `2800,3000` to `3177,3066`. Tables the tools create now declare
+  `w:tblLayout="fixed"` plus a `w:tblW` total equal to the grid's sum — both corpus-observed (all
+  four tables in `StandardPurchaseOrder.docx` carry them), and the total is kept in step with the
+  grid by the existing `set_column_widths`/`insert_column`/`remove_column` sync. The mock preview hid
+  this: Word-COM's docx→PDF conversion happened to render close to the declared proportions, so
+  `preview_layout` looked right while Word's own UI did not. Existing tables are untouched — a
+  captured layout keeps its own layout algorithm.
 - The NuGet MCP registry manifest (`.mcp/server.json`) shipped three `description` values over the
   registry schema's 100-character cap (the 2025-10-17 schema enforces it); all are shortened and a
   packaging test now walks the whole manifest so any future description stays within the limit.
