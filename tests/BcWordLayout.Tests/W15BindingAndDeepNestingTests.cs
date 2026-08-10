@@ -56,7 +56,7 @@ public class W15BindingAndDeepNestingTests
         // an alias to identify a control.
         Assert.Contains(fields, f => f.Alias is null && f.Tag is null);
 
-        Assert.Single(inventory.Controls.Where(c => c.Kind == ControlKind.Repeater));
+        Assert.Single(inventory.Controls, c => c.Kind == ControlKind.Repeater);
     }
 
     [Fact]
@@ -138,7 +138,7 @@ public class W15BindingAndDeepNestingTests
         Assert.Equal(5, repeaters.Count);
 
         // A straight chain: exactly one repeater has no repeater parent, and each of the others has one.
-        Assert.Single(repeaters.Where(r => r.ParentRepeater is null));
+        Assert.Single(repeaters, r => r.ParentRepeater is null);
 
         static int Depth(LayoutControl c) => c.ParentRepeater is null ? 1 : 1 + Depth(c.ParentRepeater);
         Assert.Equal(5, repeaters.Max(Depth));

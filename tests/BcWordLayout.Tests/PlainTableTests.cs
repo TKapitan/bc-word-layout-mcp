@@ -239,4 +239,68 @@ public class PlainTableTests
             File.Delete(path);
         }
     }
+
+    [Fact]
+    public void Fresh_plain_table_pins_its_grid_with_tblW_and_a_fixed_tblLayout()
+    {
+        // Without w:tblLayout the OOXML default is autofit, so Word recomputes every column from cell
+        // content and the columnWidths passed here hold only until someone opens the file - one plain Word
+        // save rewrote an untouched 2800,3000 grid to 3177,3066 (GitHub issue #52). Every corpus table
+        // declares both elements.
+        var path = CopyOfCorpus(Corpus.SalesInvoice);
+        try
+        {
+            var response = TableTools.InsertTable(
+                path, rows: 2, columns: 3, locationType: "documentEnd", columnWidths: "3000,4000,3206");
+            Assert.True(response.Ok, response.Error?.Message);
+            var dto = Assert.IsType<TableEditResultDto>(response.Data);
+
+            using var reopened = WordprocessingDocument.Open(path, false);
+            var table = TableGridNavigator.Tables(reopened.MainDocumentPart!.Document!.Body!)[dto.TableIndex];
+            var tblPr = table.GetFirstChild<TableProperties>()!;
+
+            Assert.Equal(TableLayoutValues.Fixed, tblPr.TableLayout!.Type!.Value);
+            Assert.Equal(TableWidthUnitValues.Dxa, tblPr.TableWidth!.Type!.Value);
+
+            // The declared total is the grid's own sum, so the two can never disagree.
+            var gridSum = table.GetFirstChild<TableGrid>()!.Elements<GridColumn>()
+                .Sum(c => int.Parse(c.Width!.Value!, System.Globalization.CultureInfo.InvariantCulture));
+            Assert.Equal(3000 + 4000 + 3206, gridSum);
+            Assert.Equal(gridSum.ToString(System.Globalization.CultureInfo.InvariantCulture), tblPr.TableWidth.Width!.Value);
+
+            Assert.Empty(OpenXmlErrors(reopened));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Bordered_plain_table_orders_tblPr_children_as_the_schema_requires()
+    {
+        // CT_TblPrBase is a SEQUENCE: w:tblW precedes w:tblBorders, which precedes w:tblLayout. Appending
+        // the new elements instead of assigning the SDK's typed properties would emit them out of order -
+        // valid-looking C#, invalid OOXML - so this asserts the order explicitly rather than relying on
+        // OpenXmlValidator alone to notice.
+        var path = CopyOfCorpus(Corpus.SalesInvoice);
+        try
+        {
+            var response = TableTools.InsertTable(
+                path, rows: 1, columns: 2, locationType: "documentEnd", withBorders: true);
+            var dto = Assert.IsType<TableEditResultDto>(response.Data);
+
+            using var reopened = WordprocessingDocument.Open(path, false);
+            var table = TableGridNavigator.Tables(reopened.MainDocumentPart!.Document!.Body!)[dto.TableIndex];
+            var names = table.GetFirstChild<TableProperties>()!.ChildElements
+                .Select(e => e.LocalName).ToList();
+
+            Assert.Equal(new[] { "tblW", "tblBorders", "tblLayout" }, names);
+            Assert.Empty(OpenXmlErrors(reopened));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
 }
