@@ -497,7 +497,7 @@ public class LayoutRefresherTests
             // The whole point: no binding names anything but this report's namespace afterwards, so the
             // layout is in the only state BC's upload validation accepts.
             var after = LayoutValidator.Quick(path);
-            Assert.Empty(after.Findings.Where(f => f.Check == "binding-namespace"));
+            Assert.DoesNotContain(after.Findings, f => f.Check == "binding-namespace");
 
             using var reopened = WordprocessingDocument.Open(path, false);
             var expected = SchemaProvider.FromLayout(reopened).Report.Namespace;
@@ -560,7 +560,7 @@ public class LayoutRefresherTests
                 r => Assert.Equal(SyntheticLayout.ForeignNamespace, r.PreviousNamespace));
 
             var after = LayoutValidator.Quick(path);
-            Assert.Empty(after.Findings.Where(f => f.Check == "binding-namespace"));
+            Assert.DoesNotContain(after.Findings, f => f.Check == "binding-namespace");
 
             using var reopened = WordprocessingDocument.Open(path, false);
             var xml = reopened.MainDocumentPart!.Document!.OuterXml;
