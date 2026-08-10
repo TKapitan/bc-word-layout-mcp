@@ -42,6 +42,7 @@ public static class LayoutValidator
         CheckXPathsResolve(inventory, schema, findings);
         CheckRepeaterShape(main, findings);
         CheckRepeaterNotInHeaderOrFooter(inventory, findings);
+        CheckRepeaterDowngraded(inventory, schema, findings);
         CheckAttachedTemplate(main, findings);
         CheckTableStylesResolve(main, findings);
 
@@ -54,15 +55,43 @@ public static class LayoutValidator
         var validator = new OpenXmlValidator(FileFormatVersions.Office2021);
         foreach (var error in validator.Validate(doc))
         {
+            var isWordPlaceholderScale = IsWordPlaceholderCharacterScale(error);
             findings.Add(new ValidationFinding
             {
                 Check = "openxml-structure",
-                Severity = FindingSeverity.Error,
-                Message = error.Description,
+                Severity = isWordPlaceholderScale ? FindingSeverity.Warning : FindingSeverity.Error,
+                Message = isWordPlaceholderScale
+                    ? error.Description
+                      + " This is the character-scaling value Microsoft Word itself writes into a content "
+                      + "control's placeholder run (alongside w:sz=0), so it appears in any layout that has "
+                      + "been opened and saved in Word. It renders correctly in both Word and Business "
+                      + "Central and there is no run-property tool to remove it, so it is reported as a "
+                      + "warning rather than failing the layout."
+                    : error.Description,
                 Location = error.Path?.XPath,
             });
         }
     }
+
+    /// <summary>
+    /// True for the ONE structural complaint a plain open-and-save in Word reliably introduces:
+    /// <c>&lt;w:w w:val="0"/&gt;</c> (character scaling) inside a content control's placeholder run, which
+    /// <c>ST_TextScale</c> requires to be at least 1. Word writes it with <c>w:sz="0"</c>/<c>w:szCs="0"</c>
+    /// as its placeholder-run formatting — reproduced by round-tripping a tool-authored layout with a
+    /// picture control (GitHub issue #54).
+    /// </summary>
+    /// <remarks>
+    /// Matched on the offending NODE (a <see cref="CharacterScale"/> whose value is 0), never on the
+    /// validator's message text, which is a localizable string and not a contract. Deliberately NOT narrowed
+    /// to picture controls: Word applies the same placeholder-run formatting to any control showing its
+    /// placeholder, and the value is cosmetic wherever it appears — a scaling of 0 is something Word clamps,
+    /// not something that corrupts a document. Every OTHER structural error keeps Error severity: this is a
+    /// single named tolerance, not a general softening of the structural gate (which is also why the
+    /// mutating tools' own pre-save gate, in ToolGuards, is untouched — it compares against the file's own
+    /// baseline and so already ignores anything the file arrived with).
+    /// </remarks>
+    private static bool IsWordPlaceholderCharacterScale(ValidationErrorInfo error) =>
+        error.Node is CharacterScale { Val.Value: 0 };
 
     // 2. Exactly one custom XML part in the BC namespace, and that part carries a DataStoreItem for its
     //    bindings to name. Returns the BC part's item ID (or null when there is none to return).
@@ -354,6 +383,92 @@ public static class LayoutValidator
     //    principle is to flag anything outside the matrix instead of silently treating it the same as a
     //    body repeater, since Business Central may not merge/render it reliably. Warning (not Error): it
     //    does not indicate the layout is structurally broken, only that it exercises an unverified path.
+    // 5b. A control whose alias names a DATA ITEM but which is not a repeating-section control: a repeater
+    //     that has been downgraded to a plain content control.
+    //
+    //     The shape a Word save produces when the layout's compatibility mode is below 15 (see the
+    //     compatibility-mode check): w15:repeatingSection, w15:repeatingSectionItem and even the repeater's
+    //     own w15:dataBinding are stripped, while w:alias/w:tag/w:id survive untouched. The result still
+    //     LOOKS like a layout and passes every other check here — the bound field controls inside the row are
+    //     intact, the table is structurally fine, no binding is orphaned — but the row is no longer repeated
+    //     or bound, so the table renders one row instead of one per record. That silence was the actual
+    //     complaint in GitHub issue #54: after a round trip, validation reported a cosmetic character-scaling
+    //     nit (handled above) and said nothing about the dead lines table.
+    //
+    //     The signal is the alias, the one part that survives: BC's own add-in and SdtFactory both bind a
+    //     FIELD or LABEL to a leaf COLUMN and only a repeater to a whole DATA ITEM, so an alias naming a
+    //     non-system data item on anything that is not a repeater is by construction a former repeater. That
+    //     keeps the check free of the wider guesswork ("is this table shaped like a line table?") it could
+    //     have needed, and free of false positives on ordinary controls, whose aliases name leaf columns.
+    private static void CheckRepeaterDowngraded(
+        LayoutInventory inventory, DatasetTree? schema, List<ValidationFinding> findings)
+    {
+        if (schema is null)
+        {
+            return; // Already reported by TryBuildSchema.
+        }
+
+        foreach (var control in inventory.Controls)
+        {
+            if (control.Kind == ControlKind.Repeater)
+            {
+                continue;
+            }
+
+            var path = NavAlias.DatasetPath(control.Alias);
+            if (path is null || !NamesNonSystemDataItem(path, schema))
+            {
+                continue;
+            }
+
+            findings.Add(new ValidationFinding
+            {
+                Check = "repeater-downgraded",
+                Severity = FindingSeverity.Error,
+                Message = $"This control's alias names the data item '{path}', but the control is not a "
+                          + "repeating-section control, so its row renders ONCE instead of once per record "
+                          + "(and, if the binding went with it, with no data at all). A repeating section is "
+                          + "the only control that binds a whole data item; fields and labels bind leaf "
+                          + "columns. The usual cause is saving the layout in Word while its compatibility "
+                          + "mode is below 15, which converts repeating sections to plain rich-text controls "
+                          + "and drops their w15:dataBinding. To repair it, remove the control "
+                          + "(remove_control) and rebuild the table with insert_repeater_table - or go back "
+                          + "to a copy of the layout from before the Word round trip.",
+                Location = $"{control.Part}: {control.Alias}",
+            });
+        }
+    }
+
+    /// <summary>
+    /// True when <paramref name="path"/> walks entirely through data items to a non-system data item — the
+    /// shape only a repeater's alias has. A path ending at a leaf column (every field/label alias) or naming
+    /// the system <c>BCReportInformation</c> item is false, as is anything that does not resolve at all
+    /// (already reported by <see cref="CheckXPathsResolve"/> when it is a binding, and not this check's
+    /// business when it is only an alias).
+    /// </summary>
+    private static bool NamesNonSystemDataItem(string path, DatasetTree schema)
+    {
+        var segments = path.Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (segments.Length == 0)
+        {
+            return false;
+        }
+
+        var node = schema.Root;
+        foreach (var name in segments)
+        {
+            var child = node.FindChildItem(name);
+            if (child is null)
+            {
+                return false;
+            }
+
+            node = child;
+        }
+
+        return !node.IsSystem;
+    }
+
     private static void CheckRepeaterNotInHeaderOrFooter(LayoutInventory inventory, List<ValidationFinding> findings)
     {
         foreach (var control in inventory.Controls)
