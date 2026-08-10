@@ -70,7 +70,10 @@ public static class TableTools
         [Description("Optional Word table style name to reference via w:tblStyle, e.g. 'TableGrid'.")]
         string? tableStyle = null,
         [Description("Optional comma-separated column widths in twips (1/20 pt), one per column; count must "
-                     + "match the number of columns. Omit for an even default width per column.")]
+                     + "match the number of columns. Omit for an even default width per column. The widths "
+                     + "are BINDING, not advisory: the table is emitted with w:tblLayout='fixed' and a "
+                     + "w:tblW total equal to their sum, so Word renders the grid as specified instead of "
+                     + "autofitting the columns to whatever the merged content happens to be.")]
         string? columnWidths = null,
         [Description("Optional comma-separated per-column alignments ('left'/'center'/'right', one per "
                      + "column), applied to both the header and data cell of each column - real BC line "
@@ -330,7 +333,10 @@ public static class TableTools
         [Description("Required for 'atText': substring to search for in existing run text (ordinal match).")]
         string? searchText = null,
         [Description("Optional comma-separated column widths in twips, one per column; omit for an even "
-                     + "split of the full content width (10206 twips).")] string? columnWidths = null,
+                     + "split of the full content width (10206 twips). The widths are BINDING, not "
+                     + "advisory: the table is emitted with w:tblLayout='fixed' and a w:tblW total equal to "
+                     + "their sum, so Word renders the grid as specified instead of autofitting the columns "
+                     + "to their content.")] string? columnWidths = null,
         [Description("Optional comma-separated per-column alignments ('left'/'center'/'right', one per "
                      + "column) seeding each cell's paragraph justification; omit for the default (left).")]
         string? columnAlignments = null,
