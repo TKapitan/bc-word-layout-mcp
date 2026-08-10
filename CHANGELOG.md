@@ -56,6 +56,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `insert_text`. The stock idiom's leading caption stays a composed `insert_label` (`Page_Lbl`) +
   `insert_text` separator, so it remains a translatable dataset binding.
 
+- **`render_preview_pages` can write the rendered pages to disk** (GitHub issue #55): the new optional
+  `outputDir` writes each page as `<pdf-basename>-pageNN.png` and returns the paths on
+  `pages[].path`, and `inlineImages=false` (only valid together with `outputDir`) writes them without
+  spending response tokens on the inline copies. The images were previously returned as inline MCP
+  content blocks only — visible to the calling agent but to nobody else, so "put the render somewhere
+  I can look at it" could not be served by the server at all and ended in ad-hoc PDF rasterization
+  outside it. Named by page NUMBER, so paging through a document with `firstPage` produces a set that
+  sorts correctly; the directory's lifetime belongs to the caller, exactly like `preview_layout`'s own
+  `outputDir`. Omitting both parameters leaves the response byte-for-byte as before.
+
 ### Changed
 
 - Tool descriptions and error hints no longer claim a missing `partName` targets "the FIRST
