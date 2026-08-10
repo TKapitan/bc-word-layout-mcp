@@ -177,8 +177,9 @@ public class StaticTableRowTests
 
             // The inserted controls appear exactly ONCE in the whole merged document — a repeating section
             // would have cloned them once per data row.
-            Assert.Single(mergedBody.Descendants<SdtElement>()
-                .Where(s => SdtInspector.ReadXPath(s)?.Contains("TotalSubTotal", StringComparison.Ordinal) == true));
+            Assert.Single(
+                mergedBody.Descendants<SdtElement>(),
+                s => SdtInspector.ReadXPath(s)?.Contains("TotalSubTotal", StringComparison.Ordinal) == true);
 
             // While the line rows genuinely multiplied (default sample data is 3 rows per repeater).
             var lineControls = mergedBody.Descendants<SdtElement>()

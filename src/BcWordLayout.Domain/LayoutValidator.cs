@@ -43,6 +43,7 @@ public static class LayoutValidator
         CheckRepeaterShape(main, findings);
         CheckRepeaterNotInHeaderOrFooter(inventory, findings);
         CheckRepeaterDowngraded(inventory, schema, findings);
+        CheckCompatibilityMode(main, inventory, findings);
         CheckAttachedTemplate(main, findings);
         CheckTableStylesResolve(main, findings);
 
@@ -376,13 +377,6 @@ public static class LayoutValidator
         }
     }
 
-    // 6. Repeater LOCATION: a repeating section control (w15:repeatingSection) located in a header/footer
-    //    part is outside this tool's v1 supported matrix — insert_repeater_table itself now refuses to
-    //    CREATE one there (see LayoutEditor.InsertRepeaterTable), but a hand-authored layout, one edited
-    //    outside this tool, or a pre-existing BC layout could still legitimately have one; the design's own
-    //    principle is to flag anything outside the matrix instead of silently treating it the same as a
-    //    body repeater, since Business Central may not merge/render it reliably. Warning (not Error): it
-    //    does not indicate the layout is structurally broken, only that it exercises an unverified path.
     // 5b. A control whose alias names a DATA ITEM but which is not a repeating-section control: a repeater
     //     that has been downgraded to a plain content control.
     //
@@ -468,6 +462,72 @@ public static class LayoutValidator
 
         return !node.IsSystem;
     }
+
+    // 5c. A layout that CONTAINS repeaters must declare a compatibility mode in which repeaters exist.
+    //
+    //     Repeating-section controls are a Word 2013 (w15) feature. A document that declares no
+    //     compatibilityMode at all is mode 12 to Word — Word 2007, where they do not exist (measured:
+    //     Document.CompatibilityMode reports 12 for a layout with no settings part; GitHub issue #51). In
+    //     that mode an interactive Word save runs the Compatibility Checker, and continuing through it
+    //     converts every repeating section to a plain rich-text control and drops its w15:dataBinding — the
+    //     table silently stops repeating while still looking like a layout.
+    //
+    //     WARNING, not an error: nothing is wrong with the layout as it stands. BC's own merge honours the
+    //     repeater regardless of compatibility mode, so this file uploads and renders correctly today; the
+    //     defect only materialises if someone edits it in Word. Blank builds are immune (they scaffold the
+    //     mode - DocumentSettingsScaffold), so in practice this fires for a templatePath build whose shell
+    //     carries a low mode, or a layout authored before that scaffold existed.
+    //
+    //     Deliberately conditional on a repeater being PRESENT. A mode-12 layout with no repeating section
+    //     has nothing to lose, and warning about it would fire on ordinary field-only layouts (and on stock
+    //     captures) for a risk that does not exist there - the indiscriminate-check failure CONTRIBUTING.md
+    //     calls out. Note the corollary: the moment insert_repeater_table adds a repeater to such a layout,
+    //     the same call's post-edit quickValidation starts reporting this.
+    private static void CheckCompatibilityMode(
+        MainDocumentPart main, LayoutInventory inventory, List<ValidationFinding> findings)
+    {
+        var repeaters = inventory.Controls.Where(c => c.Kind == ControlKind.Repeater).ToList();
+        if (repeaters.Count == 0)
+        {
+            return;
+        }
+
+        var mode = DocumentSettingsScaffold.ReadCompatibilityMode(main);
+        if (mode >= DocumentSettingsScaffold.Word2013CompatibilityMode)
+        {
+            return;
+        }
+
+        var declared = mode is null
+            ? "a compatibilityMode value that is not a number"
+            : $"compatibility mode {mode.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)}"
+              + (main.DocumentSettingsPart is null ? " (it declares none, and Word implies 12)" : string.Empty);
+
+        findings.Add(new ValidationFinding
+        {
+            Check = "compatibility-mode",
+            Severity = FindingSeverity.Warning,
+            Message = $"This layout contains {repeaters.Count} repeating-section control(s) but declares "
+                      + $"{declared}; every stock BC layout declares "
+                      + $"{DocumentSettingsScaffold.Word2013CompatibilityMode}. Repeating sections are a Word "
+                      + "2013 feature, so saving this layout in Word converts them to plain rich-text "
+                      + "controls and drops their bindings - the table then renders one row instead of one "
+                      + "per record. Business Central itself is unaffected, so this is a Word-round-trip "
+                      + "risk, not a defect in the file: leave it alone and it stays correct. To make it "
+                      + "Word-safe, upgrade the document's compatibility mode (in Word: File > Info > "
+                      + "Convert) before editing it there, or rebuild from a blank create_layout, which "
+                      + "scaffolds the mode.",
+            Location = $"{repeaters[0].Part}: {repeaters[0].Alias ?? repeaters[0].XPath}",
+        });
+    }
+
+    // 6. Repeater LOCATION: a repeating section control (w15:repeatingSection) located in a header/footer
+    //    part is outside this tool's v1 supported matrix — insert_repeater_table itself now refuses to
+    //    CREATE one there (see LayoutEditor.InsertRepeaterTable), but a hand-authored layout, one edited
+    //    outside this tool, or a pre-existing BC layout could still legitimately have one; the design's own
+    //    principle is to flag anything outside the matrix instead of silently treating it the same as a
+    //    body repeater, since Business Central may not merge/render it reliably. Warning (not Error): it
+    //    does not indicate the layout is structurally broken, only that it exercises an unverified path.
 
     private static void CheckRepeaterNotInHeaderOrFooter(LayoutInventory inventory, List<ValidationFinding> findings)
     {

@@ -157,18 +157,18 @@ other tool is conversion-free and works everywhere the server runs.
 |---|---|
 | `get_layout_info` | Inspect a layout: report name/id, dataset namespace, `storeItemID`, the full control inventory (kind, alias, tag, xpath, part, parent repeater), per-part details (kind, header/footer role `default`/`first`/`even`, and which part a `partName`-less header/footer edit targets) plus a `hasTitlePage` flag, and a quick validation summary. |
 | `list_dataset_fields` | List the dataset hierarchy (data items + columns) from a `.docx` layout or a standalone schema `.xml`; flags labels and, for a layout, bound/unbound columns. |
-| `validate_layout` | Validate a layout: `level=quick` (structural + binding checks, including a `repeater-downgraded` error for a repeater a Word save turned into a plain content control) or `level=full` (adds a dry-run merge that surfaces every unresolved binding as a finding). |
+| `validate_layout` | Validate a layout: `level=quick` (structural + binding checks, including a `repeater-downgraded` error for a repeater a Word save turned into a plain content control and a warning when a layout containing repeaters declares a Word compatibility mode below 15) or `level=full` (adds a dry-run merge that surfaces every unresolved binding as a finding). |
 | `preview_layout` | Mock preview: merges deterministic (or supplied) sample data into a working copy and converts it to PDF via Word COM or LibreOffice. |
-| `render_preview_pages` | Render pages of a preview PDF (the `pdfPath` from `preview_layout`) as PNG images returned inline as MCP image content blocks, so the calling agent can visually inspect the preview (default 3 pages, cap 10 per call; page onward via `firstPage`). |
-| `create_layout` | Create a new blank layout `.docx` from a schema, optionally starting from a branded/styled (unbound) template. A blank build ships deterministic default typography (Calibri 11 pt via a scaffolded styles part) so it renders with the same font in Word and in BC. |
+| `render_preview_pages` | Render pages of a preview PDF (the `pdfPath` from `preview_layout`) as PNG images returned inline as MCP image content blocks, so the calling agent can visually inspect the preview (default 3 pages, cap 10 per call; page onward via `firstPage`). Pass `outputDir` to also write each page as a `.png` a human can open — optionally with `inlineImages=false` to skip the token cost of the inline copies. |
+| `create_layout` | Create a new blank layout `.docx` from a schema, optionally starting from a branded/styled (unbound) template. A blank build ships deterministic default typography (Calibri 11 pt via a scaffolded styles part) so it renders with the same font in Word and in BC, plus a settings part declaring `compatibilityMode` 15 so its repeaters survive being opened and saved in Word. |
 | `insert_field` | Insert a plain-text FIELD content control bound to a dataset path, in the body, a header, or a footer. |
 | `insert_label` | Insert a plain-text LABEL content control bound to a label-suffixed (`Lbl`/`_Lbl`) dataset path. |
 | `insert_text` | Insert plain STATIC text — a literal run, not a content control: the separator space, colon or `" / "` that glues two inline controls together (without it, chained controls render as `Document NoDOCU-0150`). Creates no control, so it has no `controlId` and cannot be targeted by `remove_control`. |
 | `insert_page_number` | Insert Word `PAGE`/`NUMPAGES` field codes — the "Page X / Y" chrome every stock BC document header carries (by default the full `X / Y` shape; `includeTotal=false` for the current page alone). Field codes are plain runs, so no `controlId`. |
-| `insert_repeater_table` | Insert a complete repeater table (label/static header row + one bound data row) for a repeating data item — the flagship editing tool. Draws the BC-native look by default (no grid, one rule under the header row); optional per-column widths and alignments. |
+| `insert_repeater_table` | Insert a complete repeater table (label/static header row + one bound data row) for a repeating data item — the flagship editing tool. Draws the BC-native look by default (no grid, one rule under the header row); optional per-column widths and alignments, pinned with a fixed table layout so Word renders the grid as specified. |
 | `insert_repeater_row` | Add a nested DETAIL ROW repeater inside an existing repeater's item — the standard BC shape for per-line detail (assembly components, serial/lot nos): a row under each line, aligned to the parent grid via spans, repeating once per parent row. |
 | `insert_picture` | Insert a PICTURE content control bound to a picture dataset path (e.g. `/Header/CompanyPicture`) — the logo placeholder a from-scratch layout needs; BC fills it at render time. |
-| `insert_table` | Insert a plain (unbound) table — the building block for non-repeating layout sections (address columns, label/value header grids, right-anchored totals blocks). Returns the new table's index for `set_cell_text`/`insert_field` to fill. |
+| `insert_table` | Insert a plain (unbound) table — the building block for non-repeating layout sections (address columns, label/value header grids, right-anchored totals blocks). Column widths are pinned with a fixed table layout, so Word keeps the grid you asked for. Returns the new table's index for `set_cell_text`/`insert_field` to fill. |
 | `remove_control` | Remove a content control (field/label/repeater/picture/unbound) by its `w:id`, searching the body and every header/footer. |
 | `set_cell_text` | Set (replace) the PLAIN TEXT of a table cell, addressed by table/row/column index — e.g. re-label a line-items column header. Rejects cells that hold a bound control. |
 | `clear_cell_text` | Remove all PLAIN TEXT from a table cell, leaving a valid empty cell (the cell/column is preserved) — e.g. blank an unwanted column-header label. |
@@ -284,7 +284,11 @@ Error `message`/`hint` texts are not part of the contract — never parse them.
   bold/size/alignment knobs on the cell and insert tools, `set_cell_borders`' per-cell rules, and the
   deterministic default typography a blank `create_layout` ships (Calibri 11 pt via its scaffolded
   styles part); restyle via `create_layout`'s `templatePath` or hand-edit the OOXML directly, then run
-  `validate_layout` to confirm the edit didn't break structure or bindings.
+  `validate_layout` to confirm the edit didn't break structure or bindings. Restyling in **Word** is
+  safe for a layout this tool created — it declares `compatibilityMode` 15, so Word preserves the
+  repeating sections; a layout that declares a lower mode (an older build, or a `templatePath` shell
+  that brought one) loses them on save, which is what `validate_layout`'s `compatibility-mode` warning
+  is for.
 - **Generating the dataset schema itself** — deliberate, not a gap
   ([ADR-0006](docs/adr/0006-schema-transplanted-never-synthesized.md)): `create_layout` and
   `refresh_xml_part` take their schema from a BC-produced artifact (a compiler-generated layout, an
