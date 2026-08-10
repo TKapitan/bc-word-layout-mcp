@@ -29,6 +29,41 @@ public sealed class OrphanedBinding
 }
 
 /// <summary>
+/// One control binding whose <c>w:prefixMappings</c> named a BC dataset namespace that was NEITHER the
+/// layout's own old namespace nor its new one — a binding orphaned onto a different report entirely (a
+/// superseded namespace of the same report, or another report's) — and which
+/// <see cref="BcWordLayout.Domain.LayoutRefresher.Refresh"/> re-pointed to the new namespace.
+/// </summary>
+/// <remarks>
+/// These are the bindings that make a layout UN-UPLOADABLE: BC validates every binding's
+/// <c>prefixMappings</c> against the target report's current namespace and rejects the layout with one
+/// <c>InvalidPrefixMapping</c> per offender (sandbox-verified 2026-08-02, GitHub issue #1), and it accepts the
+/// same layout once every binding is re-pointed. So this list is a repair report, not a warning: each entry
+/// is a defect that was fixed. <see cref="PreviousNamespace"/> is what the binding used to name — worth
+/// looking at, because a foreign namespace usually means the control was copied in from another report's
+/// layout, and the XPath it carries may point at a column this report does not have (which
+/// <see cref="RefreshResult.OrphanedBindings"/> reports separately, and which the re-point does not pretend
+/// to fix).
+/// </remarks>
+public sealed class RepointedBinding
+{
+    /// <summary>The control's <c>w:alias</c>, when present (e.g. <c>#Nav: /Header/CustomerAddress1</c>).</summary>
+    public string? Alias { get; init; }
+
+    /// <summary>The control's binding XPath (raw, indexed, prefixed). Unchanged by the re-point.</summary>
+    public required string XPath { get; init; }
+
+    /// <summary>Which OOXML part the control lives in (e.g. <c>document.xml</c>, <c>header1.xml</c>).</summary>
+    public required string Part { get; init; }
+
+    /// <summary>The control's <c>w:id</c>, so the caller can act on it directly if it also needs rebinding.</summary>
+    public int? SdtId { get; init; }
+
+    /// <summary>The BC dataset namespace the binding named before the re-point.</summary>
+    public required string PreviousNamespace { get; init; }
+}
+
+/// <summary>
 /// The result of <see cref="BcWordLayout.Domain.LayoutRefresher.Refresh"/>: old vs new report identity,
 /// whether the dataset namespace itself changed (triggering a <c>w:prefixMappings</c>/<c>w:tag</c> remap),
 /// how many existing bindings still resolve against the new schema ("remapped"), which no longer do
@@ -76,6 +111,15 @@ public sealed class RefreshResult
     /// auto-rebound.
     /// </summary>
     public required IReadOnlyList<OrphanedBinding> OrphanedBindings { get; init; }
+
+    /// <summary>
+    /// Bindings that named a FOREIGN BC dataset namespace — neither the layout's old namespace nor its new
+    /// one — and were re-pointed to the new namespace by this refresh. See <see cref="RepointedBinding"/> for
+    /// why those bindings are a hard defect (BC refuses to upload the layout) rather than a curiosity, and
+    /// note that a re-point fixes the NAMESPACE only: a foreign binding whose XPath also names a column this
+    /// report does not have still appears in <see cref="OrphanedBindings"/>.
+    /// </summary>
+    public required IReadOnlyList<RepointedBinding> RepointedForeignBindings { get; init; }
 
     /// <summary>
     /// Dataset paths (<see cref="DatasetColumn.Path"/>) of non-label leaf columns that are GENUINELY NEW as

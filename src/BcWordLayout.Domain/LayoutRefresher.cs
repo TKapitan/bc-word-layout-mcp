@@ -100,6 +100,28 @@ public static class LayoutRefresher
             }
         }
 
+        // ---- foreign-namespace bindings: captured BEFORE the re-point below rewrites them ----
+        //
+        // A binding naming neither the old nor the new namespace is orphaned onto a DIFFERENT report, and BC
+        // rejects the whole layout at upload with one InvalidPrefixMapping per such binding
+        // (sandbox-verified 2026-08-02, issue #1). The re-point below repairs them, so this list is a repair
+        // report; it is built from the pre-mutation inventory because the namespace it reports is the one the
+        // binding is about to stop naming.
+        var repointedForeign = inventory.Controls
+            .Where(c => c.XPath is not null
+                        && c.BindingNamespace is not null
+                        && !string.Equals(c.BindingNamespace, oldIdentity.Namespace, StringComparison.Ordinal)
+                        && !string.Equals(c.BindingNamespace, newIdentity.Namespace, StringComparison.Ordinal))
+            .Select(c => new RepointedBinding
+            {
+                Alias = c.Alias,
+                XPath = c.XPath!,
+                Part = c.Part,
+                SdtId = c.SdtId,
+                PreviousNamespace = c.BindingNamespace!,
+            })
+            .ToList();
+
         // ---- new unbound fields: a genuine OLD-vs-NEW diff (non-label, new to this schema, still unbound) ----
         var boundPaths = BuildBoundPaths(inventory);
         var newUnboundFields = newTree.AllColumns(includeSystem: false)
@@ -115,11 +137,13 @@ public static class LayoutRefresher
 
         UpdateSchemaReference(bcPart, newIdentity.Namespace);
 
-        // ---- namespace change: remap every binding's prefixMappings URI + every control's tag ----
-        if (namespaceChanged)
-        {
-            RemapNamespace(main, oldIdentity.Namespace, newIdentity);
-        }
+        // ---- re-point EVERY BC-namespaced binding at the new namespace, and every BC tag at the new report ----
+        //
+        // Unconditional, not gated on namespaceChanged: a binding can name a namespace that is neither the old
+        // nor the new one (20 of PaymentPracticeByPeriod.docx's 25 do), and those are broken whether or not
+        // THIS refresh changed the report's own namespace. Gating on namespaceChanged left them untouched
+        // whenever the refresh was a same-namespace one, which is the common case (GitHub issue #2).
+        RepointToNewIdentity(main, newIdentity);
 
         var quick = LayoutValidator.Quick(doc);
 
@@ -135,6 +159,7 @@ public static class LayoutRefresher
             NamespaceChanged = namespaceChanged,
             RemappedCount = remappedCount,
             OrphanedBindings = orphaned,
+            RepointedForeignBindings = repointedForeign,
             NewUnboundFields = newUnboundFields,
             QuickValidation = quick,
         };
@@ -235,57 +260,97 @@ public static class LayoutRefresher
 
     /// <summary>
     /// Walks <paramref name="main"/>'s document plus every header and footer part (the same three-part scope
-    /// <see cref="LayoutReader.Read(WordprocessingDocument)"/> covers) rewriting every binding's
-    /// <c>w:prefixMappings</c> URI from <paramref name="oldNamespace"/> to <paramref name="newIdentity"/>'s
-    /// namespace, and every BC-authored control's <c>w:tag</c> to <paramref name="newIdentity"/>'s
-    /// <c>#Nav: &lt;ReportName&gt;/&lt;ReportId&gt;</c> form. The XPath itself is never touched here - its
-    /// element-name steps are what "remap where element names match" means, and they do not depend on the
-    /// report's own name/id.
+    /// <see cref="LayoutReader.Read(WordprocessingDocument)"/> covers), re-pointing every binding's
+    /// <c>w:prefixMappings</c> URI at <paramref name="newIdentity"/>'s namespace and every BC-authored
+    /// control's <c>w:tag</c> at its <c>#Nav: &lt;ReportName&gt;/&lt;ReportId&gt;</c> form. The XPath itself is
+    /// never touched here - its element-name steps are what "remap where element names match" means, and they
+    /// do not depend on the report's own name/id.
     /// </summary>
-    private static void RemapNamespace(MainDocumentPart main, string oldNamespace, ReportIdentity newIdentity)
+    /// <remarks>
+    /// Re-points by WHATEVER BC namespace a binding currently names, rather than by matching one specific old
+    /// namespace. That is the whole of GitHub issue #2: the previous implementation swapped a known
+    /// old-for-new substring, so a binding naming a THIRD namespace (a superseded namespace of the same
+    /// report, or another report's entirely - 20 of PaymentPracticeByPeriod.docx's 25 bindings) survived every
+    /// refresh untouched, and the only repair on offer was to delete and rebuild each control by hand. The
+    /// 2026-08-02 sandbox rounds (issue #1) settled that such a binding is not merely unusual: BC validates
+    /// every binding's prefixMappings against the target report's CURRENT namespace and refuses the upload
+    /// with one <c>InvalidPrefixMapping</c> per offender, accepting the same layout the moment they are all
+    /// re-pointed. So re-pointing is not a guess about caller intent (ADR-0003) - it is the only state BC
+    /// accepts, and the alternative was leaving the layout provably un-uploadable.
+    /// <para>
+    /// A binding whose <c>prefixMappings</c> names no BC namespace at all is left exactly as found (see
+    /// <see cref="RepointNamespace"/>): the point is to make BC-bound controls name THIS report, not to claim
+    /// every content control in the document for it.
+    /// </para>
+    /// </remarks>
+    private static void RepointToNewIdentity(MainDocumentPart main, ReportIdentity newIdentity)
     {
         var newTag = $"#Nav: {newIdentity.ReportName}/{newIdentity.ReportId}";
 
         foreach (var (root, _) in PartWalker.ContentParts(main))
         {
-            RemapPart(root, oldNamespace, newIdentity.Namespace, newTag);
+            RepointPart(root, newIdentity.Namespace, newTag);
         }
     }
 
-    private static void RemapPart(OpenXmlElement root, string oldNamespace, string newNamespace, string newTag)
+    private static void RepointPart(OpenXmlElement root, string newNamespace, string newTag)
     {
         foreach (var pr in root.Descendants<SdtProperties>())
         {
-            RemapBindingPrefix(pr, oldNamespace, newNamespace);
+            RepointBindingPrefix(pr, newNamespace);
             RemapTag(pr, newTag);
         }
     }
 
     /// <summary>
-    /// Rewrites the URI inside <c>w:prefixMappings="xmlns:ns0='&lt;uri&gt;'"</c> (or the <c>w15:dataBinding</c>
-    /// equivalent) via a targeted substring replace of the OLD namespace for the NEW one - the prefix itself
-    /// (<c>ns0</c>) and any incidental formatting (real corpus bindings are inconsistent about a trailing
-    /// space before the closing quote) are left exactly as found, matching "prefix stays ns0; only the
-    /// mapped URI changes".
+    /// Rewrites the BC URI inside <c>w:prefixMappings="xmlns:ns0='&lt;uri&gt;'"</c> (or the
+    /// <c>w15:dataBinding</c> equivalent) to <paramref name="newNamespace"/>.
     /// </summary>
-    private static void RemapBindingPrefix(SdtProperties pr, string oldNamespace, string newNamespace)
+    /// <remarks>
+    /// Assigns only when there is a rewrite to make. Writing the unchanged value back is NOT a no-op: for a
+    /// binding that carries no <c>w:prefixMappings</c> at all — legal, and present in real layouts — assigning
+    /// null through <c>StringValue</c> materialises an EMPTY <c>w:prefixMappings=""</c> attribute where there
+    /// was none. That was latent in the old old-for-new implementation too (reachable on any
+    /// namespace-changing refresh); making the re-point unconditional would have made it routine.
+    /// </remarks>
+    private static void RepointBindingPrefix(SdtProperties pr, string newNamespace)
     {
         switch (SdtInspector.FindBinding(pr))
         {
-            case DataBinding w:
-                w.PrefixMappings = ReplaceNamespace(w.PrefixMappings?.Value, oldNamespace, newNamespace);
+            case DataBinding w when RepointNamespace(w.PrefixMappings?.Value, newNamespace) is { } updated:
+                w.PrefixMappings = updated;
                 break;
 
-            case Office2013Word.DataBinding w15:
-                w15.PrefixMappings = ReplaceNamespace(w15.PrefixMappings?.Value, oldNamespace, newNamespace);
+            case Office2013Word.DataBinding w15
+                when RepointNamespace(w15.PrefixMappings?.Value, newNamespace) is { } updated:
+                w15.PrefixMappings = updated;
                 break;
         }
     }
 
-    private static string? ReplaceNamespace(string? prefixMappings, string oldNamespace, string newNamespace) =>
-        prefixMappings is not null && prefixMappings.Contains(oldNamespace, StringComparison.Ordinal)
-            ? prefixMappings.Replace(oldNamespace, newNamespace, StringComparison.Ordinal)
-            : prefixMappings;
+    /// <summary>
+    /// Replaces the BC namespace <paramref name="prefixMappings"/> currently names with
+    /// <paramref name="newNamespace"/>, leaving everything else in the value byte-for-byte: the prefix itself
+    /// (<c>ns0</c>), the quoting, and the incidental formatting real corpus bindings are inconsistent about (a
+    /// trailing space before the closing quote; a bare URI with no <c>xmlns:</c> declaration at all, as
+    /// StandardSalesInvoiceVatSpec.docx writes). Finding the current URI via
+    /// <see cref="SdtInspector.ExtractBcNamespace"/> - the same parser the read/validate side uses to REPORT a
+    /// binding's namespace - is what makes that possible without knowing the old value, and keeps write and
+    /// read agreeing by construction.
+    /// <para>
+    /// Returns <c>null</c> to mean "nothing to rewrite" — the value names no BC namespace (so it is none of
+    /// this method's business) or already names the new one — which is what lets the caller leave such a
+    /// binding's attribute completely alone; see <see cref="RepointBindingPrefix"/>'s remarks for why that
+    /// distinction matters.
+    /// </para>
+    /// </summary>
+    private static string? RepointNamespace(string? prefixMappings, string newNamespace)
+    {
+        var current = SdtInspector.ExtractBcNamespace(prefixMappings);
+        return current is null || string.Equals(current, newNamespace, StringComparison.Ordinal)
+            ? null
+            : prefixMappings!.Replace(current, newNamespace, StringComparison.Ordinal);
+    }
 
     /// <summary>
     /// Rewrites <paramref name="pr"/>'s <c>w:tag</c> to <paramref name="newTag"/>, but only when a tag is

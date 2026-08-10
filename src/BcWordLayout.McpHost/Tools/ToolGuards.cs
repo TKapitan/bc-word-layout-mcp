@@ -1,4 +1,4 @@
-using BcWordLayout.Domain;
+﻿using BcWordLayout.Domain;
 using BcWordLayout.Domain.Models;
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
@@ -603,6 +603,9 @@ internal static class ToolGuards
                 result.NamespaceChanged,
                 result.RemappedCount,
                 result.OrphanedBindings.Select(o => new OrphanedBindingDto(o.Alias, o.XPath, o.Part, o.SdtId)).ToList(),
+                result.RepointedForeignBindings
+                    .Select(r => new RepointedBindingDto(r.Alias, r.XPath, r.Part, r.SdtId, r.PreviousNamespace))
+                    .ToList(),
                 result.NewUnboundFields,
                 new ValidationSummaryDto(
                     result.QuickValidation.Level,
