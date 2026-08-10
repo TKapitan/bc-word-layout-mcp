@@ -47,7 +47,7 @@ public class LayoutValidatorTests
         // alias names a leaf column.
         var result = LayoutValidator.Quick(Corpus.Path(fileName));
 
-        Assert.Empty(result.Findings.Where(f => f.Check == "repeater-downgraded"));
+        Assert.DoesNotContain(result.Findings, f => f.Check == "repeater-downgraded");
     }
 
     [Fact]

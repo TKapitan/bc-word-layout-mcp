@@ -297,7 +297,7 @@ public class LayoutValidatorNegativeTests
         {
             var result = LayoutValidator.Quick(path);
 
-            var finding = Assert.Single(result.Findings.Where(f => f.Check == "repeater-downgraded"));
+            var finding = Assert.Single(result.Findings, f => f.Check == "repeater-downgraded");
             Assert.Equal(FindingSeverity.Error, finding.Severity);
             Assert.Contains("/Header", finding.Message);
             Assert.Contains("insert_repeater_table", finding.Message);
@@ -327,11 +327,12 @@ public class LayoutValidatorNegativeTests
         {
             var result = LayoutValidator.Quick(path);
 
-            var scale = Assert.Single(result.Findings.Where(
-                f => f.Check == "openxml-structure" && f.Severity == FindingSeverity.Warning));
+            var scale = Assert.Single(
+                result.Findings,
+                f => f.Check == "openxml-structure" && f.Severity == FindingSeverity.Warning);
             Assert.Contains("Microsoft Word itself writes", scale.Message);
 
-            Assert.NotEmpty(result.Findings.Where(f => f.Check == "repeater-shape"));
+            Assert.Contains(result.Findings, f => f.Check == "repeater-shape");
             Assert.False(result.Passed);
         }
         finally
@@ -351,7 +352,7 @@ public class LayoutValidatorNegativeTests
         {
             var result = LayoutValidator.Quick(path);
 
-            Assert.Empty(result.Findings.Where(f => f.Check == "openxml-structure"));
+            Assert.DoesNotContain(result.Findings, f => f.Check == "openxml-structure");
             Assert.True(result.Passed);
         }
         finally
