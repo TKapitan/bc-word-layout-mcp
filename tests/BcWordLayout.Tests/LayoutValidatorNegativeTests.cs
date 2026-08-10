@@ -56,7 +56,7 @@ public class LayoutValidatorNegativeTests
             var storeFindings = result.Findings.Where(f => f.Check == "store-item-id").ToList();
             Assert.Single(storeFindings);
             Assert.Contains(SyntheticLayout.WrongItemId, storeFindings[0].Message);
-            Assert.Empty(result.Findings.Where(f => f.Check == "xpath-resolves"));
+            Assert.DoesNotContain(result.Findings, f => f.Check == "xpath-resolves");
             Assert.False(result.Passed);
         }
         finally
@@ -116,8 +116,8 @@ public class LayoutValidatorNegativeTests
 
             // No structural/shape/binding errors from either repeater - isolates this new check from the
             // ones covered elsewhere in this file.
-            Assert.Empty(result.Findings.Where(f => f.Check == "repeater-shape"));
-            Assert.Empty(result.Findings.Where(f => f.Check == "xpath-resolves"));
+            Assert.DoesNotContain(result.Findings, f => f.Check == "repeater-shape");
+            Assert.DoesNotContain(result.Findings, f => f.Check == "xpath-resolves");
         }
         finally
         {
@@ -138,11 +138,11 @@ public class LayoutValidatorNegativeTests
         {
             var result = LayoutValidator.Quick(path);
 
-            Assert.Empty(result.Findings.Where(f => f.Check == "xpath-resolves"));
-            Assert.Empty(result.Findings.Where(f => f.Check == "store-item-id"));
-            Assert.Empty(result.Findings.Where(f => f.Check == "repeater-shape"));
-            Assert.Empty(result.Findings.Where(f => f.Check == "single-bc-part"));
-            Assert.Empty(result.Findings.Where(f => f.Check == "binding-namespace"));
+            Assert.DoesNotContain(result.Findings, f => f.Check == "xpath-resolves");
+            Assert.DoesNotContain(result.Findings, f => f.Check == "store-item-id");
+            Assert.DoesNotContain(result.Findings, f => f.Check == "repeater-shape");
+            Assert.DoesNotContain(result.Findings, f => f.Check == "single-bc-part");
+            Assert.DoesNotContain(result.Findings, f => f.Check == "binding-namespace");
         }
         finally
         {
@@ -182,8 +182,8 @@ public class LayoutValidatorNegativeTests
             Assert.Equal(FindingSeverity.Error, nsFindings[0].Severity);
             Assert.False(result.Passed);
 
-            Assert.Empty(result.Findings.Where(f => f.Check == "xpath-resolves"));
-            Assert.Empty(result.Findings.Where(f => f.Check == "store-item-id"));
+            Assert.DoesNotContain(result.Findings, f => f.Check == "xpath-resolves");
+            Assert.DoesNotContain(result.Findings, f => f.Check == "store-item-id");
         }
         finally
         {
@@ -203,7 +203,7 @@ public class LayoutValidatorNegativeTests
         {
             var result = LayoutValidator.Quick(path);
 
-            Assert.Empty(result.Findings.Where(f => f.Check == "binding-namespace"));
+            Assert.DoesNotContain(result.Findings, f => f.Check == "binding-namespace");
         }
         finally
         {
@@ -230,7 +230,7 @@ public class LayoutValidatorNegativeTests
             Assert.Equal(FindingSeverity.Warning, partFindings[0].Severity);
             Assert.Contains("DataStoreItem", partFindings[0].Message);
 
-            Assert.Empty(result.Findings.Where(f => f.Check == "store-item-id"));
+            Assert.DoesNotContain(result.Findings, f => f.Check == "store-item-id");
 
             // A warning must not fail the layout: BC re-attaches the store item on upload.
             Assert.True(result.Passed);
