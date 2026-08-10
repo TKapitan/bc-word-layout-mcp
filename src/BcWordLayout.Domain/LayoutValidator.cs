@@ -220,10 +220,13 @@ public static class LayoutValidator
                 Message = $"Binding names dataset namespace '{control.BindingNamespace}', but this layout's "
                           + $"BC part declares '{expected}'. Business Central rejects the layout at upload "
                           + "with InvalidPrefixMapping for every such binding (sandbox-verified 2026-08-02), "
-                          + "and in Word's model the control would render blank. To repair it, rebuild the "
-                          + "control (remove_control then insert_field/insert_label), which binds against "
-                          + "this layout's own namespace; note refresh_xml_part will NOT re-point it, as it "
-                          + "only rewrites bindings that already name the layout's current namespace.",
+                          + "and in Word's model the control would render blank. To repair every such binding "
+                          + "in one call, run refresh_xml_part against this report's current schema - it "
+                          + "re-points every BC-namespaced binding at the layout's own namespace, which is "
+                          + "the only state BC's upload validation accepts. That fixes the NAMESPACE only: if "
+                          + "the binding's XPath also names a column this report does not have, refresh "
+                          + "reports it as an orphan and rebuilding the control (remove_control then "
+                          + "insert_field/insert_label) is still the fix.",
                 Location = $"{control.Part}: {control.Alias ?? control.XPath}",
             });
         }

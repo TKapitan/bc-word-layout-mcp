@@ -1,4 +1,4 @@
-# bc-word-layout-mcp
+﻿# bc-word-layout-mcp
 
 An MCP (Model Context Protocol) server that lets AI agents **create, edit, validate, and preview
 Microsoft Word report layouts for Microsoft Dynamics 365 Business Central** through deterministic,
@@ -180,7 +180,7 @@ other tool is conversion-free and works everywhere the server runs.
 | `merge_cells` | Horizontally merge a run of adjacent cells in one row into a single `gridSpan` cell (keeps the first cell's content). |
 | `split_cells` | Horizontally split one spanned cell back into single-column cells. |
 | `set_cell_borders` | Draw (or clear) the per-cell rules a BC document's look is actually made of — a line above a totals row, an underline on one cell — on a whole row or one cell. |
-| `refresh_xml_part` | Update a layout's BC dataset XML part to a new schema in place; remaps/orphans bindings and reports newly-unbound fields. |
+| `refresh_xml_part` | Update a layout's BC dataset XML part to a new schema in place; remaps/orphans bindings, re-points any binding left naming a foreign report's namespace (which BC refuses to upload), and reports newly-unbound fields. |
 
 ### Response envelope
 
