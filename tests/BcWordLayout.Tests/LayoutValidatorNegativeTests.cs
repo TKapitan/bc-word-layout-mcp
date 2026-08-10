@@ -316,7 +316,7 @@ public class LayoutValidatorNegativeTests
         {
             var result = LayoutValidator.Quick(path);
 
-            var finding = Assert.Single(result.Findings.Where(f => f.Check == "compatibility-mode"));
+            var finding = Assert.Single(result.Findings, f => f.Check == "compatibility-mode");
             Assert.Equal(FindingSeverity.Warning, finding.Severity);
             Assert.Contains("declares none", finding.Message);
             Assert.Contains("File > Info > Convert", finding.Message);
@@ -349,7 +349,7 @@ public class LayoutValidatorNegativeTests
 
             var result = LayoutValidator.Quick(path);
 
-            Assert.Empty(result.Findings.Where(f => f.Check == "compatibility-mode"));
+            Assert.DoesNotContain(result.Findings, f => f.Check == "compatibility-mode");
             Assert.True(result.Passed);
         }
         finally
@@ -371,7 +371,7 @@ public class LayoutValidatorNegativeTests
         {
             var result = LayoutValidator.Quick(path);
 
-            Assert.Empty(result.Findings.Where(f => f.Check == "compatibility-mode"));
+            Assert.DoesNotContain(result.Findings, f => f.Check == "compatibility-mode");
             Assert.True(result.Passed);
         }
         finally
