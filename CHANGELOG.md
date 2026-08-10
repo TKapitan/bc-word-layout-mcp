@@ -71,8 +71,24 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   sorts correctly; the directory's lifetime belongs to the caller, exactly like `preview_layout`'s own
   `outputDir`. Omitting both parameters leaves the response byte-for-byte as before.
 
+- **New `validate_layout` check `repeater-downgraded`** (GitHub issue #54): an ERROR when a control's
+  alias names a whole data item but the control is not a repeating section — what a Word save leaves
+  behind when it converts a repeater to a plain rich-text control (it strips
+  `w15:repeatingSection` and `w15:dataBinding` while `w:alias`/`w:tag`/`w:id` survive). Such a layout
+  passed every other check: the field controls inside the row are intact, nothing is orphaned, and the
+  table simply renders one row instead of one per record. The alias is the signal precisely because it
+  is the part that survives — and because only a repeater ever binds a whole data item, while fields
+  and labels bind leaf columns. Every corpus layout is asserted not to trip it.
+
 ### Changed
 
+- `validate_layout` now reports `w:rPr/w:w = 0` as a **warning** instead of an error (GitHub issue
+  #54). That is the character scaling Word itself writes into a content control's placeholder run
+  (alongside `w:sz=0`), so it appears in any layout that has been opened and saved in Word;
+  `ST_TextScale` requires at least 1, so `OpenXmlValidator` flags it. It renders correctly in both
+  Word and BC and no tool here can edit run properties, so it was an unactionable failure on a file
+  Word considers valid. Matched on the offending node, not on the validator's message text, and every
+  other structural error keeps Error severity.
 - Tool descriptions and error hints no longer claim a missing `partName` targets "the FIRST
   header/footer part": resolution has always preferred the first section's DEFAULT part, and the
   wording now says so and points at `partDetails`.

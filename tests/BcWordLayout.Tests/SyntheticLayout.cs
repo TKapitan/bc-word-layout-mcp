@@ -68,6 +68,52 @@ internal static class SyntheticLayout
         + "<w:sdtContent><w:p><w:r><w:t>row</w:t></w:r></w:p></w:sdtContent></w:sdt>"
         + "</w:sdtContent></w:sdt>";
 
+    /// <summary>
+    /// A well-formed repeater carrying the <c>#Nav:</c> ALIAS a real one has — the valid sibling for
+    /// <c>LayoutValidator</c>'s <c>repeater-downgraded</c> check, whose whole signal is that alias.
+    /// </summary>
+    public static string ProperRepeaterWithAlias(string xpath, string storeItemId, string aliasPath) =>
+        "<w:sdt><w:sdtPr><w:id w:val=\"100\"/>"
+        + $"<w:alias w:val=\"#Nav: {aliasPath}\"/>"
+        + $"<w15:dataBinding w:xpath=\"{xpath}\" w:storeItemID=\"{storeItemId}\"/>"
+        + "<w15:repeatingSection/></w:sdtPr><w:sdtContent>"
+        + "<w:sdt><w:sdtPr><w:id w:val=\"101\"/><w15:repeatingSectionItem/></w:sdtPr>"
+        + "<w:sdtContent><w:p><w:r><w:t>row</w:t></w:r></w:p></w:sdtContent></w:sdt>"
+        + "</w:sdtContent></w:sdt>";
+
+    /// <summary>
+    /// What Word's compatibility downgrade leaves of a repeater: the alias/tag/id survive, but
+    /// <c>w15:repeatingSection</c> AND <c>w15:dataBinding</c> are gone, so the control is an ordinary
+    /// rich-text one whose alias still claims a whole data item (GitHub issue #54). Captured shape — a
+    /// tool-authored layout round-tripped through an interactive Word save.
+    /// </summary>
+    public static string DowngradedRepeater(string aliasPath, int id = 300) =>
+        $"<w:sdt><w:sdtPr><w:alias w:val=\"#Nav: {aliasPath}\"/>"
+        + "<w:tag w:val=\"#Nav: TestReport/50000\"/>"
+        + $"<w:id w:val=\"{id}\"/></w:sdtPr>"
+        + "<w:sdtContent><w:p><w:r><w:t>row</w:t></w:r></w:p></w:sdtContent></w:sdt>";
+
+    /// <summary>
+    /// A bound field carrying its own <c>#Nav:</c> alias — the ordinary control shape, whose alias names a
+    /// LEAF COLUMN. The second valid sibling for <c>repeater-downgraded</c>: the check must never fire on it.
+    /// </summary>
+    public static string AliasedBoundField(string xpath, string storeItemId, string aliasPath, int id = 400) =>
+        $"<w:sdt><w:sdtPr><w:alias w:val=\"#Nav: {aliasPath}\"/><w:id w:val=\"{id}\"/>"
+        + $"<w:dataBinding w:xpath=\"{xpath}\" w:storeItemID=\"{storeItemId}\"/>"
+        + "</w:sdtPr><w:sdtContent><w:p><w:r><w:t>x</w:t></w:r></w:p></w:sdtContent></w:sdt>";
+
+    /// <summary>
+    /// A content control whose run carries the placeholder formatting Word writes when it saves a document
+    /// with a control showing its placeholder: <c>w:w</c> (character scaling) and <c>w:sz</c> at 0.
+    /// <c>ST_TextScale</c> requires <c>w:w</c> to be at least 1, so <c>OpenXmlValidator</c> reports it —
+    /// which is why <c>LayoutValidator</c> reports it as a warning rather than failing the layout (issue #54).
+    /// </summary>
+    /// <param name="characterScale">The <c>w:w</c> value; 0 is Word's placeholder value, 100 a normal one.</param>
+    public static string ControlWithCharacterScale(int characterScale, int id = 500) =>
+        $"<w:p><w:sdt><w:sdtPr><w:id w:val=\"{id}\"/></w:sdtPr><w:sdtContent><w:r><w:rPr>"
+        + $"<w:w w:val=\"{characterScale}\"/><w:sz w:val=\"0\"/><w:szCs w:val=\"0\"/>"
+        + "</w:rPr><w:t>placeholder</w:t></w:r></w:sdtContent></w:sdt></w:p>";
+
     /// <summary>An orphaned repeatingSectionItem sdt with no enclosing repeatingSection.</summary>
     public static string OrphanRepeaterItem(int id = 900) =>
         $"<w:sdt><w:sdtPr><w:id w:val=\"{id}\"/><w15:repeatingSectionItem/></w:sdtPr>"

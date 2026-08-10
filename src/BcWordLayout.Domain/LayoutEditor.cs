@@ -464,10 +464,7 @@ public static class LayoutEditor
         var context = ResolveRepeaterItem(doc, parentRepeaterId, cells, rowNoun: "a detail row");
 
         // The parent's bound data item, from its own alias ('#Nav: /Header/Line').
-        var parentAlias = SdtInspector.ReadAlias(context.Parent);
-        var parentPath = parentAlias is not null && parentAlias.StartsWith("#Nav:", StringComparison.Ordinal)
-            ? parentAlias["#Nav:".Length..].Trim()
-            : null;
+        var parentPath = NavAlias.DatasetPath(SdtInspector.ReadAlias(context.Parent));
         var normalizedChild = "/" + dataItemPath.Trim().Trim('/');
         if (parentPath is null
             || !normalizedChild.StartsWith(parentPath + "/", StringComparison.Ordinal)
