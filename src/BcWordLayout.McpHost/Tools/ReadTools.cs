@@ -134,9 +134,17 @@ public static class ReadTools
     [McpServerTool(Name = "validate_layout")]
     [Description("Validate a BC Word layout. level='quick' runs structural + binding checks (OpenXML "
                  + "validity, single BC XML part, storeItemID match, binding dataset-namespace match, XPath "
-                 + "resolution, repeater shape, attachedTemplate warning). level='full' additionally runs a real dry-run merge (sample "
-                 + "data fill + repeater expansion) against a throwaway temp copy and surfaces every merge "
-                 + "warning (e.g. unresolved bindings, XPath errors) as a validation finding.")]
+                 + "resolution, repeater shape, attachedTemplate warning, a compatibility-mode warning "
+                 + "when a layout that CONTAINS repeaters declares a Word compatibility mode below 15, and"
+                 + "a repeater-downgraded ERROR when a control's alias names a whole data item but the"
+                 + "control is not a repeating section - the wreckage a Word save leaves when it converts"
+                 + "a repeater to a plain rich-text control, which makes the table render one row instead of"
+                 + "one per record). One structural complaint is reported as a WARNING rather than an error:"
+                 + "w:rPr/w:w=0, the character scaling Word writes into a content control's placeholder run, which"
+                 + "renders correctly in Word and BC and cannot be edited by any tool here. level='full'"
+                 + "additionally runs a real dry-run merge (sample data fill + repeater expansion) against"
+                 + "a throwaway temp copy and surfaces every merge warning (e.g. unresolved bindings, XPath"
+                 + "errors) as a validation finding.")]
     public static ToolResponse ValidateLayout(
         [Description("Absolute path to the .docx layout file.")] string layoutPath,
         [Description("Validation level: 'quick' or 'full'. Default 'quick'.")] string level = "quick")

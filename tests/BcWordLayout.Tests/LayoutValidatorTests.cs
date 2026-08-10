@@ -26,6 +26,30 @@ public class LayoutValidatorTests
         Assert.Equal(0, result.ErrorCount);
     }
 
+    [Theory]
+    [InlineData(Corpus.SalesInvoice)]
+    [InlineData(Corpus.InventoryOrderDetails)]
+    [InlineData(Corpus.StandardStatement)]
+    [InlineData(Corpus.SalespersonCommission)]
+    [InlineData(Corpus.JobQuote)]
+    [InlineData(Corpus.StandardSalesQuote)]
+    [InlineData(Corpus.StandardPurchaseOrder)]
+    [InlineData(Corpus.SalesInvoiceVatSpec)]
+    [InlineData(Corpus.PaymentPracticeByPeriod)]
+    [InlineData(Corpus.SubcontractorDispatchList)]
+    public void No_corpus_layout_trips_the_repeater_downgraded_check(string fileName)
+    {
+        // repeater-downgraded is an ERROR, so it is only safe if a real BC layout can never trip it. Every
+        // capture in the corpus runs here - including the two excluded from the pass-clean theory above for
+        // their foreign-namespace bindings, and the deepest 5-level nesting the corpus has - because a false
+        // positive here would fail a file Business Central accepts. Genuine repeaters are recognised as such
+        // (their aliases name data items, but they ARE repeating sections), and every ordinary control's
+        // alias names a leaf column.
+        var result = LayoutValidator.Quick(Corpus.Path(fileName));
+
+        Assert.DoesNotContain(result.Findings, f => f.Check == "repeater-downgraded");
+    }
+
     [Fact]
     public void SalesInvoice_surfaces_attachedTemplate_as_warning_not_error()
     {

@@ -280,6 +280,88 @@ public class LayoutValidatorNegativeTests
     }
 
     [Fact]
+    public void Downgraded_repeater_is_flagged_but_a_real_repeater_and_an_ordinary_field_are_not()
+    {
+        // All three controls in one document, so the check has to discriminate rather than fire on anything
+        // that looks vaguely repeater-ish: what Word's compatibility downgrade leaves of a repeater (alias
+        // naming a DATA ITEM, no repeatingSection, no binding), a genuine repeater carrying the same alias,
+        // and an ordinary bound field whose alias names a LEAF COLUMN (GitHub issue #54).
+        var body =
+            SyntheticLayout.DowngradedRepeater("/Header") +
+            SyntheticLayout.ProperRepeaterWithAlias(HeaderXPath, SyntheticLayout.GoodItemId, "/Header") +
+            SyntheticLayout.AliasedBoundField(
+                ValidFieldXPath, SyntheticLayout.GoodItemId, "/Header/CompanyName");
+        var path = SyntheticLayout.Create(body);
+
+        try
+        {
+            var result = LayoutValidator.Quick(path);
+
+            var finding = Assert.Single(result.Findings, f => f.Check == "repeater-downgraded");
+            Assert.Equal(FindingSeverity.Error, finding.Severity);
+            Assert.Contains("/Header", finding.Message);
+            Assert.Contains("insert_repeater_table", finding.Message);
+            Assert.False(result.Passed);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Word_placeholder_character_scale_is_a_warning_while_other_structural_errors_stay_errors()
+    {
+        // w:w=0 is what Word writes into a content control's placeholder run, so it appears in any layout
+        // that has been opened and saved in Word; ST_TextScale requires >= 1, so OpenXmlValidator reports
+        // it. It renders fine in Word and BC and no tool can edit run properties, so failing the layout on
+        // it left the caller with an unactionable error (GitHub issue #54). The orphaned
+        // repeatingSectionItem alongside it is a REAL structural defect and must keep Error severity - the
+        // tolerance is one named shape, not a softening of the gate.
+        var body =
+            SyntheticLayout.ControlWithCharacterScale(0) +
+            SyntheticLayout.OrphanRepeaterItem();
+        var path = SyntheticLayout.Create(body);
+
+        try
+        {
+            var result = LayoutValidator.Quick(path);
+
+            var scale = Assert.Single(
+                result.Findings,
+                f => f.Check == "openxml-structure" && f.Severity == FindingSeverity.Warning);
+            Assert.Contains("Microsoft Word itself writes", scale.Message);
+
+            Assert.Contains(result.Findings, f => f.Check == "repeater-shape");
+            Assert.False(result.Passed);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void A_normal_character_scale_produces_no_structural_finding_at_all()
+    {
+        // The valid sibling: the same control with a legal w:w value must not be reported in either
+        // severity - the tolerance above must not have turned the check into a no-op.
+        var path = SyntheticLayout.Create(SyntheticLayout.ControlWithCharacterScale(100));
+
+        try
+        {
+            var result = LayoutValidator.Quick(path);
+
+            Assert.DoesNotContain(result.Findings, f => f.Check == "openxml-structure");
+            Assert.True(result.Passed);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void TblStyle_reference_in_a_layout_with_no_styles_part_at_all_is_flagged_as_a_warning()
     {
         // The exact pre-fix create_layout shape: a table referencing the documented 'TableGrid' example in
@@ -295,6 +377,83 @@ public class LayoutValidatorNegativeTests
             var finding = Assert.Single(styleFindings);
             Assert.Equal(FindingSeverity.Warning, finding.Severity);
             Assert.Contains("no styles part", finding.Message);
+            Assert.True(result.Passed);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Repeater_in_a_layout_declaring_no_compatibility_mode_is_flagged_as_a_warning()
+    {
+        // The exact pre-fix create_layout shape: a repeating section in a document that ships no settings
+        // part, so Word implies mode 12 - where repeating sections do not exist and an interactive save
+        // converts them to plain rich-text controls, dropping the binding (GitHub issue #51).
+        var path = SyntheticLayout.Create(
+            SyntheticLayout.ProperRepeater(HeaderXPath, SyntheticLayout.GoodItemId));
+
+        try
+        {
+            var result = LayoutValidator.Quick(path);
+
+            var finding = Assert.Single(result.Findings, f => f.Check == "compatibility-mode");
+            Assert.Equal(FindingSeverity.Warning, finding.Severity);
+            Assert.Contains("declares none", finding.Message);
+            Assert.Contains("File > Info > Convert", finding.Message);
+
+            // The layout itself is correct - BC merges the repeater regardless of compatibility mode. This
+            // is a Word-round-trip risk, so it must never fail the layout on its own.
+            Assert.True(result.Passed);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Repeater_in_a_layout_declaring_compatibility_mode_15_is_not_flagged()
+    {
+        // The valid sibling of the test above, through the real scaffold: applying
+        // DocumentSettingsScaffold to the same fixture must silence the check - which is simultaneously the
+        // proof that what a blank build now ships actually satisfies it.
+        var path = SyntheticLayout.Create(
+            SyntheticLayout.ProperRepeater(HeaderXPath, SyntheticLayout.GoodItemId));
+
+        try
+        {
+            using (var doc = DocumentFormat.OpenXml.Packaging.WordprocessingDocument.Open(path, true))
+            {
+                Assert.True(DocumentSettingsScaffold.EnsureCompatibilityMode(doc.MainDocumentPart!));
+            }
+
+            var result = LayoutValidator.Quick(path);
+
+            Assert.DoesNotContain(result.Findings, f => f.Check == "compatibility-mode");
+            Assert.True(result.Passed);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Layout_with_no_repeater_is_not_flagged_for_its_compatibility_mode()
+    {
+        // The second valid sibling, and the one that keeps the check from being indiscriminate: a mode-12
+        // layout with no repeating section has nothing to lose to the Compatibility Checker, so warning
+        // about it would fire on ordinary field-only layouts for a risk that does not exist there.
+        var path = SyntheticLayout.Create(
+            SyntheticLayout.BoundField(ValidFieldXPath, SyntheticLayout.GoodItemId));
+
+        try
+        {
+            var result = LayoutValidator.Quick(path);
+
+            Assert.DoesNotContain(result.Findings, f => f.Check == "compatibility-mode");
             Assert.True(result.Passed);
         }
         finally

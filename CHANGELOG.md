@@ -55,7 +55,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   header/footer targeting, on-demand part scaffolding, and optional `bold`/`fontSizePoints` as
   `insert_text`. The stock idiom's leading caption stays a composed `insert_label` (`Page_Lbl`) +
   `insert_text` separator, so it remains a translatable dataset binding.
-
+- **New `validate_layout` check `compatibility-mode`** (GitHub issue #51): warns when a layout that
+  CONTAINS repeating sections declares a Word compatibility mode below 15 — the state in which a Word
+  save silently converts them to plain rich-text controls. Warning, not error: Business Central
+  merges the repeater regardless, so the file is correct until someone edits it in Word. Deliberately
+  conditional on a repeater being present, so it stays silent on the field-only layouts (and stock
+  captures) where the risk does not exist.
 - **`render_preview_pages` can write the rendered pages to disk** (GitHub issue #55): the new optional
   `outputDir` writes each page as `<pdf-basename>-pageNN.png` and returns the paths on
   `pages[].path`, and `inlineImages=false` (only valid together with `outputDir`) writes them without
@@ -65,6 +70,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   outside it. Named by page NUMBER, so paging through a document with `firstPage` produces a set that
   sorts correctly; the directory's lifetime belongs to the caller, exactly like `preview_layout`'s own
   `outputDir`. Omitting both parameters leaves the response byte-for-byte as before.
+
+- **New `validate_layout` check `repeater-downgraded`** (GitHub issue #54): an ERROR when a control's
+  alias names a whole data item but the control is not a repeating section — what a Word save leaves
+  behind when it converts a repeater to a plain rich-text control (it strips
+  `w15:repeatingSection` and `w15:dataBinding` while `w:alias`/`w:tag`/`w:id` survive). Such a layout
+  passed every other check: the field controls inside the row are intact, nothing is orphaned, and the
+  table simply renders one row instead of one per record. The alias is the signal precisely because it
+  is the part that survives — and because only a repeater ever binds a whole data item, while fields
+  and labels bind leaf columns. Every corpus layout is asserted not to trip it.
 
 ### Changed
 
@@ -83,12 +97,30 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   rewritten, so a foreign binding that ALSO names a missing column is re-pointed *and* reported as an
   orphan. `validate_layout`'s `binding-namespace` message now points at this repair instead of stating
   that refresh will not perform it.
+- `validate_layout` now reports `w:rPr/w:w = 0` as a **warning** instead of an error (GitHub issue
+  #54). That is the character scaling Word itself writes into a content control's placeholder run
+  (alongside `w:sz=0`), so it appears in any layout that has been opened and saved in Word;
+  `ST_TextScale` requires at least 1, so `OpenXmlValidator` flags it. It renders correctly in both
+  Word and BC and no tool here can edit run properties, so it was an unactionable failure on a file
+  Word considers valid. Matched on the offending node, not on the validator's message text, and every
+  other structural error keeps Error severity.
 - Tool descriptions and error hints no longer claim a missing `partName` targets "the FIRST
   header/footer part": resolution has always preferred the first section's DEFAULT part, and the
   wording now says so and points at `partDetails`.
 
 ### Fixed
 
+- **A blank `create_layout` build now declares Word `compatibilityMode` 15** (GitHub issue #51). It
+  shipped no `word/settings.xml` at all, and a document that declares no mode is mode 12 — Word 2007
+  — to Word (measured: `Document.CompatibilityMode` reported `12`). Repeating-section content
+  controls do not exist in that mode, so the first time anyone opened a tool-authored layout in Word
+  and saved it, the Compatibility Checker converted every repeater to a plain rich-text control and
+  dropped its `w15:dataBinding`: the lines table silently stopped repeating and binding while still
+  looking like a layout. Blank builds now scaffold a minimal settings part declaring the mode every
+  stock corpus layout declares (`DocumentSettingsScaffold`), so the Word round trip the docs
+  recommend for restyling is safe. A `templatePath` build keeps its shell's own settings untouched —
+  compatibility mode also selects Word's layout metrics, so retrofitting one could move a template's
+  pagination; that case is reported instead, by the new check below.
 - **`insert_table` and `insert_repeater_table` now pin the column widths they are given** (GitHub
   issue #52). Both emitted a `w:tblGrid` and per-cell `w:tcW` but no `w:tblW` and no
   `w:tblLayout` — and the OOXML default is AUTOFIT, so Word recomputed every column from cell
