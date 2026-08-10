@@ -1,4 +1,4 @@
-# Changelog
+﻿# Changelog
 
 All notable changes to this project are documented in this file.
 
@@ -82,6 +82,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **`refresh_xml_part` now re-points EVERY BC-namespaced binding at the layout's namespace** (GitHub
+  issue #2), instead of swapping one known old namespace for the new one only when the report's own
+  identity changed. A binding naming a THIRD namespace — a superseded namespace of the same report, or
+  another report's after a control was copied between layouts — survived every refresh untouched, and
+  20 of `PaymentPracticeByPeriod.docx`'s 25 bindings are exactly that. The 2026-08-02 sandbox rounds
+  (issue #1) settled why it matters: BC validates every binding's `prefixMappings` against the target
+  report's CURRENT namespace and refuses the upload with one `InvalidPrefixMapping` per offender,
+  accepting the same layout once they are all re-pointed. So re-pointing is not a guess about intent —
+  it is the only state BC accepts, and the previous behaviour left the layout provably un-uploadable
+  with hand-rebuilding each control as the only repair. Repaired bindings come back as the new
+  `repointedForeignBindings` (with the namespace each one previously named); a binding whose
+  `prefixMappings` names no BC namespace at all is still left untouched, and the XPath is never
+  rewritten, so a foreign binding that ALSO names a missing column is re-pointed *and* reported as an
+  orphan. `validate_layout`'s `binding-namespace` message now points at this repair instead of stating
+  that refresh will not perform it.
 - `validate_layout` now reports `w:rPr/w:w = 0` as a **warning** instead of an error (GitHub issue
   #54). That is the character scaling Word itself writes into a content control's placeholder run
   (alongside `w:sz=0`), so it appears in any layout that has been opened and saved in Word;

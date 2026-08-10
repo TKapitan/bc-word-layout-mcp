@@ -1,4 +1,4 @@
-# Solution Design — BC Word Layout MCP Server
+﻿# Solution Design — BC Word Layout MCP Server
 
 | | |
 |---|---|
@@ -360,4 +360,3 @@ live list. The ones that would change this document:
 | How does BC resolve a binding whose namespace does not match its part? Decides whether that finding is a warning or an error. | [#1](https://github.com/TKapitan/bc-word-layout-mcp/issues/1) |
 | What OOXML do the BC add-in's conditional controls produce? Blocks the largest missing capability. | [#8](https://github.com/TKapitan/bc-word-layout-mcp/issues/8) |
 | Is the LibreOffice path good enough to be the non-Windows experience? | [#7](https://github.com/TKapitan/bc-word-layout-mcp/issues/7) |
-| Should `refresh_xml_part` re-point foreign-namespace bindings, or only report them? | [#2](https://github.com/TKapitan/bc-word-layout-mcp/issues/2) |

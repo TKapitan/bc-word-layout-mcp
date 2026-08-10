@@ -460,6 +460,138 @@ public class LayoutRefresherTests
         }
     }
 
+    // ---- foreign-namespace bindings: re-pointed, not merely reported (GitHub issue #2) ----
+
+    [Fact]
+    public void Refresh_repairs_the_stock_capture_BC_refuses_to_upload_in_one_call()
+    {
+        // PaymentPracticeByPeriod is the witness the decision on #2 turned on: 20 of its 25 bindings name the
+        // report's SUPERSEDED namespace (Payment_Practice/590) while its BC part is 685, and the 2026-08-02
+        // sandbox rounds proved BC rejects the upload with one InvalidPrefixMapping per such binding and
+        // accepts the file once they are all re-pointed. Refreshing it against its own (685) schema is a
+        // SAME-namespace refresh, which is exactly the case the old old-for-new substring swap did nothing
+        // for - it only rewrote bindings that already named the current namespace.
+        var path = CopyOfCorpus(Corpus.PaymentPracticeByPeriod);
+        try
+        {
+            var before = LayoutValidator.Quick(path).Findings
+                .Where(f => f.Check == "binding-namespace")
+                .ToList();
+            Assert.Equal(20, before.Count);
+            Assert.All(before, f => Assert.Equal(FindingSeverity.Error, f.Severity));
+
+            RefreshResult result;
+            using (var doc = WordprocessingDocument.Open(path, true))
+            {
+                result = LayoutRefresher.Refresh(doc, Corpus.Path(Corpus.PaymentPracticeByPeriod));
+                SaveAllParts(doc);
+            }
+
+            // Same namespace on both sides: the gate the old implementation used never opened.
+            Assert.False(result.NamespaceChanged);
+            Assert.Equal(20, result.RepointedForeignBindings.Count);
+            Assert.All(
+                result.RepointedForeignBindings,
+                r => Assert.Contains("Payment_Practice/590", r.PreviousNamespace, StringComparison.Ordinal));
+
+            // The whole point: no binding names anything but this report's namespace afterwards, so the
+            // layout is in the only state BC's upload validation accepts.
+            var after = LayoutValidator.Quick(path);
+            Assert.DoesNotContain(after.Findings, f => f.Check == "binding-namespace");
+
+            using var reopened = WordprocessingDocument.Open(path, false);
+            var expected = SchemaProvider.FromLayout(reopened).Report.Namespace;
+            Assert.All(
+                LayoutReader.Read(reopened).Controls.Where(c => c.BindingNamespace is not null),
+                c => Assert.Equal(expected, c.BindingNamespace));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Refresh_repoints_a_foreign_binding_whatever_shape_its_prefixMappings_takes()
+    {
+        // Three bindings the re-point must handle, plus one it must NOT touch:
+        //   - the layout's own namespace (the ordinary case),
+        //   - a foreign namespace in the usual xmlns:ns0='...' form,
+        //   - the same, written as a BARE URI with no xmlns declaration (a real base-app shape -
+        //     StandardSalesInvoiceVatSpec.docx writes its w15 bindings this way),
+        //   - a binding with NO prefixMappings at all, which must come out exactly as it went in: the goal is
+        //     to make BC-bound controls name THIS report, not to claim every content control for it.
+        const string root = "/ns0:NavWordReportXmlPart[1]";
+        var body =
+            SyntheticLayout.BoundFieldInNamespace(
+                root + "/ns0:Header[1]/ns0:CompanyName[1]", SyntheticLayout.GoodItemId,
+                SyntheticLayout.DatasetNamespace) +
+            SyntheticLayout.BoundFieldInNamespace(
+                root + "/ns0:Header[1]/ns0:CompanyName[1]", SyntheticLayout.GoodItemId,
+                SyntheticLayout.ForeignNamespace) +
+            SyntheticLayout.BoundFieldInNamespace(
+                root + "/ns0:Header[1]/ns0:CompanyName[1]", SyntheticLayout.GoodItemId,
+                SyntheticLayout.ForeignNamespace, bareUri: true) +
+            SyntheticLayout.BoundField(root + "/ns0:Header[1]/ns0:CompanyName[1]", SyntheticLayout.GoodItemId);
+        var path = SyntheticLayout.Create(body);
+
+        // A second synthetic layout as the schema source: same dataset, therefore the SAME namespace, so this
+        // is a same-namespace refresh (a separate file rather than the layout itself, which is held open
+        // writable while Refresh reads its source).
+        var schemaSource = SyntheticLayout.Create(SyntheticLayout.PlainParagraph("schema donor"));
+
+        try
+        {
+            Assert.Equal(
+                2,
+                LayoutValidator.Quick(path).Findings.Count(f => f.Check == "binding-namespace"));
+
+            RefreshResult result;
+            using (var doc = WordprocessingDocument.Open(path, true))
+            {
+                result = LayoutRefresher.Refresh(doc, schemaSource);
+                SaveAllParts(doc);
+            }
+
+            Assert.False(result.NamespaceChanged);
+            Assert.Equal(2, result.RepointedForeignBindings.Count);
+            Assert.All(
+                result.RepointedForeignBindings,
+                r => Assert.Equal(SyntheticLayout.ForeignNamespace, r.PreviousNamespace));
+
+            var after = LayoutValidator.Quick(path);
+            Assert.DoesNotContain(after.Findings, f => f.Check == "binding-namespace");
+
+            using var reopened = WordprocessingDocument.Open(path, false);
+            var xml = reopened.MainDocumentPart!.Document!.OuterXml;
+
+            // Both foreign shapes re-pointed; the bare-URI one keeps being bare (only the URI changed).
+            Assert.DoesNotContain(SyntheticLayout.ForeignNamespace, xml, StringComparison.Ordinal);
+            Assert.Contains(
+                $"w:prefixMappings=\"{SyntheticLayout.DatasetNamespace}\"", xml, StringComparison.Ordinal);
+            Assert.Contains(
+                $"w:prefixMappings=\"xmlns:ns0='{SyntheticLayout.DatasetNamespace}' \"",
+                xml,
+                StringComparison.Ordinal);
+
+            // The prefixMappings-less binding is untouched: still exactly one binding with no mappings at all.
+            // Not just "still null": writing an unchanged value back through StringValue materialises an
+            // EMPTY w:prefixMappings="" attribute where there was none, so the re-point must not assign at all
+            // when there is nothing to rewrite.
+            Assert.Equal(
+                1,
+                reopened.MainDocumentPart.Document
+                    .Descendants<DocumentFormat.OpenXml.Wordprocessing.DataBinding>()
+                    .Count(b => b.PrefixMappings is null));
+            Assert.DoesNotContain("w:prefixMappings=\"\"", xml, StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(path);
+            File.Delete(schemaSource);
+        }
+    }
+
     // ---- error paths ----
 
     [Fact]

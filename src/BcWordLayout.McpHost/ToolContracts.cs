@@ -1,4 +1,4 @@
-namespace BcWordLayout.McpHost;
+﻿namespace BcWordLayout.McpHost;
 
 /// <summary>
 /// Structured error carried in every tool failure (design doc §4). Chosen error model for this server:
@@ -306,11 +306,28 @@ public sealed record CreateResultDto(
 public sealed record OrphanedBindingDto(string? Alias, string XPath, string Part, int? SdtId);
 
 /// <summary>
+/// A binding that named a FOREIGN BC dataset namespace — neither the layout's old namespace nor its new one —
+/// and was re-pointed to the new namespace by <c>refresh_xml_part</c>.
+/// </summary>
+/// <remarks>
+/// A repair report, not a warning: Business Central rejects a layout at upload with one
+/// <c>InvalidPrefixMapping</c> per binding naming anything but the target report's current namespace, so each
+/// entry here is a defect that has been fixed. <c>PreviousNamespace</c> is what it named before — a foreign
+/// namespace usually means the control was copied in from another report's layout, so also check whether the
+/// same control appears in <c>orphanedBindings</c> (its XPath may name a column this report does not have,
+/// which re-pointing the namespace does not fix).
+/// </remarks>
+public sealed record RepointedBindingDto(
+    string? Alias, string XPath, string Part, int? SdtId, string PreviousNamespace);
+
+/// <summary>
 /// Result of <c>refresh_xml_part</c>: old vs new report identity, whether the dataset namespace itself
 /// changed (triggering a <c>w:prefixMappings</c>/<c>w:tag</c> remap), how many existing bindings still
 /// resolve against the new schema (<see cref="RemappedCount"/>), which no longer do
 /// (<see cref="OrphanedBindings"/> — renamed/deleted fields, left in place for the caller to act on), which
-/// new-schema fields have no control bound to them yet (<see cref="NewUnboundFields"/>), and a post-refresh
+/// bindings named a foreign report's namespace and were re-pointed to this one
+/// (<see cref="RepointedForeignBindings"/> — a repair report; those bindings made the layout un-uploadable),
+/// which new-schema fields have no control bound to them yet (<see cref="NewUnboundFields"/>), and a post-refresh
 /// <see cref="QuickValidation"/> summary. A non-zero <see cref="ValidationSummaryDto.ErrorCount"/> here is
 /// EXPECTED when there are orphaned bindings (they surface there too, as <c>xpath-resolves</c> findings) —
 /// that is the orphan report corroborated by an independent check, not a failed refresh; <c>Ok=true</c>
@@ -327,5 +344,6 @@ public sealed record RefreshResultDto(
     bool NamespaceChanged,
     int RemappedCount,
     IReadOnlyList<OrphanedBindingDto> OrphanedBindings,
+    IReadOnlyList<RepointedBindingDto> RepointedForeignBindings,
     IReadOnlyList<string> NewUnboundFields,
     ValidationSummaryDto QuickValidation);
