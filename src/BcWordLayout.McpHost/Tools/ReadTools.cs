@@ -134,7 +134,10 @@ public static class ReadTools
     [McpServerTool(Name = "validate_layout")]
     [Description("Validate a BC Word layout. level='quick' runs structural + binding checks (OpenXML "
                  + "validity, single BC XML part, storeItemID match, binding dataset-namespace match, XPath "
-                 + "resolution, repeater shape, attachedTemplate warning). level='full' additionally runs a real dry-run merge (sample "
+                 + "resolution, repeater shape, attachedTemplate warning, and a compatibility-mode warning "
+                 + "when a layout that CONTAINS repeaters declares a Word compatibility mode below 15 - "
+                 + "saving such a layout in Word converts every repeating section to a plain rich-text "
+                 + "control and drops its binding, so the table stops repeating). level='full' additionally runs a real dry-run merge (sample "
                  + "data fill + repeater expansion) against a throwaway temp copy and surfaces every merge "
                  + "warning (e.g. unresolved bindings, XPath errors) as a validation finding.")]
     public static ToolResponse ValidateLayout(

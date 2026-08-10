@@ -15,8 +15,10 @@ namespace BcWordLayout.Domain;
 /// part (with a fresh <c>ds:itemID</c>), a glossary part with the <c>DefaultPlaceholder_-1854013440</c>
 /// docPart entry every control <see cref="SdtFactory"/> builds references, a valid document body, and — for a
 /// BLANK build — the empty header/footer parts a <c>layoutPart='header'/'footer'</c> insert needs to have
-/// something to resolve against plus the default styles part that pins its typography (see
-/// <see cref="HeaderFooterScaffold"/> and <see cref="DefaultStylesScaffold"/>; a template keeps its own). The
+/// something to resolve against, the default styles part that pins its typography, and the settings part
+/// that declares the compatibility mode in which its own repeaters survive a Word save (see
+/// <see cref="HeaderFooterScaffold"/>, <see cref="DefaultStylesScaffold"/> and
+/// <see cref="DocumentSettingsScaffold"/>; a template keeps its own). The
 /// build is written atomically (assembled in a temp file next to the destination, validated, then moved into
 /// place) and its own <see cref="LayoutValidator.Quick"/> result travels with it on
 /// <see cref="CreateResult.QuickValidation"/> — a <c>templatePath</c> whose body already carried bound
@@ -234,13 +236,17 @@ public static class LayoutBuilder
         // layout can take a footer/header insert straight away instead of failing not_found with nothing to
         // resolve against — plus the default styles part that pins the layout's typography (without it,
         // nothing in the file names a typeface and Word/BC each render their own default; see
-        // DefaultStylesScaffold). Done before the validator gate below, so a scaffolded part is
-        // covered by the same structural check as everything else this method attaches.
+        // DefaultStylesScaffold) and the settings part that declares compatibilityMode 15 (without it Word
+        // treats the layout as mode 12, where repeating-section controls do not exist, and an interactive
+        // save converts every repeater to a plain rich-text control; see DocumentSettingsScaffold). Done
+        // before the validator gate below, so a scaffolded part is covered by the same structural check as
+        // everything else this method attaches.
         if (scaffoldBlankDefaults)
         {
             HeaderFooterScaffold.EnsureHeader(main);
             HeaderFooterScaffold.EnsureFooter(main);
             DefaultStylesScaffold.EnsureDefaultStyles(main);
+            DocumentSettingsScaffold.EnsureCompatibilityMode(main);
         }
 
         main.Document!.Save();

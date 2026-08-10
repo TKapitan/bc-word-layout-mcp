@@ -55,7 +55,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   header/footer targeting, on-demand part scaffolding, and optional `bold`/`fontSizePoints` as
   `insert_text`. The stock idiom's leading caption stays a composed `insert_label` (`Page_Lbl`) +
   `insert_text` separator, so it remains a translatable dataset binding.
-
+- **New `validate_layout` check `compatibility-mode`** (GitHub issue #51): warns when a layout that
+  CONTAINS repeating sections declares a Word compatibility mode below 15 — the state in which a Word
+  save silently converts them to plain rich-text controls. Warning, not error: Business Central
+  merges the repeater regardless, so the file is correct until someone edits it in Word. Deliberately
+  conditional on a repeater being present, so it stays silent on the field-only layouts (and stock
+  captures) where the risk does not exist.
 - **`render_preview_pages` can write the rendered pages to disk** (GitHub issue #55): the new optional
   `outputDir` writes each page as `<pdf-basename>-pageNN.png` and returns the paths on
   `pages[].path`, and `inlineImages=false` (only valid together with `outputDir`) writes them without
@@ -74,6 +79,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **A blank `create_layout` build now declares Word `compatibilityMode` 15** (GitHub issue #51). It
+  shipped no `word/settings.xml` at all, and a document that declares no mode is mode 12 — Word 2007
+  — to Word (measured: `Document.CompatibilityMode` reported `12`). Repeating-section content
+  controls do not exist in that mode, so the first time anyone opened a tool-authored layout in Word
+  and saved it, the Compatibility Checker converted every repeater to a plain rich-text control and
+  dropped its `w15:dataBinding`: the lines table silently stopped repeating and binding while still
+  looking like a layout. Blank builds now scaffold a minimal settings part declaring the mode every
+  stock corpus layout declares (`DocumentSettingsScaffold`), so the Word round trip the docs
+  recommend for restyling is safe. A `templatePath` build keeps its shell's own settings untouched —
+  compatibility mode also selects Word's layout metrics, so retrofitting one could move a template's
+  pagination; that case is reported instead, by the new check below.
 - **`insert_table` and `insert_repeater_table` now pin the column widths they are given** (GitHub
   issue #52). Both emitted a `w:tblGrid` and per-cell `w:tcW` but no `w:tblW` and no
   `w:tblLayout` — and the OOXML default is AUTOFIT, so Word recomputed every column from cell

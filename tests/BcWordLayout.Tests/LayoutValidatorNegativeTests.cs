@@ -302,4 +302,81 @@ public class LayoutValidatorNegativeTests
             File.Delete(path);
         }
     }
+
+    [Fact]
+    public void Repeater_in_a_layout_declaring_no_compatibility_mode_is_flagged_as_a_warning()
+    {
+        // The exact pre-fix create_layout shape: a repeating section in a document that ships no settings
+        // part, so Word implies mode 12 - where repeating sections do not exist and an interactive save
+        // converts them to plain rich-text controls, dropping the binding (GitHub issue #51).
+        var path = SyntheticLayout.Create(
+            SyntheticLayout.ProperRepeater(HeaderXPath, SyntheticLayout.GoodItemId));
+
+        try
+        {
+            var result = LayoutValidator.Quick(path);
+
+            var finding = Assert.Single(result.Findings, f => f.Check == "compatibility-mode");
+            Assert.Equal(FindingSeverity.Warning, finding.Severity);
+            Assert.Contains("declares none", finding.Message);
+            Assert.Contains("File > Info > Convert", finding.Message);
+
+            // The layout itself is correct - BC merges the repeater regardless of compatibility mode. This
+            // is a Word-round-trip risk, so it must never fail the layout on its own.
+            Assert.True(result.Passed);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Repeater_in_a_layout_declaring_compatibility_mode_15_is_not_flagged()
+    {
+        // The valid sibling of the test above, through the real scaffold: applying
+        // DocumentSettingsScaffold to the same fixture must silence the check - which is simultaneously the
+        // proof that what a blank build now ships actually satisfies it.
+        var path = SyntheticLayout.Create(
+            SyntheticLayout.ProperRepeater(HeaderXPath, SyntheticLayout.GoodItemId));
+
+        try
+        {
+            using (var doc = DocumentFormat.OpenXml.Packaging.WordprocessingDocument.Open(path, true))
+            {
+                Assert.True(DocumentSettingsScaffold.EnsureCompatibilityMode(doc.MainDocumentPart!));
+            }
+
+            var result = LayoutValidator.Quick(path);
+
+            Assert.DoesNotContain(result.Findings, f => f.Check == "compatibility-mode");
+            Assert.True(result.Passed);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Layout_with_no_repeater_is_not_flagged_for_its_compatibility_mode()
+    {
+        // The second valid sibling, and the one that keeps the check from being indiscriminate: a mode-12
+        // layout with no repeating section has nothing to lose to the Compatibility Checker, so warning
+        // about it would fire on ordinary field-only layouts for a risk that does not exist there.
+        var path = SyntheticLayout.Create(
+            SyntheticLayout.BoundField(ValidFieldXPath, SyntheticLayout.GoodItemId));
+
+        try
+        {
+            var result = LayoutValidator.Quick(path);
+
+            Assert.DoesNotContain(result.Findings, f => f.Check == "compatibility-mode");
+            Assert.True(result.Passed);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
 }
