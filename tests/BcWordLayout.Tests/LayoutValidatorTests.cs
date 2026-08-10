@@ -82,8 +82,8 @@ public class LayoutValidatorTests
         // layout, or "20 findings" would prove nothing but that the check fires indiscriminately.
         var result = LayoutValidator.Quick(Corpus.Path(Corpus.JobQuote));
 
-        Assert.Empty(result.Findings.Where(f => f.Check == "binding-namespace"));
-        Assert.Empty(result.Findings.Where(f => f.Check == "single-bc-part"));
+        Assert.DoesNotContain(result.Findings, f => f.Check == "binding-namespace");
+        Assert.DoesNotContain(result.Findings, f => f.Check == "single-bc-part");
         Assert.True(result.Passed);
     }
 
