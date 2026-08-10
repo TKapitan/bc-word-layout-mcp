@@ -1,4 +1,5 @@
-using System.ComponentModel;
+﻿using System.ComponentModel;
+using System.Globalization;
 using System.Text.Json;
 using BcWordLayout.Domain;
 using BcWordLayout.Merge;
@@ -705,6 +706,10 @@ public static class LifecycleTools
                  + "rendered page follows as one image block, in page order. COST: every page image adds "
                  + "on the order of a thousand-plus tokens to the response — request only the pages you "
                  + "need (default 3, hard cap 10 per call; page through longer documents with firstPage). "
+                 + "SHOWING A HUMAN: pass outputDir to also WRITE each page as a .png there (paths come "
+                 + "back on pages[].path) - inline blocks alone are visible to the calling agent only, so "
+                 + "outputDir is what turns 'let me look at it' into 'put it somewhere I can open'. Pair it "
+                 + "with inlineImages=false to write the files WITHOUT paying the token cost of the images. "
                  + "The same MOCK RENDER disclaimer as preview_layout applies: this shows the offline-"
                  + "converted preview, not a genuine Business Central render.")]
     public static CallToolResult RenderPreviewPages(
@@ -716,8 +721,29 @@ public static class LifecycleTools
                      + "than were returned.")] int maxPages = 3,
         [Description("Render resolution in DPI, clamped to 36–300. Default 120 (an A4 page comes out "
                      + "roughly 992×1403 px — readable without wasting tokens on print-resolution "
-                     + "detail).")] int dpi = 120)
+                     + "detail).")] int dpi = 120,
+        [Description("Optional absolute directory to ALSO write each rendered page into, as "
+                     + "'<pdf-basename>-pageNN.png' (the paths are returned on pages[].path). The directory "
+                     + "is created if missing. Omit to return the images inline only. YOU own the "
+                     + "directory's lifetime - nothing here ever sweeps or deletes it, and a preview "
+                     + "rendered from real data produces PNGs of that data, so clean it up yourself if it "
+                     + "may hold anything sensitive.")] string? outputDir = null,
+        [Description("Whether to return the page images as inline MCP image blocks. Default true. Pass "
+                     + "false together with outputDir to write the PNGs to disk without spending tokens on "
+                     + "the images (rejected when outputDir is omitted, since that would return no pages at "
+                     + "all).")] bool inlineImages = true)
     {
+        // Refuse the one combination that would succeed while returning nothing to look at, rather than
+        // silently doing half of what was asked (ADR-0003).
+        if (!inlineImages && outputDir is null)
+        {
+            return EnvelopeOnly(ToolResponse.Failure(
+                "invalid_argument",
+                "inlineImages=false with no outputDir would render the pages and then discard them.",
+                "Either pass outputDir (the PNGs are written there and their paths come back on "
+                + "pages[].path), or leave inlineImages at its default of true."));
+        }
+
         // File-existence gets its own code (and the shared file_not_found hint style Guard uses) rather
         // than the rasterizer's generic error string, so an agent that cached a stale PdfPath (e.g. the
         // preview was re-run or age-swept) is told exactly how to recover: preview again, then re-render.
@@ -749,6 +775,27 @@ public static class LifecycleTools
                 + "again and retry with its fresh PdfPath."));
         }
 
+        // Written BEFORE the envelope is built, so pages[].path describes files that already exist by the
+        // time the caller sees the response. Routed through the same exception-to-envelope translator every
+        // other tool uses, so an unwritable or malformed outputDir returns a structured failure with a hint
+        // instead of throwing across the MCP boundary (ADR-0004).
+        List<string>? writtenPaths = null;
+        if (outputDir is not null)
+        {
+            var writeEnvelope = Guard(
+                () =>
+                {
+                    writtenPaths = WritePageImages(result.Pages, pdfPath, outputDir);
+                    return ToolResponse.Success(true);
+                },
+                outputDir);
+
+            if (!writeEnvelope.Ok)
+            {
+                return EnvelopeOnly(writeEnvelope);
+            }
+        }
+
         var dto = new PreviewPagesResultDto(
             PdfPath: Path.GetFullPath(pdfPath),
             PageCount: result.PageCount ?? result.Pages.Count,
@@ -757,19 +804,57 @@ public static class LifecycleTools
             EffectiveDpi: result.EffectiveDpi,
             Truncated: result.Truncated,
             Pages: result.Pages
-                .Select(p => new PreviewPageDto(p.PageNumber, p.WidthPx, p.HeightPx, p.PngBytes.Length))
+                .Select((p, i) => new PreviewPageDto(
+                    p.PageNumber, p.WidthPx, p.HeightPx, p.PngBytes.Length, writtenPaths?[i]))
                 .ToList());
 
         var content = new List<ContentBlock>(1 + result.Pages.Count)
         {
             SerializeEnvelope(ToolResponse.Success(dto)),
         };
-        foreach (var page in result.Pages)
+
+        if (inlineImages)
         {
-            content.Add(ImageContentBlock.FromBytes(page.PngBytes, "image/png"));
+            foreach (var page in result.Pages)
+            {
+                content.Add(ImageContentBlock.FromBytes(page.PngBytes, "image/png"));
+            }
         }
 
         return new CallToolResult { Content = content };
+    }
+
+    /// <summary>
+    /// Writes each rendered page into <paramref name="outputDir"/> as
+    /// <c>&lt;pdf-basename&gt;-pageNN.png</c>, creating the directory if needed, and returns the full paths
+    /// in the same order as <paramref name="pages"/>.
+    /// </summary>
+    /// <remarks>
+    /// The name is derived from the PDF's own basename — which for a <c>preview_layout</c> output already
+    /// carries that call's per-layout hash (<c>preview-&lt;hash&gt;.pdf</c>) — so rendering two different
+    /// layouts' previews into ONE caller-chosen folder cannot collide, the same property
+    /// <c>preview_layout</c>'s own caller-supplied-outputDir naming has. The page number, not the loop
+    /// index, is what goes in the name: rendering pages 4-6 writes <c>…-page04.png</c>…<c>…-page06.png</c>,
+    /// so paging through a long document produces a set that sorts and reads correctly.
+    /// </remarks>
+    private static List<string> WritePageImages(
+        IReadOnlyList<PdfRasterizedPage> pages, string pdfPath, string outputDir)
+    {
+        var fullDir = Path.GetFullPath(outputDir);
+        Directory.CreateDirectory(fullDir);
+
+        var prefix = SanitizeForPath(Path.GetFileNameWithoutExtension(pdfPath));
+        var written = new List<string>(pages.Count);
+        foreach (var page in pages)
+        {
+            var target = Path.Combine(
+                fullDir,
+                $"{prefix}-page{page.PageNumber.ToString("D2", CultureInfo.InvariantCulture)}.png");
+            File.WriteAllBytes(target, page.PngBytes);
+            written.Add(target);
+        }
+
+        return written;
     }
 
     /// <summary>A failure <see cref="CallToolResult"/> carrying only the JSON envelope, no image blocks.</summary>

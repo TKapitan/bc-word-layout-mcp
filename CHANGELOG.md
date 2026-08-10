@@ -56,6 +56,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `insert_text`. The stock idiom's leading caption stays a composed `insert_label` (`Page_Lbl`) +
   `insert_text` separator, so it remains a translatable dataset binding.
 
+- **`render_preview_pages` can write the rendered pages to disk** (GitHub issue #55): the new optional
+  `outputDir` writes each page as `<pdf-basename>-pageNN.png` and returns the paths on
+  `pages[].path`, and `inlineImages=false` (only valid together with `outputDir`) writes them without
+  spending response tokens on the inline copies. The images were previously returned as inline MCP
+  content blocks only — visible to the calling agent but to nobody else, so "put the render somewhere
+  I can look at it" could not be served by the server at all and ended in ad-hoc PDF rasterization
+  outside it. Named by page NUMBER, so paging through a document with `firstPage` produces a set that
+  sorts correctly; the directory's lifetime belongs to the caller, exactly like `preview_layout`'s own
+  `outputDir`. Omitting both parameters leaves the response byte-for-byte as before.
+
 ### Changed
 
 - **`refresh_xml_part` now re-points EVERY BC-namespaced binding at the layout's namespace** (GitHub
@@ -79,6 +89,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **`insert_table` and `insert_repeater_table` now pin the column widths they are given** (GitHub
+  issue #52). Both emitted a `w:tblGrid` and per-cell `w:tcW` but no `w:tblW` and no
+  `w:tblLayout` — and the OOXML default is AUTOFIT, so Word recomputed every column from cell
+  content and a caller's `columnWidths` were advisory at best: a 5-column line table authored at
+  `1500,4700,1200,1300,1300` read as near-uniform in Word, and one plain Word save rewrote an
+  untouched 2-column grid from `2800,3000` to `3177,3066`. Tables the tools create now declare
+  `w:tblLayout="fixed"` plus a `w:tblW` total equal to the grid's sum — both corpus-observed (all
+  four tables in `StandardPurchaseOrder.docx` carry them), and the total is kept in step with the
+  grid by the existing `set_column_widths`/`insert_column`/`remove_column` sync. The mock preview hid
+  this: Word-COM's docx→PDF conversion happened to render close to the declared proportions, so
+  `preview_layout` looked right while Word's own UI did not. Existing tables are untouched — a
+  captured layout keeps its own layout algorithm.
 - The NuGet MCP registry manifest (`.mcp/server.json`) shipped three `description` values over the
   registry schema's 100-character cap (the 2025-10-17 schema enforces it); all are shortened and a
   packaging test now walks the whole manifest so any future description stays within the limit.

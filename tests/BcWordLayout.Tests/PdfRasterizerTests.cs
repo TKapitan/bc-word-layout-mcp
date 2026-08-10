@@ -248,4 +248,96 @@ public class RenderPreviewPagesToolTests : IDisposable
         Assert.Contains("\"pdfPath\":", envelope.Text);
         Assert.Contains("\"effectiveDpi\":36", envelope.Text);
     }
+
+    [Fact]
+    public void OutputDir_writes_one_png_per_page_named_by_page_number_and_returns_their_paths()
+    {
+        // The point of the parameter: the inline blocks are visible to the calling agent only, so writing
+        // the files is what lets a human open the render (GitHub issue #55). Pages are named by PAGE NUMBER,
+        // not loop index, so paging through a document produces a set that sorts correctly.
+        var pdf = MinimalPdf.CreateFile(_dir, 4);
+        var outputDir = Path.Combine(_dir, "written");
+        var prefix = Path.GetFileNameWithoutExtension(pdf);
+
+        var result = LifecycleTools.RenderPreviewPages(pdf, firstPage: 2, maxPages: 2, dpi: 36, outputDir: outputDir);
+
+        // Directory created on demand, exactly the requested pages written.
+        var files = Directory.GetFiles(outputDir).Select(Path.GetFileName).OrderBy(n => n).ToArray();
+        Assert.Equal(new[] { $"{prefix}-page02.png", $"{prefix}-page03.png" }, files);
+
+        foreach (var file in Directory.GetFiles(outputDir))
+        {
+            var bytes = File.ReadAllBytes(file);
+            Assert.Equal([(byte)0x89, (byte)'P', (byte)'N', (byte)'G'], bytes.Take(4));
+        }
+
+        // Paths come back on the envelope, and the inline images are unaffected.
+        var envelope = Assert.IsType<TextContentBlock>(result.Content[0]);
+        Assert.Contains("-page02.png", envelope.Text);
+        Assert.Contains("-page03.png", envelope.Text);
+        Assert.Equal(3, result.Content.Count);
+    }
+
+    [Fact]
+    public void Omitting_outputDir_writes_nothing_and_leaves_the_envelope_exactly_as_it_was()
+    {
+        // The default must be byte-for-byte the old behaviour. The new per-page 'path' is null then, and the
+        // envelope serializer omits nulls, so the JSON an existing caller parses does not gain a key at all.
+        var pdf = MinimalPdf.CreateFile(_dir, 1);
+        var before = Directory.GetFiles(_dir).Length;
+
+        var result = LifecycleTools.RenderPreviewPages(pdf, maxPages: 1, dpi: 36);
+
+        Assert.Equal(before, Directory.GetFiles(_dir).Length);
+        var envelope = Assert.IsType<TextContentBlock>(result.Content[0]);
+        Assert.DoesNotContain("\"path\"", envelope.Text);
+        Assert.Equal(2, result.Content.Count);
+    }
+
+    [Fact]
+    public void InlineImages_false_with_an_outputDir_writes_the_files_and_returns_no_image_blocks()
+    {
+        // The token-cost escape hatch: 10 pages at 300 dpi on disk without paying for them in the response.
+        var pdf = MinimalPdf.CreateFile(_dir, 2);
+        var outputDir = Path.Combine(_dir, "no-inline");
+
+        var result = LifecycleTools.RenderPreviewPages(
+            pdf, maxPages: 2, dpi: 36, outputDir: outputDir, inlineImages: false);
+
+        Assert.Equal(2, Directory.GetFiles(outputDir).Length);
+        var envelope = Assert.Single(result.Content);
+        var text = Assert.IsType<TextContentBlock>(envelope);
+        Assert.Contains("\"ok\":true", text.Text);
+        Assert.Contains("\"pagesRendered\":2", text.Text);
+    }
+
+    [Fact]
+    public void InlineImages_false_without_an_outputDir_is_refused_rather_than_rendering_into_the_void()
+    {
+        // Would succeed while returning nothing to look at - refuse rather than half-do it (ADR-0003).
+        var pdf = MinimalPdf.CreateFile(_dir, 1);
+
+        var result = LifecycleTools.RenderPreviewPages(pdf, inlineImages: false);
+
+        var text = Assert.IsType<TextContentBlock>(Assert.Single(result.Content));
+        Assert.Contains("\"ok\":false", text.Text);
+        Assert.Contains("invalid_argument", text.Text);
+        Assert.Contains("outputDir", text.Text);
+    }
+
+    [Fact]
+    public void An_unusable_outputDir_returns_a_structured_failure_instead_of_throwing()
+    {
+        // Nothing may throw across the MCP boundary (ADR-0004), so the write goes through the same
+        // exception-to-envelope translator every other tool uses. A file where the directory should be is
+        // the simplest reliably-unusable path on any platform.
+        var pdf = MinimalPdf.CreateFile(_dir, 1);
+        var blocker = Path.Combine(_dir, "not-a-directory");
+        File.WriteAllText(blocker, "occupied");
+
+        var result = LifecycleTools.RenderPreviewPages(pdf, maxPages: 1, dpi: 36, outputDir: blocker);
+
+        var text = Assert.IsType<TextContentBlock>(Assert.Single(result.Content));
+        Assert.Contains("\"ok\":false", text.Text);
+    }
 }

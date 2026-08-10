@@ -195,9 +195,11 @@ public sealed record PreviewResultDto(
 /// Per-page metadata for one image returned by <c>render_preview_pages</c>. The pixels themselves are NOT
 /// in this JSON — each page travels as its own MCP image content block after the JSON text block; this
 /// record only tells the caller what to expect there (<see cref="PngByteCount"/> is the encoded PNG size,
-/// pre-base64).
+/// pre-base64). <see cref="Path"/> is the on-disk PNG when the call supplied an <c>outputDir</c>, and
+/// <c>null</c> otherwise — the one piece of this response a human (rather than the calling agent) can open.
 /// </summary>
-public sealed record PreviewPageDto(int PageNumber, int WidthPx, int HeightPx, int PngByteCount);
+public sealed record PreviewPageDto(
+    int PageNumber, int WidthPx, int HeightPx, int PngByteCount, string? Path = null);
 
 /// <summary>
 /// JSON half of a successful <c>render_preview_pages</c> response. Unlike every other tool this one's
