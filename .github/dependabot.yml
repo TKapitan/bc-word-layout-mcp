@@ -1,10 +1,22 @@
 version: 2
 updates:
+  # One PR per ecosystem per run, not one per package: three separate bumps landing in the same
+  # .csproj conflict with each other, and each costs a full CI run to gate a one-line version
+  # change. Grouping is per-ecosystem by design — Dependabot cannot span ecosystems — so a week
+  # touching both produces at most two PRs.
   - package-ecosystem: nuget
     directory: /
     schedule:
       interval: weekly
+    groups:
+      nuget:
+        patterns:
+          - "*"
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    groups:
+      github-actions:
+        patterns:
+          - "*"
