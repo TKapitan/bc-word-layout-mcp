@@ -6,7 +6,7 @@
     <InternalsVisibleTo Include="BcWordLayout.Tests" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="PDFtoImage" Version="5.3.0" />
+    <PackageReference Include="PDFtoImage" Version="5.4.0" />
   </ItemGroup>
 
 </Project>
