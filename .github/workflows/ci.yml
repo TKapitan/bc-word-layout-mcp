@@ -22,6 +22,14 @@ on:
   pull_request:
     branches: [main]
 
+# Least privilege for the default GITHUB_TOKEN, declared here rather than left to the repository
+# setting (CodeQL actions/missing-workflow-permissions). The repo default is already read-only, but
+# declaring it documents what these jobs actually need and keeps the token restricted if the repo
+# ever moves under an organization whose default is read-write. release.yml declares its own wider
+# permissions on the job that needs them.
+permissions:
+  contents: read
+
 jobs:
   changes:
     runs-on: ubuntu-latest
@@ -86,6 +94,7 @@ jobs:
   ci-result:
     needs: [changes, build-and-test]
     if: always()
+    permissions: {}   # reads the needs context only; never checks out
     runs-on: ubuntu-latest
     steps:
       - name: Verify the build legs succeeded or were legitimately skipped
