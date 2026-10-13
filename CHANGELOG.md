@@ -5,6 +5,22 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **New `validate_layout` check `top-level-repeater-group` (error).** A block-level repeating
+  section bound directly to the top-level data item (e.g. the whole invoice body wrapped in a
+  repeater over `/Header`) makes Business Central print an EMPTY document unless its
+  `repeatingSectionItem` sits inside a `w:group` content control — verified on report 1306 with
+  three otherwise identical layouts (no outer repeater: prints; repeater without group: empty page;
+  repeater with group: prints). Quick and full validation and `preview_layout` all passed the broken
+  shape before, so the first symptom was a blank printout. The check is scoped so no captured layout
+  trips it: StandardStatement's body-wide `/Customer` repeater carries the group, list reports'
+  top-level repeaters are row-level, and the invoice/quote block-level repeaters are over nested
+  items. No tool emits a block-level repeater, so this guards layouts written or edited outside the
+  tools.
+
 ## [1.1.0] - 2026-08-23
 
 ### Added

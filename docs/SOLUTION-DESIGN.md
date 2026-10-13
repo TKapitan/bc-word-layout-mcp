@@ -91,6 +91,11 @@ So the `#Nav:` alias convention cannot be relied on to identify a control — cl
 re-renders the body per instance, but this is *not* a `w15:repeatingSection` in the layout. Top-section
 tables are ordinary `w:tbl`s with bound cells at document-root context. Consequence: adding a bound column
 must not require an explicit repeater, and must not derive a data item from one.
+An EXPLICIT block-level repeater over the top-level item is legal only in the shape Microsoft ships in
+StandardStatement (repeatingSection › `w:group` sdt › repeatingSectionItem): without the `w:group`, BC
+prints an empty document (report 1306, verified 2026-10-13), while the mock preview fills it normally.
+Validation reports that as the `top-level-repeater-group` error. Row-level repeaters over the top-level
+item (list reports) and block-level repeaters over nested items need no group.
 
 **4. Real BC tables are `gridSpan`-pervasive and RAGGED.** Per-row physical cell counts differ across rows
 of the same table, each reconciled to the grid by different span patterns; rows may also skip leading or

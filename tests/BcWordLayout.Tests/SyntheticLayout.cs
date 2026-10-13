@@ -25,6 +25,34 @@ internal static class SyntheticLayout
         + "<Header><CompanyName>Contoso</CompanyName></Header>"
         + "</NavWordReportXmlPart>";
 
+    /// <summary>
+    /// <see cref="DatasetXml"/> plus a NESTED data item, <c>Header/Line</c> — for tests whose repeater must
+    /// not sit on the top-level item (a block-level top-level repeater is its own validator finding,
+    /// <c>top-level-repeater-group</c>).
+    /// </summary>
+    public const string DatasetWithLineXml =
+        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
+        + "<NavWordReportXmlPart xmlns=\"urn:microsoft-dynamics-nav/reports/TestReport/50000/\">"
+        + "<BCReportInformation><CreationDateTime>2026-01-01</CreationDateTime></BCReportInformation>"
+        + "<Header><CompanyName>Contoso</CompanyName><Line><ItemNo>1000</ItemNo></Line></Header>"
+        + "</NavWordReportXmlPart>";
+
+    /// <summary>
+    /// A block-level repeater whose <c>repeatingSectionItem</c> sits inside a contentLocked <c>w:group</c>
+    /// sdt — the shape Microsoft's StandardStatement.docx uses for its body-wide repeater over the top-level
+    /// <c>/Customer</c> item (repeatingSection &gt; group &gt; repeatingSectionItem).
+    /// </summary>
+    public static string GroupedRepeater(string xpath, string storeItemId, int repeaterId = 110, int groupId = 111, int itemId = 112) =>
+        "<w:sdt><w:sdtPr>"
+        + $"<w:id w:val=\"{repeaterId}\"/>"
+        + $"<w15:dataBinding w:xpath=\"{xpath}\" w:storeItemID=\"{storeItemId}\"/>"
+        + "<w15:repeatingSection/></w:sdtPr><w:sdtContent>"
+        + $"<w:sdt><w:sdtPr><w:id w:val=\"{groupId}\"/><w:lock w:val=\"contentLocked\"/><w:group/></w:sdtPr><w:sdtContent>"
+        + $"<w:sdt><w:sdtPr><w:id w:val=\"{itemId}\"/><w15:repeatingSectionItem/></w:sdtPr>"
+        + "<w:sdtContent><w:p><w:r><w:t>row</w:t></w:r></w:p></w:sdtContent></w:sdt>"
+        + "</w:sdtContent></w:sdt>"
+        + "</w:sdtContent></w:sdt>";
+
     /// <summary>A bound field sdt (w:dataBinding) with the given xpath and storeItemID.</summary>
     public static string BoundField(string xpath, string storeItemId) =>
         "<w:sdt><w:sdtPr>"
