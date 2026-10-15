@@ -50,6 +50,49 @@ public class LayoutValidatorTests
         Assert.DoesNotContain(result.Findings, f => f.Check == "repeater-downgraded");
     }
 
+    [Theory]
+    [InlineData(Corpus.SalesInvoice)]
+    [InlineData(Corpus.InventoryOrderDetails)]
+    [InlineData(Corpus.StandardStatement)]
+    [InlineData(Corpus.SalespersonCommission)]
+    [InlineData(Corpus.JobQuote)]
+    [InlineData(Corpus.StandardSalesQuote)]
+    [InlineData(Corpus.StandardPurchaseOrder)]
+    [InlineData(Corpus.SalesInvoiceVatSpec)]
+    [InlineData(Corpus.PaymentPracticeByPeriod)]
+    [InlineData(Corpus.SubcontractorDispatchList)]
+    public void No_corpus_layout_trips_the_top_level_repeater_group_check(string fileName)
+    {
+        // top-level-repeater-group is an ERROR, so no layout Microsoft ships may trip it. The corpus covers
+        // every shape the check must leave alone: StandardStatement's body-wide repeater over the top-level
+        // /Customer item (block-level, WITH the w:group), the list reports' row-level repeaters over their
+        // top-level item, and the invoice/quote block-level repeaters over nested items.
+        var result = LayoutValidator.Quick(Corpus.Path(fileName));
+
+        Assert.DoesNotContain(result.Findings, f => f.Check == "top-level-repeater-group");
+    }
+
+    [Fact]
+    public void StandardStatement_really_has_a_block_level_repeater_over_its_top_level_item()
+    {
+        // Keeps the corpus theory above honest: the one stock witness for the valid grouped shape must
+        // actually contain the shape, or that theory would pass vacuously for it.
+        using var doc = DocumentFormat.OpenXml.Packaging.WordprocessingDocument.Open(
+            Corpus.Path(Corpus.StandardStatement), false);
+        var body = doc.MainDocumentPart!.Document!.Body!;
+
+        var topLevel = body.Descendants<DocumentFormat.OpenXml.Wordprocessing.SdtBlock>()
+            .Where(SdtInspector.IsRepeater)
+            .Select(r => BindingXPath.Segments(SdtInspector.Attr(
+                SdtInspector.FindRepeaterBinding(r.GetFirstChild<DocumentFormat.OpenXml.Wordprocessing.SdtProperties>()!)!,
+                "xpath", OoxmlNames.W)))
+            .Where(s => s.Count == 2)
+            .ToList();
+
+        var segments = Assert.Single(topLevel);
+        Assert.Equal("Customer", segments[1]);
+    }
+
     [Fact]
     public void SalesInvoice_surfaces_attachedTemplate_as_warning_not_error()
     {
