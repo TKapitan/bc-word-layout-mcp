@@ -567,19 +567,17 @@ public static class LayoutValidator
     //     - top-level only. Block-level repeaters over NESTED items (Header[1]/WorkDescriptionLines,
     //       Header[1]/PaymentReportingArgument in the stock 1304/1306 layouts) have no group and render.
     //     No tool here emits a block-level repeater, so this guards layouts authored or edited outside the
-    //     tools - e.g. an agent writing the OOXML directly, which is how shape B was produced.
+    //     tools - e.g. an agent writing the OOXML directly, which is how shape B was produced. The one tool
+    //     edit that could turn shape C into B, remove_control keepText=true on the group, is refused through
+    //     IsUngroupedTopLevelBlockRepeater below (GitHub issue #87).
     private static void CheckTopLevelBlockRepeaterGroup(MainDocumentPart main, List<ValidationFinding> findings)
     {
         foreach (var (rootElement, partName) in EnumerateContentParts(main))
         {
-            foreach (var repeater in rootElement.Descendants<SdtBlock>().Where(SdtInspector.IsRepeater))
+            foreach (var repeater in rootElement.Descendants<SdtBlock>()
+                         .Where(r => IsUngroupedTopLevelBlockRepeater(r)))
             {
                 var topLevelItem = TopLevelDataItemName(repeater);
-                if (topLevelItem is null || ItemIsInsideGroup(repeater))
-                {
-                    continue;
-                }
-
                 findings.Add(new ValidationFinding
                 {
                     Check = "top-level-repeater-group",
@@ -598,6 +596,19 @@ public static class LayoutValidator
             }
         }
     }
+
+    /// <summary>
+    /// True for the shape check 5a reports: <paramref name="repeater"/> is a block-level repeating section
+    /// over a top-level data item whose own <c>repeatingSectionItem</c> has no <c>w:group</c> sdt between
+    /// the two. With <paramref name="ignoringGroup"/>, that control is treated as already unwrapped — how
+    /// <see cref="LayoutEditor.RemoveControl"/> asks whether unwrapping it (<c>keepText=true</c>) would
+    /// produce the shape, so the editor's refusal and this check can never disagree about what it is.
+    /// </summary>
+    internal static bool IsUngroupedTopLevelBlockRepeater(SdtElement repeater, SdtElement? ignoringGroup = null) =>
+        repeater is SdtBlock
+        && SdtInspector.IsRepeater(repeater)
+        && TopLevelDataItemName(repeater) is not null
+        && !ItemIsInsideGroup(repeater, ignoringGroup);
 
     /// <summary>
     /// The data-item name when <paramref name="repeater"/>'s w15 binding names a top-level, non-system data
@@ -621,10 +632,10 @@ public static class LayoutValidator
 
     /// <summary>
     /// True when the repeater's own <c>repeatingSectionItem</c> has a <c>w:group</c> sdt between it and the
-    /// repeater. A repeater with no item of its own is repeater-shape's business, so it counts as true here
-    /// rather than drawing a second, misleading finding.
+    /// repeater (other than <paramref name="ignoringGroup"/>). A repeater with no item of its own is
+    /// repeater-shape's business, so it counts as true here rather than drawing a second, misleading finding.
     /// </summary>
-    private static bool ItemIsInsideGroup(SdtElement repeater)
+    private static bool ItemIsInsideGroup(SdtElement repeater, SdtElement? ignoringGroup = null)
     {
         var item = repeater.Descendants<SdtElement>()
             .FirstOrDefault(s => SdtInspector.IsRepeaterItem(s) && SdtInspector.NearestRepeaterAncestor(s) == repeater);
@@ -635,7 +646,8 @@ public static class LayoutValidator
 
         return item.Ancestors<SdtElement>()
             .TakeWhile(a => a != repeater)
-            .Any(a => a.GetFirstChild<SdtProperties>() is { } pr && SdtInspector.HasChild(pr, "group", OoxmlNames.W));
+            .Any(a => a != ignoringGroup
+                && a.GetFirstChild<SdtProperties>() is { } pr && SdtInspector.HasChild(pr, "group", OoxmlNames.W));
     }
 
     // 5b. A control whose alias names a DATA ITEM but which is not a repeating-section control: a repeater

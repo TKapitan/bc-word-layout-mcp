@@ -1217,8 +1217,10 @@ internal static class ToolGuards
 
         "keeptext" =>
             "remove_control's keepText=true cannot target a repeating-section control (it would orphan its "
-            + "row template from any enclosing repeater); call remove_control again with keepText=false (the "
-            + "default) to remove the whole repeater instead.",
+            + "row template from any enclosing repeater), nor the w:group control between a block-level "
+            + "top-level repeater and its item (BC would print an empty document); to remove the repeater "
+            + "with its content, call remove_control with keepText=false (the default) on the REPEATER's id, "
+            + "otherwise leave the control in place.",
 
         "schema" =>
             "Build the schema via SchemaProvider.FromLayout against a .docx layout (not FromSchemaXml "

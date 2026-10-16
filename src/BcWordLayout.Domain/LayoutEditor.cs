@@ -1160,7 +1160,9 @@ public static class LayoutEditor
     /// </remarks>
     /// <exception cref="NotFoundException">No control with <paramref name="controlId"/> was found.</exception>
     /// <exception cref="ArgumentException">
-    /// <paramref name="keepText"/> is true and the target is a repeating-section control (see remarks).
+    /// <paramref name="keepText"/> is true and the target is a repeating-section control, or the
+    /// <c>w:group</c> control between a block-level top-level repeater and its item (unwrapping either breaks
+    /// a shape BC needs — see the throw sites).
     /// </exception>
     public static EditResult RemoveControl(WordprocessingDocument doc, int controlId, bool keepText)
     {
@@ -1193,6 +1195,30 @@ public static class LayoutEditor
                 $"Control {controlId} is a repeating-section control; removing it with keepText=true would "
                 + "orphan its repeatingSectionItem row template from any enclosing repeatingSection, breaking "
                 + "the BC repeater shape. Use keepText=false to remove the whole repeater instead.",
+                nameof(keepText));
+        }
+
+        if (keepText
+            && SdtInspector.NearestRepeaterAncestor(target) is { } repeater
+            && !LayoutValidator.IsUngroupedTopLevelBlockRepeater(repeater)
+            && LayoutValidator.IsUngroupedTopLevelBlockRepeater(repeater, ignoringGroup: target))
+        {
+            // The w:group sdt between a block-level top-level repeater and its repeatingSectionItem is not
+            // decoration: without it BC prints the layout as an EMPTY document (SOLUTION-DESIGN §2.3, the
+            // validator's top-level-repeater-group check). get_layout_info lists that group as an ordinary
+            // unbound block control, so nothing warned the caller before the unwrap; this is the same
+            // "successful edit that fails its own quick validation" the repeater refusal above prevents
+            // (GitHub issue #87). The question is asked of the validator itself — would the repeater have
+            // its group before the unwrap and not after — so a group elsewhere in the repeater (or a second
+            // group around the same item) stays removable, and the refusal and the check cannot drift.
+            var repeaterId = SdtInspector.ReadControlId(repeater);
+            throw new ArgumentException(
+                $"Control {controlId} is the w:group control between the block-level repeating section "
+                + $"{(repeaterId is null ? string.Empty : $"(id {repeaterId}) ")}bound to the top-level data item "
+                + $"at '{SdtInspector.ReadXPath(repeater)}' and its repeatingSectionItem; removing it with "
+                + "keepText=true leaves the shape Business Central prints as an EMPTY document. Leave the "
+                + "group in place, or remove the whole repeater with remove_control keepText=false on the "
+                + "repeater's own id.",
                 nameof(keepText));
         }
 

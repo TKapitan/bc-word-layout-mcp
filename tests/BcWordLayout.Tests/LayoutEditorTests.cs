@@ -543,6 +543,92 @@ public class LayoutEditorTests
         }
     }
 
+    // ---- remove_control keepText on the w:group of a block-level top-level repeater (GitHub issue #87) ----
+
+    private const string TopLevelHeaderXPath = "/ns0:NavWordReportXmlPart[1]/ns0:Header";
+    private const string NestedLineXPath = "/ns0:NavWordReportXmlPart[1]/ns0:Header[1]/ns0:Line";
+
+    [Fact]
+    public void RemoveControl_keepText_on_the_group_of_a_top_level_block_repeater_throws_and_leaves_it_in_place()
+    {
+        // Unwrapping the group turns StandardStatement's shape (repeatingSection > group > item) into the one
+        // BC prints as an EMPTY document - exactly what the top-level-repeater-group check reports.
+        var path = SyntheticLayout.Create(SyntheticLayout.GroupedRepeater(TopLevelHeaderXPath, SyntheticLayout.GoodItemId));
+        try
+        {
+            using var doc = WordprocessingDocument.Open(path, true);
+
+            var ex = Assert.Throws<ArgumentException>(() => LayoutEditor.RemoveControl(doc, 111, keepText: true));
+
+            Assert.Equal("keepText", ex.ParamName);
+            Assert.Contains("w:group", ex.Message, StringComparison.Ordinal);
+            Assert.Contains("id 110", ex.Message, StringComparison.Ordinal);
+            Assert.Contains(doc.MainDocumentPart!.Document!.Body!.Descendants<SdtElement>(), s => ReadId(s) == 111);
+            Assert.DoesNotContain(LayoutValidator.Quick(doc).Findings, f => f.Check == "top-level-repeater-group");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void RemoveControl_keepText_on_the_group_of_a_nested_item_block_repeater_still_unwraps_it()
+    {
+        // Only the top-level shape needs the group (block repeaters over nested items render without one in
+        // the stock 1304/1306 layouts), so the refusal must not reach any further than the check does.
+        var path = SyntheticLayout.Create(
+            SyntheticLayout.GroupedRepeater(NestedLineXPath, SyntheticLayout.GoodItemId),
+            datasetXml: SyntheticLayout.DatasetWithLineXml);
+        try
+        {
+            using var doc = WordprocessingDocument.Open(path, true);
+
+            LayoutEditor.RemoveControl(doc, 111, keepText: true);
+
+            var body = doc.MainDocumentPart!.Document!.Body!;
+            Assert.DoesNotContain(body.Descendants<SdtElement>(), s => ReadId(s) == 111);
+            Assert.Contains(body.Descendants<SdtElement>(), s => ReadId(s) == 112);
+            Assert.DoesNotContain(LayoutValidator.Quick(doc).Findings, f => f.Severity == FindingSeverity.Error);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void RemoveControl_keepText_on_another_group_inside_a_top_level_repeaters_item_still_unwraps_it()
+    {
+        // The refusal asks whether the unwrap would take away the repeater's group, not whether the control
+        // is "a group in a top-level repeater": a group INSIDE the item is not the one BC needs.
+        var body =
+            "<w:sdt><w:sdtPr><w:id w:val=\"110\"/>"
+            + $"<w15:dataBinding w:xpath=\"{TopLevelHeaderXPath}\" w:storeItemID=\"{SyntheticLayout.GoodItemId}\"/>"
+            + "<w15:repeatingSection/></w:sdtPr><w:sdtContent>"
+            + "<w:sdt><w:sdtPr><w:id w:val=\"111\"/><w:lock w:val=\"contentLocked\"/><w:group/></w:sdtPr><w:sdtContent>"
+            + "<w:sdt><w:sdtPr><w:id w:val=\"112\"/><w15:repeatingSectionItem/></w:sdtPr><w:sdtContent>"
+            + "<w:sdt><w:sdtPr><w:id w:val=\"113\"/><w:group/></w:sdtPr><w:sdtContent>"
+            + "<w:p><w:r><w:t>inner</w:t></w:r></w:p></w:sdtContent></w:sdt>"
+            + "</w:sdtContent></w:sdt>"
+            + "</w:sdtContent></w:sdt>"
+            + "</w:sdtContent></w:sdt>";
+        var path = SyntheticLayout.Create(body);
+        try
+        {
+            using var doc = WordprocessingDocument.Open(path, true);
+
+            LayoutEditor.RemoveControl(doc, 113, keepText: true);
+
+            Assert.DoesNotContain(doc.MainDocumentPart!.Document!.Body!.Descendants<SdtElement>(), s => ReadId(s) == 113);
+            Assert.DoesNotContain(LayoutValidator.Quick(doc).Findings, f => f.Check == "top-level-repeater-group");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     [Fact]
     public void RemoveControl_keepText_on_a_cell_level_control_keeps_a_plain_TableCell_in_the_row()
     {

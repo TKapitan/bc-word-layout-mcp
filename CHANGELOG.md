@@ -77,6 +77,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   in that part. Only the cell's text runs are now replaced. Other content stays in place and the
   summary names it, and `previousText` reports only the text actually replaced.
 
+- **`remove_control` with `keepText=true` is refused on the `w:group` control between a
+  block-level top-level repeater and its item** (GitHub issue #87). On StandardStatement's
+  `/Customer` group it returned ok and left a layout Business Central prints as an empty document.
+  The hint points to removing the repeater itself with `keepText=false`.
+
 ### Security
 
 - **A crafted layout can no longer kill the server through the OpenXml SDK's own parse** (GitHub
