@@ -39,6 +39,16 @@ public class TableStructureEditorTests
     private static List<string> GridWidths(Table t) =>
         t.GetFirstChild<TableGrid>()!.Elements<GridColumn>().Select(g => g.Width!.Value!).ToList();
 
+    /// <summary>The binding xpaths of every control inside <paramref name="table"/>'s repeater(s) over the data item named <paramref name="dataItem"/>.</summary>
+    internal static List<string> BoundXPathsInRepeater(Table table, string dataItem) =>
+        table.Elements<SdtRow>()
+            .Where(r => SdtInspector.IsRepeater(r)
+                && BindingXPath.LeafName(SdtInspector.Attr(SdtInspector.FindRepeaterBinding(r.SdtProperties!)!, "xpath", OoxmlNames.W)) == dataItem)
+            .SelectMany(r => r.Descendants<SdtElement>())
+            .Select(SdtInspector.ReadXPath)
+            .OfType<string>()
+            .ToList();
+
     // ---- the guard does not false-flag real tables ----
 
     [Theory]
@@ -193,13 +203,12 @@ public class TableStructureEditorTests
     // ---- insert_column ----
 
     [Fact]
-    public void InsertColumn_append_field_on_corpus_line_table_adds_grid_column_and_bound_fields_to_every_repeater_row()
+    public void InsertColumn_append_field_on_corpus_line_table_binds_the_field_only_into_its_own_repeaters_row()
     {
         // The real SalesInvoice Line table (index 2) carries TWO row-level repeaters sharing the same
-        // physical w:tbl - the Line item row itself AND the ReportTotalsLine row a few rows below it (both
-        // are "control rows" per TableGridNavigator). insert_column's per-row rule binds the new field to
-        // EVERY control row, not just one, so the grid stays consistent across both repeaters: 2 new bound
-        // cells, not 1.
+        // physical w:tbl - the Line item row itself AND the ReportTotalsLine row a few rows below it. A
+        // /Header/Line field belongs in the Line row only (GitHub issue #82): the ReportTotalsLine row is a
+        // filler row like any other, so exactly ONE new bound cell, and none inside the totals repeater.
         var path = CopyOfCorpus(Corpus.SalesInvoice);
         try
         {
@@ -224,7 +233,8 @@ public class TableStructureEditorTests
 
             using var reopened = WordprocessingDocument.Open(path, false);
             Assert.Equal(LineGridColumns + 1, BodyTable(reopened, LineTableIndex).GetFirstChild<TableGrid>()!.Elements<GridColumn>().Count());
-            Assert.Equal(fieldsBefore + 2, LayoutReader.Read(reopened).Controls.Count(c => c.XPath == TaxAmountXPath));
+            Assert.Equal(fieldsBefore + 1, LayoutReader.Read(reopened).Controls.Count(c => c.XPath == TaxAmountXPath));
+            Assert.DoesNotContain(TaxAmountXPath, BoundXPathsInRepeater(BodyTable(reopened, LineTableIndex), "ReportTotalsLine"));
             Assert.Empty(TableGridConsistencyGuard.Find(reopened));
             Assert.Empty(OpenXmlErrors(reopened));
         }
@@ -240,8 +250,8 @@ public class TableStructureEditorTests
     public void InsertColumn_at_an_interior_boundary_inserts_the_new_cell_in_position_in_every_row()
     {
         // Grid column 3 is a cell boundary in every row of the corpus Line table (its spanned cells all sit
-        // further right), so the new column slots straight in — the bound field lands in the repeater data
-        // rows, and every row's coverage still matches the grid.
+        // further right), so the new column slots straight in — the bound field lands in the Line repeater's
+        // row, and every row's coverage still matches the grid.
         var path = CopyOfCorpus(Corpus.SalesInvoice);
         try
         {
@@ -273,14 +283,18 @@ public class TableStructureEditorTests
             using var reopened = WordprocessingDocument.Open(path, false);
             var table = BodyTable(reopened, LineTableIndex);
 
-            // The new w:gridCol sits AT position 3, not at the end.
-            var widthsAfter = GridWidths(table);
+            // The new w:gridCol sits AT position 3, not at the end, at the requested width - and the table
+            // keeps its total width (GitHub issue #83): those 700 twips came out of the other columns, each
+            // shrinking in proportion.
+            var widthsAfter = GridWidths(table).Select(int.Parse).ToList();
+            var before = widthsBefore.Select(int.Parse).ToList();
             Assert.Equal(LineGridColumns + 1, widthsAfter.Count);
-            Assert.Equal("700", widthsAfter[3]);
-            Assert.Equal(widthsBefore.Take(3), widthsAfter.Take(3));
-            Assert.Equal(widthsBefore.Skip(3), widthsAfter.Skip(4));
+            Assert.Equal(700, widthsAfter[3]);
+            Assert.Equal(before.Sum(), widthsAfter.Sum());
+            var others = widthsAfter.Take(3).Concat(widthsAfter.Skip(4)).ToList();
+            Assert.All(others.Zip(before), p => Assert.InRange(p.First, p.Second * (before.Sum() - 700) / before.Sum(), p.Second));
 
-            Assert.Equal(fieldsBefore + 2, LayoutReader.Read(reopened).Controls.Count(c => c.XPath == TaxAmountXPath));
+            Assert.Equal(fieldsBefore + 1, LayoutReader.Read(reopened).Controls.Count(c => c.XPath == TaxAmountXPath));
             Assert.Empty(TableGridConsistencyGuard.Find(reopened));
             Assert.Empty(OpenXmlErrors(reopened));
         }
@@ -321,7 +335,8 @@ public class TableStructureEditorTests
     public void InsertColumn_interior_inside_a_spanned_FILLER_cell_widens_it_instead_of_adding_a_cell()
     {
         // Same table, but the straddling row (a plain spacer with no content) simply gets wider: no cell is
-        // added there, so nothing shifts, and its w:tcW grows by the new column's width.
+        // added there, so nothing shifts, and its w:tcW covers the new column's width too. The table keeps
+        // its 3000-twip total (issue #83), so the 500 come out of the three old columns: 834/833/833.
         var path = SyntheticLayout.Create(SpannedFillerTable);
         try
         {
@@ -344,7 +359,9 @@ public class TableStructureEditorTests
             var spannedRowCells = rows[1].Elements<TableCell>().ToList();
             Assert.Equal(2, spannedRowCells.Count);
             Assert.Equal(3, spannedRowCells[0].TableCellProperties!.GridSpan!.Val!.Value);
-            Assert.Equal("2500", spannedRowCells[0].TableCellProperties!.TableCellWidth!.Width!.Value); // 1000+500+1000
+            Assert.Equal(new[] { "834", "500", "833", "833" }, GridWidths(table));
+            Assert.Equal("2167", spannedRowCells[0].TableCellProperties!.TableCellWidth!.Width!.Value); // 834+500+833
+            Assert.Equal("833", spannedRowCells[1].TableCellProperties!.TableCellWidth!.Width!.Value);
 
             Assert.Empty(TableGridConsistencyGuard.Find(reopened));
             Assert.Empty(OpenXmlErrors(reopened));
@@ -418,7 +435,7 @@ public class TableStructureEditorTests
             {
                 var result = TableStructureEditor.InsertColumn(
                     doc, LayoutPart.Body, null, 0, atColumn: null,
-                    new InsertColumnOptions { Mode = InsertColumnMode.PlainText, HeaderText = "Notes" });
+                    new InsertColumnOptions { Mode = InsertColumnMode.PlainText });
                 Assert.Equal(4, result.ColumnCountAfter);
                 doc.MainDocumentPart!.Document!.Save();
             }
@@ -427,8 +444,9 @@ public class TableStructureEditorTests
             var table = BodyTable(reopened, 0);
             Assert.Equal(4, table.GetFirstChild<TableGrid>()!.Elements<GridColumn>().Count());
             Assert.All(table.Elements<TableRow>(), r => Assert.Equal(4, r.Elements<TableCell>().Count()));
-            // Row 0 (no tblHeader, no repeater) is treated as the header only for repeater tables; for a plain
-            // table the header text lands only where a header row exists — here none, so "Notes" is not forced.
+            // No tblHeader, no repeater and no caption (label-bound) row: this table has no header row, which
+            // is why a headerText for it is refused (InsertColumn_header_text_on_a_table_with_no_header_row_
+            // is_refused) rather than silently dropped.
             Assert.Empty(TableGridConsistencyGuard.Find(reopened));
             Assert.Empty(OpenXmlErrors(reopened));
         }
@@ -540,10 +558,12 @@ public class TableStructureEditorTests
             Assert.Equal("822.97", row1[2].InnerText);
             var amountTcPr = row1[2].GetFirstChild<TableCellProperties>()!;
             Assert.Equal(2, amountTcPr.GetFirstChild<GridSpan>()!.Val!.Value);
-            // Re-sliced widths: untouched cells keep their column's width; the widened amount cell covers
-            // its old 2000 column plus the new 1000 one.
+            // Re-sliced widths: the table keeps its 6000-twip total (issue #83), so the new 1000 came out of
+            // the three old columns (1667/1667/1666); every cell covers exactly its grid columns, the widened
+            // amount cell its own column plus the new one.
+            Assert.Equal(new[] { "1667", "1667", "1666", "1000" }, GridWidths(BodyTable(reopened, 0)));
             Assert.Equal(
-                new[] { "2000", "2000", "3000" },
+                new[] { "1667", "1667", "2666" },
                 row1.Select(c => c.GetFirstChild<TableCellProperties>()!.GetFirstChild<TableCellWidth>()!.Width!.Value));
 
             Assert.Empty(TableGridConsistencyGuard.Find(reopened));
@@ -1005,12 +1025,13 @@ public class TableStructureEditorTests
         {
             using (var doc = WordprocessingDocument.Open(path, true))
             {
-                // This table has no repeater and no w:tblHeader, so in plainText mode NO row is classified as
-                // receiving content (see InsertColumn's per-row plan) - every row here is a filler, which is
-                // exactly the case this test wants: the skipped-run rule applies unconditionally.
+                // This table has no repeater, no w:tblHeader and no caption row, so in plainText mode NO row is
+                // classified as receiving content (see InsertColumn's per-row plan) - every row here is a
+                // filler, which is exactly the case this test wants: the skipped-run rule applies
+                // unconditionally.
                 TableStructureEditor.InsertColumn(
                     doc, LayoutPart.Body, null, 0, null,
-                    new InsertColumnOptions { Mode = InsertColumnMode.PlainText, HeaderText = "New" });
+                    new InsertColumnOptions { Mode = InsertColumnMode.PlainText });
                 doc.MainDocumentPart!.Document!.Save();
             }
 
@@ -1114,6 +1135,120 @@ public class TableStructureEditorTests
         }
     }
 
+    // ---- GitHub issue #78: remove_column must never leave a row with no cells, nor "succeed" on a table
+    // whose rows all disagree with its grid ----
+
+    [Fact]
+    public void RemoveColumn_refuses_to_delete_a_gridAfter_rows_only_cell_naming_the_row()
+    {
+        // The issue's repro: VatSpec's first table is 4 grid columns, and row 0 is [span 2][span 1] plus
+        // gridAfter=1. Removing columns 2, 0, 0 brings that row down to one span-1 cell, then deletes it -
+        // a w:tr with only <w:trPr><w:gridAfter/></w:trPr>, which the coverage arithmetic and OpenXmlValidator
+        // both accept and Word cannot open.
+        var path = CopyOfCorpus(Corpus.SalesInvoiceVatSpec);
+        try
+        {
+            using var doc = WordprocessingDocument.Open(path, true);
+            TableStructureEditor.RemoveColumn(doc, LayoutPart.Body, null, 0, 2);
+            TableStructureEditor.RemoveColumn(doc, LayoutPart.Body, null, 0, 0);
+
+            var table = BodyTable(doc, 0);
+            Assert.Equal((0, 1, 1), Coverage(table, 0)); // the fixture really is down to one cell + gridAfter
+
+            var ex = Assert.Throws<ArgumentException>(() =>
+                TableStructureEditor.RemoveColumn(doc, LayoutPart.Body, null, 0, 0));
+            Assert.Equal("gridColumn", ex.ParamName);
+            Assert.Contains("row 0", ex.Message, StringComparison.Ordinal);
+            Assert.Contains("ONLY cell", ex.Message, StringComparison.Ordinal);
+
+            // Refused before touching anything: the grid and that row are as they were.
+            Assert.Equal(2, TableGridNavigator.GridColumnCount(table));
+            Assert.Equal((0, 1, 1), Coverage(table, 0));
+            Assert.Empty(TableGridConsistencyGuard.Find(doc));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void RemoveColumn_on_a_skipped_column_of_a_single_cell_row_still_shrinks_the_run()
+    {
+        // The refusal is about deleting the row's only CELL - removing a column that falls in the same row's
+        // skipped run leaves that cell alone and must keep working.
+        var body =
+            "<w:tbl><w:tblPr/><w:tblGrid><w:gridCol w:w=\"1000\"/><w:gridCol w:w=\"1000\"/><w:gridCol w:w=\"1000\"/></w:tblGrid>"
+            + "<w:tr><w:tc><w:tcPr/><w:p/></w:tc><w:tc><w:tcPr/><w:p/></w:tc><w:tc><w:tcPr/><w:p/></w:tc></w:tr>"
+            + "<w:tr><w:trPr><w:gridAfter w:val=\"2\"/></w:trPr><w:tc><w:tcPr/><w:p/></w:tc></w:tr></w:tbl>";
+        var path = SyntheticLayout.Create(body);
+        try
+        {
+            using var doc = WordprocessingDocument.Open(path, true);
+            TableStructureEditor.RemoveColumn(doc, LayoutPart.Body, null, 0, 2);
+
+            var table = BodyTable(doc, 0);
+            Assert.Equal((0, 1, 1), Coverage(table, 1));
+            Assert.Empty(TableGridConsistencyGuard.Find(doc));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void RemoveColumn_refuses_a_table_none_of_whose_rows_matches_its_grid()
+    {
+        // The issue's second gap: a w:tblGrid already shorter than every row (a hand-edit defect). Every row
+        // is skipped as malformed, so the call used to drop a w:gridCol anyway and report "updating 0 row(s)".
+        var body =
+            "<w:tbl><w:tblPr/><w:tblGrid><w:gridCol w:w=\"1000\"/><w:gridCol w:w=\"1000\"/></w:tblGrid>"
+            + "<w:tr><w:tc><w:tcPr/><w:p/></w:tc><w:tc><w:tcPr/><w:p/></w:tc><w:tc><w:tcPr/><w:p/></w:tc></w:tr>"
+            + "<w:tr><w:tc><w:tcPr/><w:p/></w:tc><w:tc><w:tcPr/><w:p/></w:tc><w:tc><w:tcPr/><w:p/></w:tc></w:tr>"
+            + "</w:tbl>";
+        var path = SyntheticLayout.Create(body);
+        try
+        {
+            using var doc = WordprocessingDocument.Open(path, true);
+            var ex = Assert.Throws<ArgumentException>(() =>
+                TableStructureEditor.RemoveColumn(doc, LayoutPart.Body, null, 0, 0));
+            Assert.Equal("gridColumn", ex.ParamName);
+            Assert.Contains("none of its 2 row(s) matches", ex.Message, StringComparison.Ordinal);
+
+            var table = BodyTable(doc, 0);
+            Assert.Equal(2, TableGridNavigator.GridColumnCount(table));
+            Assert.All(table.Elements<TableRow>(), r => Assert.Equal(3, r.Elements<TableCell>().Count()));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Guard_flags_a_row_with_no_cells_even_when_its_skipped_run_covers_the_grid()
+    {
+        // grid 2; row 1 is nothing but <w:gridAfter w:val="2"/> - coverage 2 == grid 2, so only the
+        // dedicated zero-cell check can see it.
+        var body =
+            "<w:tbl><w:tblPr/><w:tblGrid><w:gridCol w:w=\"1000\"/><w:gridCol w:w=\"1000\"/></w:tblGrid>"
+            + "<w:tr><w:tc><w:tcPr/><w:p/></w:tc><w:tc><w:tcPr/><w:p/></w:tc></w:tr>"
+            + "<w:tr><w:trPr><w:gridAfter w:val=\"2\"/></w:trPr></w:tr></w:tbl>";
+        var path = SyntheticLayout.Create(body);
+        try
+        {
+            using var doc = WordprocessingDocument.Open(path, false);
+            var violation = Assert.Single(TableGridConsistencyGuard.Find(doc));
+            Assert.Equal(TableGridViolationKind.NoCells, violation.Kind);
+            Assert.Equal(1, violation.RowIndex);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     [Fact]
     public void Guard_reports_no_violations_on_the_pristine_gridAfter_corpus_layouts()
     {
@@ -1175,6 +1310,32 @@ public class TableStructureToolTests
             Assert.True(response.Ok, response.Error?.Message);
             var dto = Assert.IsType<TableEditResultDto>(response.Data);
             Assert.Equal(8, dto.ColumnCountAfter);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Tool_remove_column_refuses_to_empty_a_row_and_leaves_the_file_untouched()
+    {
+        // GitHub issue #78's tool-level repro: the third removal used to return ok:true and leave a row
+        // Word cannot open. It must now be an invalid_argument refusal with an actionable hint.
+        var path = CopyOfCorpus(Corpus.SalesInvoiceVatSpec);
+        try
+        {
+            Assert.True(TableTools.RemoveColumn(path, tableIndex: 0, column: 2).Ok);
+            Assert.True(TableTools.RemoveColumn(path, tableIndex: 0, column: 0).Ok);
+            var before = File.ReadAllBytes(path);
+
+            var response = TableTools.RemoveColumn(path, tableIndex: 0, column: 0);
+
+            Assert.False(response.Ok);
+            Assert.Equal("invalid_argument", response.Error!.Code);
+            Assert.Contains("row 0", response.Error.Message, StringComparison.Ordinal);
+            Assert.Contains("ONLY cell", response.Error.Hint, StringComparison.Ordinal);
+            Assert.Equal(before, File.ReadAllBytes(path));
         }
         finally
         {

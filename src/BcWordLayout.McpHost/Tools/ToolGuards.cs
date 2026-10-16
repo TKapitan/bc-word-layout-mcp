@@ -180,7 +180,8 @@ internal static class ToolGuards
                             .Select(e => e.Description)
                             .ToList();
 
-                        // Second baseline: content controls nested inside a plain-text control. Word rejects
+                        // Second baseline: content controls - and field codes, tables, drawings - nested
+                        // inside a plain-text control. Word rejects
                         // these as a corrupt document, but OpenXmlValidator does NOT (it is a Word semantic
                         // rule, not a schema rule), so the OpenXmlValidator gate below cannot catch them - see
                         // PlainTextNestingGuard. Diffed BEFORE-vs-AFTER by description, exactly like the
@@ -204,17 +205,16 @@ internal static class ToolGuards
                         {
                             return ToolResponse.Failure(
                                 "edit_would_corrupt",
-                                $"This edit would place {newNesting.Count} content control(s) inside a "
-                                + "plain-text content control, which Word rejects as a corrupt document; the "
-                                + "file was NOT modified.",
+                                $"This edit would place {newNesting.Count} content control(s), field code(s), "
+                                + "table(s) or drawing(s) inside a plain-text content control, which Word rejects "
+                                + "as a corrupt document; the file was NOT modified.",
                                 $"Offending nesting: {string.Join(" | ", newNesting.Take(5))}. A plain-text "
                                 + "content control (the shape BC uses for most header fields, e.g. an address "
-                                + "or document-number cell) can only contain text, never another field/label "
-                                + "control. The location you targeted resolves to a spot INSIDE that control - "
-                                + "most often 'afterControl' targeting a cell-level field (which anchors inside "
-                                + "that field's own cell) or 'atText'/'tableCell' landing in such a cell. Insert "
-                                + "the new control into a DIFFERENT cell (its own column/cell via 'tableCell'), "
-                                + "or at a location that is not inside an existing field control, instead.");
+                                + "or document-number cell) can only contain runs of text - never another "
+                                + "field/label control, a page-number field, a table or a picture. The location "
+                                + "you targeted resolves to a spot INSIDE that control. Insert into a plain cell "
+                                + "via 'tableCell' (one that is not itself a control - see get_layout_info's "
+                                + "tables[]), or 'afterControl' on an inline control, instead.");
                         }
 
                         var newTableGrid = DiffTableGridViolations(baselineTableGrid, TableGridConsistencyGuard.Find(doc));
@@ -1120,7 +1120,12 @@ internal static class ToolGuards
             + "bound field/label control is rejected; use remove_control (the cell/column is preserved) or "
             + "insert_field/insert_label for those. For insert_repeater_table: only layoutPart='body' (the "
             + "default) is supported - a repeater TABLE in a header/footer is deferred (GitHub issue #10) "
-            + "(unlike insert_field/insert_label, which do support 'header'/'footer').",
+            + "(unlike insert_field/insert_label, which do support 'header'/'footer'). For the insert tools: a "
+            + "location that resolves INSIDE a data-bound field/label/picture control's own content (afterControl "
+            + "on a cell-level control, tableCell on a cell that IS such a control, atText matching its text) is "
+            + "refused, because Word discards or rejects anything placed there; use tableCell on a plain cell "
+            + "(get_layout_info's tables[] shows which cells are controls) or afterControl on an inline control "
+            + "instead.",
 
         "controlid" =>
             "afterControl requires controlId: the w:id of an existing control in this layout - see "
@@ -1163,9 +1168,18 @@ internal static class ToolGuards
             + "header row, and the bound data row) - if it falls inside a spanned cell there, split that "
             + "cell first with split_cells or pick a different position.",
 
+        "width" =>
+            "insert_column's width is the NEW column's width in twips: a positive number smaller than the "
+            + "table's current total width (the sum of get_layout_info's gridColumnWidths), because the table "
+            + "keeps that total and the new column's twips are taken proportionally from the existing "
+            + "columns. Omit it for an equal share, and use set_column_widths afterwards for any other split.",
+
         "gridcolumn" =>
             "remove_column's column is a 0-based GRID column index (0..columnCount-1 from get_layout_info); "
-            + "the last remaining column cannot be removed.",
+            + "the last remaining column cannot be removed, nor a column that is some row's ONLY cell (a row "
+            + "otherwise made of w:gridBefore/w:gridAfter skipped columns - Word cannot open a row with no "
+            + "cells), nor any column of a table none of whose rows matches its w:tblGrid (repair the grid "
+            + "first). The message above names the row or the mismatch.",
 
         "fromcolumn" or "tocolumn" =>
             "merge_cells needs 0 <= fromColumn < toColumn < the row's cell count (see get_layout_info's "
@@ -1208,12 +1222,25 @@ internal static class ToolGuards
             "insert_column's dataPath must be a full dataset path exactly as list_dataset_fields reports (e.g. "
             + "'/Header/Line/Discount_Line'); mode='label' additionally requires a label-shaped leaf name per "
             + $"the active label convention ({LabelConvention.Current.Describe()}), mode='field' requires the "
-            + "reverse.",
+            + "reverse. In a line-items table the field is bound only into the rows of the repeater whose data "
+            + "item contains dataPath (get_layout_info's controls[] show each repeater's xpath), so it must be "
+            + "a column of one of the table's repeated data items - or of a parent item when the table has a "
+            + "single repeater.",
+
+        "headertext" or "headerlabelpath" =>
+            "insert_column's headerText/headerLabelPath fill the new column's cell in the table's HEADER "
+            + "row(s): rows marked w:tblHeader, else the first (non-repeater) row of a line-items table, else - "
+            + "in a plain table - its caption rows (rows whose bound controls are all labels). A table with "
+            + "none has nowhere to put them: omit them and add the caption afterwards with set_cell_text or "
+            + "insert_label at the cell you mean. headerLabelPath must also be a label-shaped column exactly as "
+            + "list_dataset_fields reports it (isLabel=true).",
 
         "keeptext" =>
             "remove_control's keepText=true cannot target a repeating-section control (it would orphan its "
-            + "row template from any enclosing repeater); call remove_control again with keepText=false (the "
-            + "default) to remove the whole repeater instead.",
+            + "row template from any enclosing repeater), nor the w:group control between a block-level "
+            + "top-level repeater and its item (BC would print an empty document); to remove the repeater "
+            + "with its content, call remove_control with keepText=false (the default) on the REPEATER's id, "
+            + "otherwise leave the control in place.",
 
         "schema" =>
             "Build the schema via SchemaProvider.FromLayout against a .docx layout (not FromSchemaXml "
@@ -1224,6 +1251,13 @@ internal static class ToolGuards
             "create_layout's schemaSource must be a non-empty absolute path to an existing .docx layout "
             + "(its BC dataset part is reused) or a standalone exported schema .xml; see the message above "
             + "for exactly what was rejected about it.",
+
+        "templatepath" =>
+            "create_layout's templatePath must be an unbound branded/styled shell saved as a Word Document "
+            + "(.docx) or a Word Template (.dotx - converted to a document automatically). A macro-enabled "
+            + "file (.dotm/.docm) is refused rather than stripped of its macros: open it in Word, save it as a "
+            + "Word Document or Word Template, and pass that file instead (or omit templatePath for a blank "
+            + "layout).",
 
         "newschemasource" =>
             "refresh_xml_part's newSchemaSource must be a non-empty absolute path to an existing .docx "

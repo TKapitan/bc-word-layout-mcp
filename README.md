@@ -84,8 +84,23 @@ The documented config then points at the fixed path
 
 ### Option C — from source (contributors)
 
-Clone, then use the repo-root [`.mcp.json`](.mcp.json), which launches the server with
-`dotnet run --project src/BcWordLayout.McpHost` — no publish step while iterating. See
+The repo-root [`.mcp.json`](.mcp.json) launches the server from your working tree with
+`dotnet run --project src/BcWordLayout.McpHost --artifacts-path .mcp-run`, so there's no publish step
+while iterating. The separate `.mcp-run/` build folder matters on Windows: a running server locks
+the DLLs it loaded, and building into the normal `bin/` folders would stop `dotnet build` and
+`dotnet test` while any session is open.
+
+Claude Code starts every `.mcp.json` server when a session opens, whether or not it's used. So the
+committed [`.claude/settings.json`](.claude/settings.json) lists this one in `disabledMcpjsonServers`,
+and sessions in the repo don't start it. To use your build as a server, add it under your own local
+scope, which that setting doesn't cover:
+
+```pwsh
+claude mcp add --scope local bc-word-layout-dev -- dotnet run --project src/BcWordLayout.McpHost --artifacts-path .mcp-run
+```
+
+Remove it again with `claude mcp remove --scope local bc-word-layout-dev`. Either way, the server
+runs the code as built when the session started; restart the session to pick up later edits. See
 [Building from source](#building-from-source).
 
 ### The companion skills and plugin
@@ -175,7 +190,7 @@ other tool is conversion-free and works everywhere the server runs.
 | `insert_subtotal_row` | Append a STATIC per-group row at the end of an existing repeater's item — the stock BC shape for group subtotal (and spacer) rows: it renders once per PARENT row, after the nested detail rows, never per detail row. |
 | `insert_table_row` | Insert ONE STATIC (non-repeating) row into an existing table — the stock BC shape for the totals block INSIDE the line-items table (spacer cells, a spanned bound caption cell, a right-aligned bound amount cell). Cells bind FULL dataset paths; the row renders exactly once, never per data row. |
 | `set_column_widths` | Set a table's column widths (one twip value per grid column); `gridSpan`-aware — each cell is resized to the sum of the columns it spans. |
-| `insert_column` | Add a new column at any grid position (append by default) — a bound field/label cell (as `insert_field`/`insert_label`) or a plain-text column. Adds the `w:gridCol` and one cell per row; a spanned cell in a row with no content there is widened instead. |
+| `insert_column` | Add a new column at any grid position (append by default) — a bound field/label cell (as `insert_field`/`insert_label`) or a plain-text column. Adds the `w:gridCol` and one cell per row; a spanned cell in a row with no content there is widened instead. The table keeps its total width: the new column's width comes out of the existing columns. |
 | `remove_column` | Remove a whole grid column: drops each row's covering cell (a bound cell too) or decrements its `gridSpan`, and removes the `w:gridCol`. |
 | `merge_cells` | Horizontally merge a run of adjacent cells in one row into a single `gridSpan` cell (keeps the first cell's content). |
 | `split_cells` | Horizontally split one spanned cell back into single-column cells. |

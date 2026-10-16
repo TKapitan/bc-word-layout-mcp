@@ -291,6 +291,23 @@ public class InvalidArgumentHintCoverageTests
         }
     }
 
+    // ---- "width" — TableStructureEditor.InsertColumn's width must leave room for the existing columns ----
+
+    [Fact]
+    public void InsertColumn_width_as_wide_as_the_table_hint_names_the_kept_total()
+    {
+        var path = SyntheticLayout.Create(SyntheticLayout.SimpleTable(rows: 2, cols: 3));
+        try
+        {
+            var response = TableTools.InsertColumn(path, tableIndex: 0, mode: "plainText", width: 6000);
+            AssertActionableFailure(response, "invalid_argument", "smaller than the table's current total width");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     // ---- "gridcolumn" — TableStructureEditor.RemoveColumn's range check ----
 
     [Fact]
@@ -449,6 +466,40 @@ public class InvalidArgumentHintCoverageTests
         }
     }
 
+    // ---- "headertext" / "headerlabelpath" — TableStructureEditor.PlanInsertColumnRows (no header row to
+    // hold them) and ValidateInsertColumnPaths (headerLabelPath does not resolve) ----
+
+    [Fact]
+    public void InsertColumn_headerText_on_a_table_with_no_header_row_hint_names_the_header_rows()
+    {
+        var path = SyntheticLayout.Create(SyntheticLayout.SimpleTable(rows: 2, cols: 3));
+        try
+        {
+            var response = TableTools.InsertColumn(path, tableIndex: 0, mode: "plainText", headerText: "Notes");
+            AssertActionableFailure(response, "invalid_argument", "fill the new column's cell in the table's HEADER");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void InsertColumn_unresolvable_headerLabelPath_hint_names_the_header_rows()
+    {
+        var path = CopyOfCorpus(Corpus.StandardSalesQuote);
+        try
+        {
+            var response = TableTools.InsertColumn(
+                path, tableIndex: 1, mode: "plainText", headerLabelPath: "/Header/NoSuchCaption_Lbl");
+            AssertActionableFailure(response, "invalid_argument", "fill the new column's cell in the table's HEADER");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     // ---- "keeptext" — LayoutEditor.RemoveControl (keepText=true on a repeater) ----
 
     [Fact]
@@ -510,6 +561,30 @@ public class InvalidArgumentHintCoverageTests
     {
         var response = LifecycleTools.CreateLayout(Corpus.Path(Corpus.SalesInvoice), "   ");
         AssertActionableFailure(response, "invalid_argument", "outputPath is where the new");
+    }
+
+    // ---- "templatepath" — LayoutBuilder.Create (a macro-enabled templatePath, GitHub issue #77) ----
+
+    [Fact]
+    public void CreateLayout_macro_enabled_templatePath_hint_names_create_layout_templatePath()
+    {
+        var templatePath = SyntheticLayout.CreateWordPackage(
+            DocumentFormat.OpenXml.WordprocessingDocumentType.MacroEnabledTemplate, ".dotm");
+        var outputPath = NewOutputPath();
+        try
+        {
+            var response = LifecycleTools.CreateLayout(Corpus.Path(Corpus.SalesInvoice), outputPath, templatePath);
+            AssertActionableFailure(response, "invalid_argument", "create_layout's templatePath");
+            Assert.False(File.Exists(outputPath));
+        }
+        finally
+        {
+            File.Delete(templatePath);
+            if (File.Exists(outputPath))
+            {
+                File.Delete(outputPath);
+            }
+        }
     }
 
     // ---- "newschemasource" — LayoutRefresher.Refresh (newSchemaSource empty) ----

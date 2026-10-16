@@ -21,6 +21,96 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   items. No tool emits a block-level repeater, so this guards layouts written or edited outside the
   tools.
 
+### Fixed
+
+- **Inserts that would land inside a data-bound field, label or picture control are refused**
+  (GitHub issue #76). Three locations could resolve inside a bound control's content:
+  - `afterControl` on a cell-level field;
+  - `tableCell` on a cell that is itself a control;
+  - `atText` matching such a control's text.
+
+  The insert was written in there and reported as success. Word then either refused to open the
+  file (page numbers or a table inside a plain-text field) or silently dropped the inserted content
+  on its next save (notably in `w15:dataBinding` fields). Every insert tool now refuses these
+  locations with `invalid_argument`, and the hint points at `tableCell` on a plain cell or
+  `afterControl` on an inline control. Cells of repeater rows and inline controls are unaffected.
+  The write gate also rejects field codes, tables and drawings inside a plain-text control as
+  `edit_would_corrupt`. One existing refusal changes code: `afterControl` on a plain-text
+  cell-level label now fails as `invalid_argument`, before any edit, instead of
+  `edit_would_corrupt`.
+
+- **A header or footer an insert creates is now referenced from the first section** (GitHub
+  issue #91). Only the last section referenced it, so in a multi-section layout such as JobQuote the
+  earlier sections, page 1 included, rendered without it. The first insert into such a new header
+  or footer also no longer leaves an empty line above its content.
+
+- **`create_layout` with a Word template (`.dotx`) as `templatePath` now produces a `.docx` Word
+  can open** (GitHub issue #77). The template was copied as-is, so the output kept the template's
+  main-part content type under a `.docx` name. Word refused it ("Word was unable to read this
+  document"), while `create_layout`'s own quick validation and `validate_layout` reported it clean.
+  - A template is now converted to a document before the BC part is attached.
+  - A macro-enabled `templatePath` (`.dotm`/`.docm`) is refused with `invalid_argument` instead
+    of having its macros silently dropped.
+  - A new `validate_layout` check, `document-content-type` (error), flags any layout whose main
+    part is not typed as a plain Word document, such as a template renamed to `.docx`.
+
+- **`validate_layout` now catches bindings whose `w:prefixMappings` cannot resolve their XPath**
+  (GitHub issue #79). These mappings validated clean although Word cannot map the control:
+  - a namespace in the `dynamics-365/report` form;
+  - the singular `nav/report` form;
+  - `ns1` declared while the XPath uses `ns0`.
+
+  This was possible because `binding-namespace` only looked at namespaces that resemble BC ones,
+  and `xpath-resolves` ignores prefixes. The new `binding-prefix-mapping` check (error) requires
+  every prefix a dataset binding's XPath uses to be declared as the layout's own namespace. A
+  missing attribute, or a bare URI naming the right namespace (a shape stock layouts ship), draws
+  no finding. `refresh_xml_part` now writes a bare mapping it re-points as an `xmlns:ns0='…'`
+  declaration; before, it stayed bare and Word still reported the control as unmapped.
+
+- **`insert_repeater_table` without `columnWidths` no longer runs off the page** (GitHub issue
+  #84). Every column got a fixed 2000 twips, and now that the grid is pinned, tables of six or more
+  columns ran past the margin. The columns now split the document's content width evenly, as
+  `insert_table` does; a table placed inside a cell splits that cell's width instead.
+
+- **`set_cell_text` and `clear_cell_text` no longer delete a nested table, picture or field in the
+  target cell** (GitHub issue #86). Deleting a nested table also shifted every later `tableIndex`
+  in that part. Only the cell's text runs are now replaced. Other content stays in place and the
+  summary names it, and `previousText` reports only the text actually replaced.
+
+- **`remove_control` with `keepText=true` is refused on the `w:group` control between a
+  block-level top-level repeater and its item** (GitHub issue #87). On StandardStatement's
+  `/Customer` group it returned ok and left a layout Business Central prints as an empty document.
+  The hint points to removing the repeater itself with `keepText=false`.
+
+- **`remove_column` no longer leaves a table row with no cells** (GitHub issue #78). Removing the
+  only cell of a row whose other columns are skipped (`w:gridBefore`/`w:gridAfter`) returned
+  `ok:true` and left a file Word cannot open. It is now refused, naming the row, and the table-grid
+  safety check rejects any edit that leaves a row with no cells. `remove_column` also refuses a
+  table none of whose rows matches its `w:tblGrid`; it used to drop a grid column there and report
+  "updating 0 row(s)".
+
+- **`insert_column` binds the new field only into the rows it belongs to** (GitHub issue #82).
+  - **Repeater tables:** on the stock quote/invoice lines tables, a `/Header/Line/...` field was
+    also bound into the same table's `/Header/ReportTotalsLine` rows. Line 1's value showed beside
+    every totals line, and the right-anchored totals shifted. The field now goes only into the rows
+    of the repeater whose data item contains `dataPath`, and the other repeaters' rows keep their
+    totals layout. A `dataPath` that belongs to none of the table's repeaters is refused.
+  - **Plain tables:** the header cell now goes into the caption rows (rows of label controls, the
+    BC caption-over-value shape), and the field only into the value rows. `headerText` or
+    `headerLabelPath` on a table with no header row is refused instead of silently dropped.
+  - **Validation:** `headerLabelPath` is now checked against the dataset in every mode, including
+    `plainText`.
+
+- **`insert_column` keeps the table's width** (GitHub issue #83). The new column was added on top
+  of the existing ones, so a full-width table such as the stock invoice's lines table grew past
+  the page margin and pushed its grand total off the page. In tables whose cells are sized in
+  percent (the quote's info block, footers), the new column was squeezed to a sliver.
+  - The table now keeps its total width: the new column's width is taken proportionally from the
+    existing columns.
+  - Every row's cell widths are recomputed from the new grid, as `remove_column` already did.
+  - `width` is now the new column's width, taken from the others; it must be smaller than the
+    table. Omit it for an equal share.
+
 ### Security
 
 - **A crafted layout can no longer kill the server through the OpenXml SDK's own parse** (GitHub

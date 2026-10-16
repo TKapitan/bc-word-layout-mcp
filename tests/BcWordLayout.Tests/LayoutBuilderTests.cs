@@ -1151,4 +1151,133 @@ public class LayoutBuilderTests
             }
         }
     }
+
+    // ---- templatePath that is a Word TEMPLATE package (.dotx) or macro-enabled (.dotm/.docm) - issue #77 ----
+
+    private const string DocumentMainContentType =
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml";
+
+    private const string TemplateMainContentType =
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.template.main+xml";
+
+    /// <summary>
+    /// Resolves, from the package's RAW <c>[Content_Types].xml</c> (read from the zip itself, not through the
+    /// SDK), the content type of the main part the root <c>officeDocument</c> relationship targets, and of
+    /// every part in the package - the OPC rule: a part's <c>Override</c> if it has one, otherwise the
+    /// <c>Default</c> for its extension.
+    /// </summary>
+    private static (string MainPartType, Dictionary<string, string> PartTypes) ResolvePackageContentTypes(string path)
+    {
+        using var zip = System.IO.Compression.ZipFile.OpenRead(path);
+
+        XDocument Load(string entryName)
+        {
+            var entry = zip.GetEntry(entryName)
+                ?? throw new InvalidDataException($"'{path}' has no {entryName}.");
+            using var stream = entry.Open();
+            return XDocument.Load(stream);
+        }
+
+        XNamespace ct = "http://schemas.openxmlformats.org/package/2006/content-types";
+        var types = Load("[Content_Types].xml").Root!;
+        var overrides = types.Elements(ct + "Override")
+            .ToDictionary(e => (string)e.Attribute("PartName")!, e => (string)e.Attribute("ContentType")!, StringComparer.OrdinalIgnoreCase);
+        var defaults = types.Elements(ct + "Default")
+            .ToDictionary(e => (string)e.Attribute("Extension")!, e => (string)e.Attribute("ContentType")!, StringComparer.OrdinalIgnoreCase);
+
+        string Resolve(string partName) =>
+            overrides.TryGetValue(partName, out var o) ? o : defaults[Path.GetExtension(partName).TrimStart('.')];
+
+        var partTypes = zip.Entries
+            .Where(e => e.FullName != "[Content_Types].xml" && !e.FullName.EndsWith('/'))
+            .ToDictionary(e => "/" + e.FullName, e => Resolve("/" + e.FullName), StringComparer.OrdinalIgnoreCase);
+
+        XNamespace rels = "http://schemas.openxmlformats.org/package/2006/relationships";
+        var mainTarget = (string)Load("_rels/.rels").Root!.Elements(rels + "Relationship")
+            .Single(r => ((string)r.Attribute("Type")!).EndsWith("/officeDocument", StringComparison.Ordinal))
+            .Attribute("Target")!;
+
+        return (Resolve("/" + mainTarget.TrimStart('/')), partTypes);
+    }
+
+    [Fact]
+    public void Create_with_a_dotx_templatePath_writes_a_document_typed_main_part_and_keeps_the_template_body()
+    {
+        // A letterhead kept as a Word template is the natural input for the branded-shell workflow. Copied
+        // as-is it kept the template main-part content type under a .docx name, which Word refuses to open
+        // ("unable to read this document") while quick validation reported it clean.
+        var templatePath = SyntheticLayout.CreateWordPackage(WordprocessingDocumentType.Template, ".dotx");
+        var outputPath = TempOutputPath();
+        try
+        {
+            // Fixture sanity: the template really is template-typed, or the assertions below prove nothing.
+            Assert.Equal(TemplateMainContentType, ResolvePackageContentTypes(templatePath).MainPartType);
+
+            var result = LayoutBuilder.Create(Corpus.Path(Corpus.SalesInvoice), outputPath, templatePath);
+
+            Assert.True(result.UsedTemplate);
+            Assert.True(result.QuickValidation.Passed,
+                "errors: " + string.Join(" | ", result.QuickValidation.Findings.Select(f => $"{f.Check}: {f.Message}")));
+
+            // Asserted on the saved package's own [Content_Types].xml, not on what the SDK reports back:
+            // that file is what Word reads to decide whether it is looking at a document. The SDK's
+            // conversion leaves the package's Default for ".xml" at the template type it was created with
+            // (there is no API to change a Default - SOLUTION-DESIGN §6.9), so what matters is that NO part
+            // resolves to it: every .xml part, the new main part included, carries its own Override.
+            var (mainPartType, partTypes) = ResolvePackageContentTypes(outputPath);
+            Assert.Equal(DocumentMainContentType, mainPartType);
+            Assert.DoesNotContain(partTypes, p => p.Value == TemplateMainContentType);
+
+            using (var doc = WordprocessingDocument.Open(outputPath, false))
+            {
+                Assert.Equal(WordprocessingDocumentType.Document, doc.DocumentType);
+                Assert.Contains("Letterhead", doc.MainDocumentPart!.Document!.Body!.InnerText, StringComparison.Ordinal);
+                Assert.Single(FindBcCustomXmlParts(doc.MainDocumentPart));
+                AssertNoOpenXmlErrors(doc);
+            }
+
+            // Still editable after the conversion moved the main part: a field binds and validates clean.
+            using (var doc = WordprocessingDocument.Open(outputPath, true))
+            {
+                LayoutEditor.InsertField(doc, "/Header/CustomerAddress1", new Location { Type = LocationKind.DocumentEnd });
+                doc.MainDocumentPart!.Document!.Save();
+            }
+
+            Assert.True(LayoutValidator.Quick(outputPath).Passed);
+        }
+        finally
+        {
+            File.Delete(templatePath);
+            if (File.Exists(outputPath))
+            {
+                File.Delete(outputPath);
+            }
+        }
+    }
+
+    [Theory]
+    [InlineData(WordprocessingDocumentType.MacroEnabledTemplate, ".dotm")]
+    [InlineData(WordprocessingDocumentType.MacroEnabledDocument, ".docm")]
+    public void Create_with_a_macro_enabled_templatePath_is_refused_and_writes_nothing(
+        WordprocessingDocumentType documentType, string extension)
+    {
+        var templatePath = SyntheticLayout.CreateWordPackage(documentType, extension);
+        var outputPath = TempOutputPath();
+        try
+        {
+            var ex = Assert.Throws<ArgumentException>(
+                () => LayoutBuilder.Create(Corpus.Path(Corpus.SalesInvoice), outputPath, templatePath));
+
+            Assert.Equal("templatePath", ex.ParamName);
+            Assert.False(File.Exists(outputPath));
+        }
+        finally
+        {
+            File.Delete(templatePath);
+            if (File.Exists(outputPath))
+            {
+                File.Delete(outputPath);
+            }
+        }
+    }
 }

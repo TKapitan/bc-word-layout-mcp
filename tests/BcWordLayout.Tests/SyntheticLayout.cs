@@ -87,6 +87,17 @@ internal static class SyntheticLayout
             + "</w:sdtPr><w:sdtContent><w:p><w:r><w:t>x</w:t></w:r></w:p></w:sdtContent></w:sdt>";
     }
 
+    /// <summary>
+    /// A bound field sdt whose <c>w:prefixMappings</c> is exactly <paramref name="prefixMappings"/>, verbatim —
+    /// for <c>LayoutValidator</c>'s <c>binding-prefix-mapping</c> tests, where the declaration itself (its
+    /// prefix, its URI, or its absence) is what is under test (GitHub issue #79).
+    /// </summary>
+    public static string BoundFieldWithPrefixMappings(string xpath, string storeItemId, string prefixMappings) =>
+        "<w:sdt><w:sdtPr>"
+        + $"<w:dataBinding w:prefixMappings=\"{prefixMappings}\" w:xpath=\"{xpath}\" "
+        + $"w:storeItemID=\"{storeItemId}\"/>"
+        + "</w:sdtPr><w:sdtContent><w:p><w:r><w:t>x</w:t></w:r></w:p></w:sdtContent></w:sdt>";
+
     /// <summary>A well-formed repeater (w15:repeatingSection) enclosing exactly one repeatingSectionItem.</summary>
     public static string ProperRepeater(string xpath, string storeItemId) =>
         "<w:sdt><w:sdtPr><w:id w:val=\"100\"/>"
@@ -527,6 +538,32 @@ internal static class SyntheticLayout
 
             var props = cxp.AddNewPart<CustomXmlPropertiesPart>();
             WriteRaw(props.GetStream(FileMode.Create, FileAccess.Write), itemPropsXml);
+        }
+
+        return path;
+    }
+
+    /// <summary>
+    /// Writes an UNBOUND letterhead-style package of the given <paramref name="documentType"/> (one paragraph
+    /// carrying <paramref name="bodyText"/>, no custom XML part) to a temp file with
+    /// <paramref name="extension"/> — the shape a company keeps as a Word template (<c>.dotx</c>), or its
+    /// macro-enabled siblings (<c>.dotm</c>/<c>.docm</c>), for <c>create_layout</c>'s <c>templatePath</c>
+    /// tests (GitHub issue #77). Built at runtime through the SDK rather than committed as a binary: the
+    /// package's main-part content type is exactly what <see cref="WordprocessingDocument.Create(string, WordprocessingDocumentType)"/>
+    /// writes for that type, which is the only property under test.
+    /// </summary>
+    public static string CreateWordPackage(WordprocessingDocumentType documentType, string extension, string bodyText = "Letterhead")
+    {
+        var path = System.IO.Path.Combine(
+            System.IO.Path.GetTempPath(), $"bcwl-synth-{documentType}-{Guid.NewGuid():N}{extension}");
+
+        using (var doc = WordprocessingDocument.Create(path, documentType))
+        {
+            var main = doc.AddMainDocumentPart();
+            WriteRaw(
+                main.GetStream(FileMode.Create, FileAccess.Write),
+                "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
+                + $"<w:document {Ns}><w:body>{PlainParagraph(bodyText)}<w:sectPr/></w:body></w:document>");
         }
 
         return path;

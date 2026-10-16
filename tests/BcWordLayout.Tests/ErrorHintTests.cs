@@ -399,6 +399,32 @@ public class ErrorHintTests
         }
     }
 
+    [Fact]
+    public void RemoveControl_keepText_on_StandardStatements_top_level_group_is_refused_and_the_file_is_untouched()
+    {
+        // GitHub issue #87's reproduction: -157619893 is the contentLocked w:group between the body-wide
+        // /Customer repeater and its item. get_layout_info lists it as an ordinary unbound block control, and
+        // unwrapping it used to return ok:true with the shape BC prints as an empty document.
+        const int customerGroupId = -157619893;
+        var path = CopyOfCorpus(Corpus.StandardStatement);
+        try
+        {
+            var info = Assert.IsType<LayoutInfoDto>(ReadTools.GetLayoutInfo(path).Data);
+            Assert.Contains(info.Controls, c => c.SdtId == customerGroupId);
+            var before = File.ReadAllBytes(path);
+
+            var response = EditTools.RemoveControl(path, customerGroupId, keepText: true);
+
+            AssertActionableFailure(response, "invalid_argument", "keepText=false");
+            Assert.Contains("REPEATER's id", response.Error!.Hint, StringComparison.Ordinal);
+            Assert.Equal(before, File.ReadAllBytes(path));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     // ---- not_found: bad control id and bad location targets - hint points at get_layout_info ----
 
     [Fact]

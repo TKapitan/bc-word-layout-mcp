@@ -55,8 +55,13 @@ public static class LayoutBuilder
     /// and would go stale relative to the fresh one just attached; see <see cref="TemplateNotUnboundException"/>,
     /// which this method throws instead of silently reporting a "successful" result that ships that damage.
     /// Any unrelated custom XML part (e.g. the Office bibliography part some corpus layouts carry) is left
-    /// untouched.
+    /// untouched. A Word template (<c>.dotx</c>) is accepted and converted to a document package; a
+    /// macro-enabled one is refused (see <see cref="EnsureDocumentPackage"/>).
     /// </param>
+    /// <exception cref="ArgumentException">
+    /// A path argument is empty, or <paramref name="templatePath"/> is a macro-enabled Word package
+    /// (<c>.dotm</c>/<c>.docm</c>). <paramref name="outputPath"/> is never touched when this is thrown.
+    /// </exception>
     /// <exception cref="FileNotFoundException">
     /// <paramref name="schemaSource"/> or <paramref name="templatePath"/> does not exist.
     /// </exception>
@@ -133,6 +138,7 @@ public static class LayoutBuilder
                 using var doc = LayoutPackage.Open(tempPath, isEditable: true);
                 _ = doc.MainDocumentPart
                     ?? throw new InvalidDataException($"Template '{templatePath}' has no main document part.");
+                EnsureDocumentPackage(doc, templatePath!);
 
                 (storeItemId, replacedExistingBcPart, quick) =
                     AttachEverything(doc, datasetBytes, identity, headingText, scaffoldBlankDefaults: false);
@@ -197,6 +203,59 @@ public static class LayoutBuilder
             {
                 File.Delete(tempPath);
             }
+        }
+    }
+
+    // ---- template package type: a .dotx shell becomes a document, a macro-enabled one is refused ----
+
+    /// <summary>
+    /// Makes the template copy <paramref name="doc"/> a plain Word DOCUMENT package before anything is
+    /// attached to it: a Word template (<c>.dotx</c>) is converted in place, a macro-enabled package
+    /// (<c>.dotm</c>/<c>.docm</c>) is refused, and a document is left exactly as it was.
+    /// </summary>
+    /// <remarks>
+    /// The package type lives in the main part's CONTENT TYPE, not in the file name, and a plain copy keeps
+    /// it: copying a letterhead <c>.dotx</c> to a <c>.docx</c> output left <c>/word/document.xml</c> typed
+    /// <c>…wordprocessingml.template.main+xml</c>, which Word refuses to open ("Word was unable to read this
+    /// document") while OpenXmlValidator and every binding check passed it (GitHub issue #77). A template is
+    /// the natural input for the branded-shell workflow (letterheads are routinely kept as <c>.dotx</c>), and
+    /// the two types differ in nothing but that content type, so converting is unambiguous: it is what
+    /// Word's own "Save As Word Document" does. <see cref="WordprocessingDocument.ChangeDocumentType"/>
+    /// rewrites the main part's content type in the saved package (pinned by LayoutBuilderTests against the
+    /// output's raw <c>[Content_Types].xml</c>). Inspected through <see cref="WordprocessingDocument.DocumentType"/>
+    /// rather than the extension, so a template renamed to <c>.docx</c> is converted too. The conversion
+    /// re-creates the main part, which lands at <c>/word/document2.xml</c> with its own content-type
+    /// <c>Override</c>, and leaves the package's <c>Default</c> for <c>.xml</c> at the template type, typing
+    /// no part. Both are cosmetic OPC plumbing of the kind SOLUTION-DESIGN §6.9 accepts, and the SDK exposes no
+    /// API to change either.
+    /// <para>
+    /// A macro-enabled package is REFUSED rather than converted (ADR-0003): becoming a <c>.docx</c> means
+    /// dropping its VBA project, which changes the caller's template in a way they did not ask for, and a BC
+    /// layout cannot carry macros either way. The caller re-saves it without macros, one round trip.
+    /// </para>
+    /// </remarks>
+    /// <exception cref="ArgumentException">
+    /// <paramref name="doc"/> is a macro-enabled template or document (<see cref="ArgumentException.ParamName"/>
+    /// is <c>templatePath</c>).
+    /// </exception>
+    private static void EnsureDocumentPackage(WordprocessingDocument doc, string templatePath)
+    {
+        switch (doc.DocumentType)
+        {
+            case WordprocessingDocumentType.Document:
+                return;
+
+            case WordprocessingDocumentType.Template:
+                doc.ChangeDocumentType(WordprocessingDocumentType.Document);
+                return;
+
+            default:
+                throw new ArgumentException(
+                    $"templatePath '{templatePath}' is a macro-enabled Word package ({doc.DocumentType}), not a "
+                    + "plain Word document or template. A Business Central report layout is a macro-free .docx, "
+                    + "and converting this one would mean silently dropping its macros, so it is refused. "
+                    + "Nothing was written.",
+                    nameof(templatePath));
         }
     }
 

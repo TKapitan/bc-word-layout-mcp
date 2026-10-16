@@ -353,9 +353,12 @@ public static class LayoutEditor
         var schema = SchemaProvider.FromLayout(doc);
         var nextId = MakeIdGenerator(doc);
 
-        var table = SdtFactory.BuildRepeaterTable(schema, dataItemPath, columns, options, nextId);
-
+        // Resolved before the build (Resolve only reads) because an omitted columnWidths is split across
+        // the width of wherever the table lands - the page's content width, or the host cell's.
         var anchor = LocationResolver.Resolve(location, doc);
+        var table = SdtFactory.BuildRepeaterTable(
+            schema, dataItemPath, columns, options, nextId, ResolveAvailableWidthTwips(doc, anchor));
+
         anchor.InsertBlock(table);
         SeparateFromAdjacentTables(table);
 
@@ -862,12 +865,15 @@ public static class LayoutEditor
         };
     }
 
-    /// <summary>Corpus A4 content width in twips — the full-width fallback for a new plain table's grid.</summary>
-    private const int DefaultPlainTableWidthTwips = 10206;
+    /// <summary>
+    /// Corpus A4 content width in twips — the full-width fallback for a new table's grid (plain or
+    /// repeater) when the document's own page size/margins cannot be read.
+    /// </summary>
+    internal const int CorpusContentWidthTwips = 10206;
 
     /// <summary>
     /// The body's usable content width (page width minus left/right margins) from its trailing sectPr;
-    /// the corpus-standard <see cref="DefaultPlainTableWidthTwips"/> when page size/margins are absent
+    /// the corpus-standard <see cref="CorpusContentWidthTwips"/> when page size/margins are absent
     /// or nonsensical.
     /// </summary>
     private static int ResolveContentWidthTwips(WordprocessingDocument doc)
@@ -877,11 +883,35 @@ public static class LayoutEditor
         var margins = sectPr?.GetFirstChild<PageMargin>();
         if (pageWidth is null || margins is null)
         {
-            return DefaultPlainTableWidthTwips;
+            return CorpusContentWidthTwips;
         }
 
         var width = pageWidth.Value - (int)(margins.Left?.Value ?? 0) - (int)(margins.Right?.Value ?? 0);
-        return width > 1000 ? width : DefaultPlainTableWidthTwips;
+        return width > 1000 ? width : CorpusContentWidthTwips;
+    }
+
+    /// <summary>
+    /// The width a new table landing at <paramref name="anchor"/> has to fit in: the host cell's own
+    /// <c>w:tcW</c> when the anchor sits inside a table cell (a table nested in a cell with a page-wide
+    /// fixed grid would overrun the cell, and with it the outer table's own fixed grid), else
+    /// <see cref="ResolveContentWidthTwips"/>. A host cell without a positive dxa width — none in the
+    /// corpus — falls back to the page's content width rather than guessing from the grid.
+    /// </summary>
+    private static int ResolveAvailableWidthTwips(WordprocessingDocument doc, InsertionAnchor anchor)
+    {
+        var cellWidth = anchor.EnclosingCell?.TableCellProperties?.TableCellWidth;
+        if (cellWidth?.Type?.Value == TableWidthUnitValues.Dxa
+            && int.TryParse(
+                cellWidth.Width?.Value,
+                System.Globalization.NumberStyles.Integer,
+                System.Globalization.CultureInfo.InvariantCulture,
+                out var width)
+            && width > 0)
+        {
+            return width;
+        }
+
+        return ResolveContentWidthTwips(doc);
     }
 
     /// <summary>
@@ -1130,7 +1160,9 @@ public static class LayoutEditor
     /// </remarks>
     /// <exception cref="NotFoundException">No control with <paramref name="controlId"/> was found.</exception>
     /// <exception cref="ArgumentException">
-    /// <paramref name="keepText"/> is true and the target is a repeating-section control (see remarks).
+    /// <paramref name="keepText"/> is true and the target is a repeating-section control, or the
+    /// <c>w:group</c> control between a block-level top-level repeater and its item (unwrapping either breaks
+    /// a shape BC needs — see the throw sites).
     /// </exception>
     public static EditResult RemoveControl(WordprocessingDocument doc, int controlId, bool keepText)
     {
@@ -1163,6 +1195,30 @@ public static class LayoutEditor
                 $"Control {controlId} is a repeating-section control; removing it with keepText=true would "
                 + "orphan its repeatingSectionItem row template from any enclosing repeatingSection, breaking "
                 + "the BC repeater shape. Use keepText=false to remove the whole repeater instead.",
+                nameof(keepText));
+        }
+
+        if (keepText
+            && SdtInspector.NearestRepeaterAncestor(target) is { } repeater
+            && !LayoutValidator.IsUngroupedTopLevelBlockRepeater(repeater)
+            && LayoutValidator.IsUngroupedTopLevelBlockRepeater(repeater, ignoringGroup: target))
+        {
+            // The w:group sdt between a block-level top-level repeater and its repeatingSectionItem is not
+            // decoration: without it BC prints the layout as an EMPTY document (SOLUTION-DESIGN §2.3, the
+            // validator's top-level-repeater-group check). get_layout_info lists that group as an ordinary
+            // unbound block control, so nothing warned the caller before the unwrap; this is the same
+            // "successful edit that fails its own quick validation" the repeater refusal above prevents
+            // (GitHub issue #87). The question is asked of the validator itself — would the repeater have
+            // its group before the unwrap and not after — so a group elsewhere in the repeater (or a second
+            // group around the same item) stays removable, and the refusal and the check cannot drift.
+            var repeaterId = SdtInspector.ReadControlId(repeater);
+            throw new ArgumentException(
+                $"Control {controlId} is the w:group control between the block-level repeating section "
+                + $"{(repeaterId is null ? string.Empty : $"(id {repeaterId}) ")}bound to the top-level data item "
+                + $"at '{SdtInspector.ReadXPath(repeater)}' and its repeatingSectionItem; removing it with "
+                + "keepText=true leaves the shape Business Central prints as an EMPTY document. Leave the "
+                + "group in place, or remove the whole repeater with remove_control keepText=false on the "
+                + "repeater's own id.",
                 nameof(keepText));
         }
 

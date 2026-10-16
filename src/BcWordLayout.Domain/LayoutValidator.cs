@@ -33,12 +33,14 @@ public static class LayoutValidator
             ?? throw new InvalidDataException("Layout has no main document part.");
 
         CheckOpenXmlStructure(doc, findings);
+        CheckDocumentContentType(main, findings);
         var bcPartItemId = CheckSingleBcPart(main, findings);
         DatasetTree? schema = TryBuildSchema(main, findings);
 
         var inventory = LayoutReader.Read(doc);
         CheckStoreItemIds(inventory, bcPartItemId, findings);
         CheckBindingNamespaces(inventory, schema, findings);
+        CheckBindingPrefixMappings(inventory, schema, findings);
         CheckXPathsResolve(inventory, schema, findings);
         CheckRepeaterShape(main, findings);
         CheckTopLevelBlockRepeaterGroup(main, findings);
@@ -94,6 +96,40 @@ public static class LayoutValidator
     /// </remarks>
     private static bool IsWordPlaceholderCharacterScale(ValidationErrorInfo error) =>
         error.Node is CharacterScale { Val.Value: 0 };
+
+    /// <summary>The main-part content type of a plain Word document package — the only one a .docx may carry.</summary>
+    private const string DocumentMainContentType =
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml";
+
+    // 1a. The main document part is typed as a plain Word DOCUMENT.
+    //
+    //     The package type lives in the main part's content type, not the file name: a template (.dotx) or
+    //     a macro-enabled file (.dotm/.docm) renamed to .docx keeps its own, and Word then refuses to open
+    //     it ("Word was unable to read this document"). Nothing else here notices - OpenXmlValidator accepts
+    //     every Word package type and the binding checks never look at packaging - so before this check a
+    //     create_layout built over a .dotx validated clean while Word refused the result (GitHub issue #77;
+    //     create_layout now converts a template itself, which this check also guards). ERROR: the file is
+    //     unusable as a layout. Every corpus layout carries the document type, as Word writes any .docx.
+    private static void CheckDocumentContentType(MainDocumentPart main, List<ValidationFinding> findings)
+    {
+        if (string.Equals(main.ContentType, DocumentMainContentType, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        findings.Add(new ValidationFinding
+        {
+            Check = "document-content-type",
+            Severity = FindingSeverity.Error,
+            Message = $"The main document part is typed '{main.ContentType}', not '{DocumentMainContentType}': "
+                      + "this package is a Word template or macro-enabled file whatever its file name says, and "
+                      + "Word refuses to open it as a .docx (\"Word was unable to read this document\"). To "
+                      + "repair it, give it back its real extension (.dotx/.dotm/.docm), open it in Word and "
+                      + "save it as a Word Document (.docx) - or, for a template with no bound controls of its "
+                      + "own, pass it to create_layout as templatePath, which converts a .dotx automatically.",
+            Location = main.Uri.ToString(),
+        });
+    }
 
     // 2. Exactly one custom XML part in the BC namespace, and that part carries a DataStoreItem for its
     //    bindings to name. Returns the BC part's item ID (or null when there is none to return).
@@ -263,6 +299,134 @@ public static class LayoutValidator
         }
     }
 
+    // 3c. Every BC binding's prefixMappings declares each prefix its XPath uses, bound to the layout's OWN
+    //     BC dataset namespace.
+    //
+    //     The blind spot between 3b and 4: binding-namespace only sees a namespace that LOOKS like a BC one
+    //     (SdtInspector.ExtractBcNamespace matches the urn:microsoft-dynamics-nav/reports/ form), and
+    //     xpath-resolves strips prefixes before resolving, so neither asks whether the binding's own
+    //     declarations can resolve its XPath. Word does ask: measured with ContentControl.XMLMapping.IsMapped
+    //     on copies of JobQuote.docx with one binding changed (GitHub issue #79), the control is unmapped when
+    //     its prefixMappings names the dynamics-365/report form of the namespace (the pitfall SOLUTION-DESIGN
+    //     §2 calls out), the singular nav/report form, or declares ns1 while the XPath uses ns0 - and quick and
+    //     full validation passed all three (the full merge registers ns0 for the dataset namespace itself, so
+    //     the mock fills them regardless).
+    //
+    //     Scoped by the XPath's ROOT STEP (NavWordReportXmlPart), not by what the mappings name: scoping by
+    //     the mappings is precisely the blind spot, and the root step still keeps genuine non-BC bindings
+    //     (a document-property control binds coreProperties) out of it.
+    //
+    //     ERROR for a prefix that is undeclared or declared to another namespace, on the same footing as
+    //     binding-namespace: Word cannot map the control, and BC validates every binding's prefixMappings
+    //     against the report's current namespace at upload (InvalidPrefixMapping - sandbox-verified for
+    //     foreign BC namespaces in issue #1; these exact shapes have not been sandbox-tested). A mismatch
+    //     binding-namespace has already reported for the same binding is not reported a second time.
+    //
+    //     Two shapes deliberately draw NO finding:
+    //     - no prefixMappings at all: Word maps such a binding (IsMapped=True in the same measurements), the
+    //       exemption binding-namespace has always made;
+    //     - a BARE uri with no xmlns: declaration that names the layout's own namespace. Word reports it
+    //       unmapped, but stock base-app layouts ship this shape and BC prints them (SOLUTION-DESIGN §2.5); the
+    //       only corpus witnesses (StandardSalesInvoiceVatSpec's two Mini_Sales_Invoice bindings) already carry
+    //       a binding-namespace Error for their foreign namespace, so a warning would add nothing there; and on
+    //       a bare mapping that names the RIGHT namespace it would flag a file BC accepts, with no tool here
+    //       able to rewrite it in place (refresh_xml_part normalises a bare mapping only when it re-points one).
+    //       A bare uri naming any OTHER namespace is read as a declaration of the XPath's prefix and fails
+    //       exactly like the xmlns: form.
+    private static void CheckBindingPrefixMappings(
+        LayoutInventory inventory, DatasetTree? schema, List<ValidationFinding> findings)
+    {
+        if (schema is null)
+        {
+            return; // Already reported by TryBuildSchema.
+        }
+
+        var expected = schema.Report.Namespace;
+
+        foreach (var control in inventory.Controls)
+        {
+            var mappings = control.PrefixMappings;
+            if (!BindingXPath.IsBcDatasetBinding(control.XPath) || string.IsNullOrWhiteSpace(mappings))
+            {
+                continue;
+            }
+
+            var location = $"{control.Part}: {control.Alias ?? control.XPath}";
+            var declared = BindingXPath.PrefixDeclarations(mappings);
+
+            if (declared.Count == 0)
+            {
+                var bare = mappings.Trim();
+                if (!string.Equals(bare, expected, StringComparison.Ordinal) && !ReportedByBindingNamespace(control, bare, expected))
+                {
+                    var usedPrefixes = BindingXPath.Prefixes(control.XPath);
+                    findings.Add(PrefixMappingFinding(
+                        $"Binding's w:prefixMappings is the bare value '{bare}' rather than a namespace declaration, "
+                        + $"and it does not name this layout's BC dataset namespace '{expected}' either, so its "
+                        + "XPath cannot resolve against the dataset.",
+                        PrefixMappingRepair(usedPrefixes.Count > 0 ? usedPrefixes[0] : "ns0", expected),
+                        location));
+                }
+
+                continue;
+            }
+
+            foreach (var prefix in BindingXPath.Prefixes(control.XPath))
+            {
+                var declaration = declared.FirstOrDefault(d => string.Equals(d.Prefix, prefix, StringComparison.Ordinal));
+                if (declaration.Prefix is null)
+                {
+                    findings.Add(PrefixMappingFinding(
+                        $"Binding XPath uses the prefix '{prefix}:', but its w:prefixMappings ('{mappings.Trim()}') "
+                        + "declares no such prefix, so the XPath cannot resolve against the dataset.",
+                        PrefixMappingRepair(prefix, expected),
+                        location));
+                    continue;
+                }
+
+                if (string.Equals(declaration.Uri, expected, StringComparison.Ordinal)
+                    || ReportedByBindingNamespace(control, declaration.Uri, expected))
+                {
+                    continue;
+                }
+
+                findings.Add(PrefixMappingFinding(
+                    $"Binding XPath uses the prefix '{prefix}:', which its w:prefixMappings declares as "
+                    + $"'{declaration.Uri}', but this layout's BC part declares '{expected}', so the XPath cannot "
+                    + "resolve against the dataset.",
+                    PrefixMappingRepair(prefix, expected),
+                    location));
+            }
+        }
+    }
+
+    /// <summary>
+    /// True when <paramref name="uri"/> is the foreign BC namespace <see cref="CheckBindingNamespaces"/> has
+    /// already reported for this binding — the one mismatch <c>binding-prefix-mapping</c> leaves to it, so a
+    /// binding never draws two findings for one wrong namespace (and keeps binding-namespace's
+    /// refresh_xml_part repair hint, which applies to exactly that case).
+    /// </summary>
+    private static bool ReportedByBindingNamespace(LayoutControl control, string uri, string expected) =>
+        control.BindingNamespace is { } named
+        && !string.Equals(named, expected, StringComparison.Ordinal)
+        && string.Equals(named, uri, StringComparison.Ordinal);
+
+    private static ValidationFinding PrefixMappingFinding(string problem, string repair, string location) => new()
+    {
+        Check = "binding-prefix-mapping",
+        Severity = FindingSeverity.Error,
+        Message = problem
+                  + " Word cannot map the control to the dataset (ContentControl.XMLMapping.IsMapped is False), "
+                  + "and Business Central validates every binding's prefixMappings against the report's "
+                  + "namespace at upload, rejecting mismatches with InvalidPrefixMapping. " + repair,
+        Location = location,
+    };
+
+    private static string PrefixMappingRepair(string prefix, string expected) =>
+        "refresh_xml_part does not repair this (it re-points only a BC dataset namespace a binding already "
+        + "names). Rebuild the control - remove_control, then insert_field/insert_label, which write "
+        + $"xmlns:ns0='{expected}' - or correct the attribute to xmlns:{prefix}='{expected}' by hand.";
+
     // 4. Every binding's XPath resolves against the parsed schema tree (segment-by-segment).
     private static void CheckXPathsResolve(LayoutInventory inventory, DatasetTree? schema, List<ValidationFinding> findings)
     {
@@ -403,19 +567,17 @@ public static class LayoutValidator
     //     - top-level only. Block-level repeaters over NESTED items (Header[1]/WorkDescriptionLines,
     //       Header[1]/PaymentReportingArgument in the stock 1304/1306 layouts) have no group and render.
     //     No tool here emits a block-level repeater, so this guards layouts authored or edited outside the
-    //     tools - e.g. an agent writing the OOXML directly, which is how shape B was produced.
+    //     tools - e.g. an agent writing the OOXML directly, which is how shape B was produced. The one tool
+    //     edit that could turn shape C into B, remove_control keepText=true on the group, is refused through
+    //     IsUngroupedTopLevelBlockRepeater below (GitHub issue #87).
     private static void CheckTopLevelBlockRepeaterGroup(MainDocumentPart main, List<ValidationFinding> findings)
     {
         foreach (var (rootElement, partName) in EnumerateContentParts(main))
         {
-            foreach (var repeater in rootElement.Descendants<SdtBlock>().Where(SdtInspector.IsRepeater))
+            foreach (var repeater in rootElement.Descendants<SdtBlock>()
+                         .Where(r => IsUngroupedTopLevelBlockRepeater(r)))
             {
                 var topLevelItem = TopLevelDataItemName(repeater);
-                if (topLevelItem is null || ItemIsInsideGroup(repeater))
-                {
-                    continue;
-                }
-
                 findings.Add(new ValidationFinding
                 {
                     Check = "top-level-repeater-group",
@@ -434,6 +596,19 @@ public static class LayoutValidator
             }
         }
     }
+
+    /// <summary>
+    /// True for the shape check 5a reports: <paramref name="repeater"/> is a block-level repeating section
+    /// over a top-level data item whose own <c>repeatingSectionItem</c> has no <c>w:group</c> sdt between
+    /// the two. With <paramref name="ignoringGroup"/>, that control is treated as already unwrapped — how
+    /// <see cref="LayoutEditor.RemoveControl"/> asks whether unwrapping it (<c>keepText=true</c>) would
+    /// produce the shape, so the editor's refusal and this check can never disagree about what it is.
+    /// </summary>
+    internal static bool IsUngroupedTopLevelBlockRepeater(SdtElement repeater, SdtElement? ignoringGroup = null) =>
+        repeater is SdtBlock
+        && SdtInspector.IsRepeater(repeater)
+        && TopLevelDataItemName(repeater) is not null
+        && !ItemIsInsideGroup(repeater, ignoringGroup);
 
     /// <summary>
     /// The data-item name when <paramref name="repeater"/>'s w15 binding names a top-level, non-system data
@@ -457,10 +632,10 @@ public static class LayoutValidator
 
     /// <summary>
     /// True when the repeater's own <c>repeatingSectionItem</c> has a <c>w:group</c> sdt between it and the
-    /// repeater. A repeater with no item of its own is repeater-shape's business, so it counts as true here
-    /// rather than drawing a second, misleading finding.
+    /// repeater (other than <paramref name="ignoringGroup"/>). A repeater with no item of its own is
+    /// repeater-shape's business, so it counts as true here rather than drawing a second, misleading finding.
     /// </summary>
-    private static bool ItemIsInsideGroup(SdtElement repeater)
+    private static bool ItemIsInsideGroup(SdtElement repeater, SdtElement? ignoringGroup = null)
     {
         var item = repeater.Descendants<SdtElement>()
             .FirstOrDefault(s => SdtInspector.IsRepeaterItem(s) && SdtInspector.NearestRepeaterAncestor(s) == repeater);
@@ -471,7 +646,8 @@ public static class LayoutValidator
 
         return item.Ancestors<SdtElement>()
             .TakeWhile(a => a != repeater)
-            .Any(a => a.GetFirstChild<SdtProperties>() is { } pr && SdtInspector.HasChild(pr, "group", OoxmlNames.W));
+            .Any(a => a != ignoringGroup
+                && a.GetFirstChild<SdtProperties>() is { } pr && SdtInspector.HasChild(pr, "group", OoxmlNames.W));
     }
 
     // 5b. A control whose alias names a DATA ITEM but which is not a repeating-section control: a repeater

@@ -285,9 +285,10 @@ public static class TableStructureEditor
     /// <summary>
     /// Inserts ONE new grid column into the <paramref name="tableIndex"/>-th table at grid position
     /// <paramref name="atColumn"/> (the far-right edge when omitted): one new <c>w:gridCol</c> plus one new
-    /// cell per row — a header cell in a header row (<c>w:tblHeader</c>), the bound control cell in the
-    /// repeater data row (or, in a table with no repeater, in every non-header row), and an empty cell
-    /// everywhere else.
+    /// cell per row — a header cell in a header row, the bound control cell in the data rows (the rows of the
+    /// repeater <see cref="InsertColumnOptions.DataPath"/> belongs to, or, in a table with no repeater, every
+    /// non-header row), and an empty cell everywhere else. See <see cref="PlanInsertColumnRows"/> for which
+    /// rows are which.
     /// </summary>
     /// <remarks>
     /// SPANNED CELLS AT AN INTERIOR POSITION. Real BC tables are pervasively <c>gridSpan</c>-spanned, so an
@@ -306,9 +307,10 @@ public static class TableStructureEditor
     /// <exception cref="ArgumentException">
     /// <paramref name="atColumn"/> is out of range; an interior <paramref name="atColumn"/> falls inside a
     /// spanned cell of a row that must receive content (see remarks); <paramref name="options"/> is
-    /// inconsistent (e.g. Field/Label without a DataPath); the table uses vMerge; or
-    /// (propagated from <see cref="SdtFactory"/>) DataPath does not resolve to a leaf column of the right
-    /// label-shape.
+    /// inconsistent (e.g. Field/Label without a DataPath); DataPath belongs to none of the table's repeaters,
+    /// or the table has no row to bind it into; a header argument is passed for a table with no header row;
+    /// the table uses vMerge; or (propagated from <see cref="SdtFactory"/>) DataPath or HeaderLabelPath does
+    /// not resolve to a leaf column of the right label-shape.
     /// </exception>
     public static TableEditResult InsertColumn(
         WordprocessingDocument doc, LayoutPart part, string? partName, int tableIndex, int? atColumn, InsertColumnOptions options)
@@ -339,40 +341,48 @@ public static class TableStructureEditor
                 "dataPath");
         }
 
-        var width = options.Width ?? MeanGridWidth(table);
-        var schema = mode == InsertColumnMode.PlainText ? null : SchemaProvider.FromLayout(doc);
-        var nextId = LayoutEditor.MakeIdGenerator(doc);
-        var rowSlots = TableGridNavigator.Rows(table);
-        var hasRepeater = rowSlots.Any(r => r.IsControlRow && r.InnerRow is not null);
-        var anyTblHeader = rowSlots.Any(r => HasTblHeader(r.InnerRow));
-
-        // Per-row target (see the class remarks / plan §3.2). Header cell → header rows; the bound data cell
-        // → the repeater's data row (in a repeater table) or every non-header row (in a plain table); empty
-        // cell → everything else. Real BC line tables carry no w:tblHeader (corpus-verified), so when none is
-        // marked, the first non-control row of a repeater table is treated as the header.
-        var plans = new List<RowInsertPlan>(rowSlots.Count);
-        for (var idx = 0; idx < rowSlots.Count; idx++)
+        // WIDTH. The table keeps its total width, like remove_column: the new column's twips are taken
+        // proportionally from the existing columns rather than added on (GitHub issue #83 - a full-width
+        // table used to grow past the page margin, pushing its right-anchored totals off the page). So the
+        // default is an equal share of that total, and an explicit width must leave room for the others.
+        // When any declared grid width fails to parse there is no total to keep, and the old additive
+        // behaviour (mean width, table grows) is all that is left.
+        var widthsKnown = TryGetGridWidths(table, out var widthsBefore);
+        var totalBefore = widthsKnown ? widthsBefore.Sum() : 0;
+        if (options.Width is { } requested && (requested <= 0 || (widthsKnown && requested >= totalBefore)))
         {
-            var row = rowSlots[idx];
-            if (row.InnerRow is null)
-            {
-                continue;
-            }
-
-            var isHeaderRow = HasTblHeader(row.InnerRow)
-                || (hasRepeater && !anyTblHeader && idx == 0 && !row.IsControlRow);
-            var isDataRow = row.IsControlRow || (!hasRepeater && !isHeaderRow);
-            var receivesContent = isHeaderRow || (isDataRow && mode != InsertColumnMode.PlainText);
-
-            plans.Add(new RowInsertPlan(idx, row.InnerRow, isHeaderRow, isDataRow, receivesContent));
+            throw new ArgumentException(
+                $"width {requested} is out of range for table {tableIndex}: the new column's width is taken from "
+                + "the existing columns so the table keeps its total width"
+                + (widthsKnown ? $" ({totalBefore} twips)" : string.Empty)
+                + ", so it must be a positive number of twips smaller than that total.",
+                "width");
         }
+
+        var width = options.Width
+            ?? (widthsKnown ? (int)Math.Round((double)totalBefore / (gridCount + 1)) : MeanGridWidth(table));
+
+        // The schema is needed for a bound data cell AND for a bound header label - plainText mode with a
+        // headerLabelPath used to skip loading it, which silently turned the label into static text and
+        // never checked the path at all (GitHub issue #82).
+        var schema = mode != InsertColumnMode.PlainText || options.HeaderLabelPath is not null
+            ? SchemaProvider.FromLayout(doc)
+            : null;
+        ValidateInsertColumnPaths(schema, options);
+
+        var nextId = LayoutEditor.MakeIdGenerator(doc);
+        var plans = PlanInsertColumnRows(table, tableIndex, options);
+
+        // "Append" is the caller's request, decided before the grid index is settled: the totals-block rule
+        // below keys on it, and the settled index can move one column left on a trailing-skipped-run table.
+        var appending = target == gridCount;
+        target = SettleGridInsertionIndex(plans, target, gridCount);
 
         // Refuse BEFORE mutating anything: an interior position that falls inside a spanned cell of a row
         // that must carry the new column's content has no honest answer (see this method's remarks).
         RejectStraddledContentRows(plans, target, tableIndex);
 
         var rowsAffected = 0;
-        var rowsToReslice = new List<TableRow>();
         foreach (var plan in plans)
         {
             Paragraph paragraph;
@@ -401,11 +411,9 @@ public static class TableStructureEditor
             // reasoning about cells that do not extend to the insertion point.
             if (TryGrowSkippedRegion(plan.Row, coverage, target, plan.ReceivesContent))
             {
-                rowsToReslice.Add(plan.Row);
                 rowsAffected++;
                 continue;
             }
-
 
             // A filler row shaped like a BC totals/summary block — leading EMPTY cell(s), content hugging
             // the right edge (e.g. "Total Incl VAT | 822.97" under a lines table) — must KEEP that content
@@ -416,11 +424,9 @@ public static class TableStructureEditor
             // last one stretches, so the block looks exactly as before with its right-aligned content
             // still on the table's right edge. Appends only: an interior position lands inside the block
             // rather than past it, where the straddle rule below already keeps the layout intact.
-            var appending = target == gridCount;
             if (appending && isFillerRow && rowCells.Count > 0 && IsEmptyCell(rowCells[0]) && !IsEmptyCell(rowCells[^1]))
             {
                 SetCellGridSpan(rowCells[^1].InnerCell, rowCells[^1].GridSpan + 1);
-                rowsToReslice.Add(plan.Row);
                 rowsAffected++;
                 continue;
             }
@@ -432,7 +438,6 @@ public static class TableStructureEditor
                 // added, so nothing shifts and nothing is lost (content rows never reach here: they were
                 // refused above).
                 SetCellGridSpan(straddled.InnerCell, straddled.GridSpan + 1);
-                rowsToReslice.Add(plan.Row);
                 rowsAffected++;
                 continue;
             }
@@ -467,21 +472,29 @@ public static class TableStructureEditor
             GridElement(table).InsertBefore(newGridColumn, gridColumns[target]);
         }
 
-        // A widened cell now also covers the new column, so its w:tcW must grow by that column's width —
-        // re-slice the affected rows against the final grid (skipped when any declared grid width doesn't
-        // parse; there is nothing reliable to slice by).
-        if (rowsToReslice.Count > 0 && TryGetGridWidths(table, out var finalWidths))
+        // Re-slice EVERY well-formed row from the final grid, exactly as remove_column/set_column_widths do
+        // (issue #83). Only widened rows used to be re-sliced, which left two visible failures: a table
+        // whose cells carry w:tcW type="pct" (26 cells in the stock quote body alone) kept every old cell
+        // claiming its full percentage, squeezing the new dxa cell to a sliver; and every untouched cell kept
+        // its old width while the grid changed under it. Re-slicing writes dxa widths that match the grid,
+        // which is what remove_column already does to such a table.
+        var widthNote = string.Empty;
+        if (widthsKnown)
         {
-            foreach (var widened in rowsToReslice)
-            {
-                ResliceRowWidths(widened, finalWidths);
-            }
+            var others = ScaleToTotal(widthsBefore, totalBefore - width);
+            var finalWidths = others.Take(target).Append(width).Concat(others.Skip(target)).ToArray();
+            ApplyGridWidths(table, finalWidths);
+            widthNote = $"; its {width} twips were taken proportionally from the other columns (table width "
+                + $"kept at {totalBefore} twips - use set_column_widths for a different distribution)";
         }
 
         SyncTableWidthToGrid(table);
 
-        var placement = target == gridCount
-            ? $"Appended a new {DescribeMode(options)} column (grid index {target})"
+        var settledNote = appending && target != gridCount
+            ? ", ahead of the rows' trailing skipped grid column(s)"
+            : string.Empty;
+        var placement = appending
+            ? $"Appended a new {DescribeMode(options)} column (grid index {target}{settledNote})"
             : $"Inserted a new {DescribeMode(options)} column at grid index {target}";
 
         return new TableEditResult
@@ -495,13 +508,267 @@ public static class TableStructureEditor
             ColumnCountAfter = gridCount + 1,
             Summary = $"{placement} to table {tableIndex}"
                 + (partFile == "document.xml" ? string.Empty : $" in {partFile}")
-                + $", adding a cell to {rowsAffected} row(s).",
+                + $", adding a cell to {rowsAffected} row(s){widthNote}.",
         };
+    }
+
+    /// <summary>
+    /// The grid index the new <c>w:gridCol</c> really goes in: <paramref name="target"/>, unless every row
+    /// that receives content would place its new cell at one OTHER index — then that index.
+    /// </summary>
+    /// <remarks>
+    /// A content row whose cells stop short of <paramref name="target"/> (a trailing <c>w:gridAfter</c> run,
+    /// or a leading <c>w:gridBefore</c> one) gets its new cell at its own nearest boundary, not at
+    /// <paramref name="target"/> (see <see cref="TryGrowSkippedRegion"/>'s remarks). On the stock
+    /// <c>StandardSalesInvoiceVatSpec.docx</c> lines table — content rows of ten cells plus a 34-twip
+    /// skipped column — appending therefore puts the new cells at grid 10 while the old code added the new
+    /// <c>w:gridCol</c> at 11: the cells sat over the 34-twip column, which re-slicing every row from the
+    /// grid (issue #83) would have turned into a sliver. Inserting the <c>w:gridCol</c> where the cells
+    /// actually land keeps grid and cells in step: the skipped run, and the filler rows that span it, move
+    /// one column right. When content rows disagree (or none is displaced) <paramref name="target"/> stands.
+    /// </remarks>
+    private static int SettleGridInsertionIndex(IReadOnlyList<RowInsertPlan> plans, int target, int gridCount)
+    {
+        var landings = new HashSet<int>();
+        foreach (var plan in plans.Where(p => p.ReceivesContent))
+        {
+            var coverage = TableGridNavigator.Coverage(plan.Row);
+            if (coverage.Total != gridCount)
+            {
+                continue; // A pre-existing ragged row says nothing reliable about where the column goes.
+            }
+
+            landings.Add(Math.Clamp(target, coverage.Before, coverage.ContentEnd));
+        }
+
+        return landings.Count == 1 ? landings.Single() : target;
     }
 
     /// <summary>One row's role in an <see cref="InsertColumn"/> call, decided once and reused by the pre-flight check and the edit itself.</summary>
     private readonly record struct RowInsertPlan(
         int RowIndex, TableRow Row, bool IsHeaderRow, bool IsDataRow, bool ReceivesContent);
+
+    /// <summary>
+    /// Checks every dataset path an <see cref="InsertColumn"/> call will bind BEFORE any row is touched:
+    /// <see cref="InsertColumnOptions.DataPath"/> in field/label mode, and
+    /// <see cref="InsertColumnOptions.HeaderLabelPath"/> in EVERY mode. Building the control is the
+    /// validation (<see cref="SdtFactory"/> owns the leaf-column and label-shape rules); the throwaway id
+    /// keeps the document's id generator untouched.
+    /// </summary>
+    /// <remarks>
+    /// Up front rather than where the controls are built so that a bad path is reported as itself, not as a
+    /// side effect of row planning (a misspelled dataPath would otherwise surface as "no repeater of this
+    /// table contains it"), and so that a headerLabelPath is checked even on a table that turns out to have
+    /// no header row. A headerLabelPath failure is re-raised under its own argument name: the caller has two
+    /// paths in one call and must be told which one to fix.
+    /// </remarks>
+    private static void ValidateInsertColumnPaths(DatasetTree? schema, InsertColumnOptions options)
+    {
+        if (schema is null)
+        {
+            return;
+        }
+
+        switch (options.Mode)
+        {
+            case InsertColumnMode.Field:
+                _ = SdtFactory.BuildField(schema, options.DataPath!, id: 0);
+                break;
+            case InsertColumnMode.Label:
+                _ = SdtFactory.BuildLabel(schema, options.DataPath!, id: 0);
+                break;
+        }
+
+        if (options.HeaderLabelPath is { } headerLabelPath)
+        {
+            try
+            {
+                _ = SdtFactory.BuildLabel(schema, headerLabelPath, id: 0);
+            }
+            catch (ArgumentException ex) when (ex.ParamName == "datasetPath")
+            {
+                throw new ArgumentException($"headerLabelPath: {ex.Message}", "headerLabelPath", ex);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Decides each row's role for <see cref="InsertColumn"/>: header cell, bound data cell, or filler (an
+    /// empty cell, or no cell at all where the totals-block / straddle / skipped-run rules apply).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// HEADER ROWS. Rows marked <c>w:tblHeader</c> when the table has any; otherwise, in a table with a
+    /// repeater, its first row when that row is not a repeater row (BC line tables mostly carry no
+    /// <c>w:tblHeader</c> — StandardSalesQuote's is the exception — and always start with the caption row).
+    /// A PLAIN table has no such convention to lean on: its header rows are its CAPTION rows — rows whose
+    /// bound controls are all labels — which is how every caption-over-value block in the corpus is built
+    /// (StandardSalesQuote's "Your Reference / Valid To / ..." table, the purchase order's two stacked
+    /// blocks, the footers' bank-detail pairs). "Row 0 is the header" was the alternative, and the corpus
+    /// rules it out: row 0 of the address blocks and the caption-beside-value tables is a FIELD row, so it
+    /// would have put a caption above a customer address. A stacked second caption row gets the header too,
+    /// so each block keeps a caption over its value.
+    /// </para>
+    /// <para>
+    /// DATA ROWS. In a repeater table, ONLY the rows of the repeater the data path belongs to (see
+    /// <see cref="ResolveDataRepeater"/>): the stock 1304/1306 lines tables also hold the
+    /// <c>/Header/ReportTotalsLine</c> repeater, which used to receive the <c>/Header/Line</c> field as
+    /// well — rendering Line 1's value beside every totals line, and skipping the totals-block widening that
+    /// keeps those amounts on the right edge (issue #82). Every other repeater's rows are filler now, so
+    /// that rule applies to them. In a plain table, every row that is not a header row, as before.
+    /// </para>
+    /// <para>
+    /// UNUSABLE ARGUMENTS ARE REFUSED, not dropped: an explicit headerText/headerLabelPath on a table with no
+    /// header row (it used to vanish, returning <c>ok:true</c>), and field/label mode on a table with no row
+    /// to hold the field.
+    /// </para>
+    /// <para>
+    /// Only the FIRST <c>w:tr</c> of a repeater's item is visible here (<see cref="TableGridNavigator"/>
+    /// resolves a row-level control to one inner row; GitHub issue #80), so a multi-row item's later rows are
+    /// not planned at all — unchanged by this method.
+    /// </para>
+    /// </remarks>
+    private static List<RowInsertPlan> PlanInsertColumnRows(Table table, int tableIndex, InsertColumnOptions options)
+    {
+        var mode = options.Mode;
+        var rowSlots = TableGridNavigator.Rows(table);
+        var repeaterPaths = rowSlots.Select(r => r.InnerRow is null ? null : RepeaterDataItemPath(r)).ToList();
+        var hasRepeater = repeaterPaths.Any(p => p is not null);
+        var anyTblHeader = rowSlots.Any(r => HasTblHeader(r.InnerRow));
+        var dataRepeater = hasRepeater && mode != InsertColumnMode.PlainText
+            ? ResolveDataRepeater(repeaterPaths, options.DataPath!, tableIndex)
+            : null;
+
+        var plans = new List<RowInsertPlan>(rowSlots.Count);
+        for (var idx = 0; idx < rowSlots.Count; idx++)
+        {
+            if (rowSlots[idx].InnerRow is not { } innerRow)
+            {
+                continue;
+            }
+
+            var isHeaderRow = anyTblHeader
+                ? HasTblHeader(innerRow)
+                : hasRepeater
+                    ? idx == 0 && repeaterPaths[idx] is null
+                    : IsCaptionRow(innerRow);
+            var isDataRow = !isHeaderRow
+                && (hasRepeater
+                    ? dataRepeater is not null && string.Equals(repeaterPaths[idx], dataRepeater, StringComparison.Ordinal)
+                    : mode != InsertColumnMode.PlainText);
+            var receivesContent = isHeaderRow || (isDataRow && mode != InsertColumnMode.PlainText);
+
+            plans.Add(new RowInsertPlan(idx, innerRow, isHeaderRow, isDataRow, receivesContent));
+        }
+
+        if ((options.HeaderText is not null || options.HeaderLabelPath is not null) && !plans.Any(p => p.IsHeaderRow))
+        {
+            var argument = options.HeaderLabelPath is not null ? "headerLabelPath" : "headerText";
+            throw new ArgumentException(
+                $"Table {tableIndex} has no header row to put {argument} in: no row is marked w:tblHeader, "
+                + (hasRepeater
+                    ? "and its first row is a repeater row"
+                    : "and no row is a caption row (one whose bound controls are all labels)")
+                + $". Omit {argument}, or add the caption after the insert with set_cell_text/insert_label at "
+                + "the cell you mean.",
+                argument);
+        }
+
+        if (mode != InsertColumnMode.PlainText && !plans.Any(p => p.IsDataRow))
+        {
+            throw new ArgumentException(
+                $"Table {tableIndex} has no row to bind '{options.DataPath}' into: every row is a header "
+                + "(caption) row. Add the column in plainText mode and bind the cell you want with "
+                + "insert_field/insert_label.",
+                "dataPath");
+        }
+
+        return plans;
+    }
+
+    /// <summary>
+    /// The repeater whose rows receive a field/label column bound to <paramref name="dataPath"/>: the
+    /// table repeater whose data item is the NEAREST ancestor of the path's own data item (for
+    /// <c>/Header/Line/ItemReferenceNo_Line</c> in a table repeating <c>/Header/Line</c> and
+    /// <c>/Header/ReportTotalsLine</c>, that is <c>/Header/Line</c>; with nested repeaters, the deepest one
+    /// that still contains the path).
+    /// </summary>
+    /// <remarks>
+    /// A path OUTSIDE every repeater of the table (a parent/Header field shown on each line, which the tool
+    /// contract allows) has no nearest repeater. It is placed only when the table repeats a single data
+    /// item nested under the path's own — then there is one candidate row and no choice to make. With two
+    /// or more (the stock lines tables' Line + ReportTotalsLine), or when the path is unrelated to every
+    /// repeater, the call is refused naming the table's repeaters rather than guessing (ADR-0003).
+    /// </remarks>
+    private static string ResolveDataRepeater(IReadOnlyList<string?> repeaterPaths, string dataPath, int tableIndex)
+    {
+        var pathSegments = dataPath.Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var dataItem = "/" + string.Join("/", pathSegments.Take(pathSegments.Length - 1));
+        var repeaters = repeaterPaths.OfType<string>().Distinct(StringComparer.Ordinal).ToList();
+
+        var enclosing = repeaters
+            .Where(r => IsSameOrDescendant(dataItem, r))
+            .OrderByDescending(r => r.Length)
+            .FirstOrDefault();
+        if (enclosing is not null)
+        {
+            return enclosing;
+        }
+
+        if (repeaters.Count == 1 && IsSameOrDescendant(repeaters[0], dataItem))
+        {
+            return repeaters[0];
+        }
+
+        throw new ArgumentException(
+            $"dataPath '{dataPath}' does not belong to a repeater of table {tableIndex}, which repeats "
+            + string.Join(", ", repeaters.Select(r => $"'{r}'"))
+            + ". insert_column binds the field only into the rows of the repeater whose data item contains "
+            + "dataPath (a parent data item's field only when the table has a single repeater under it, so "
+            + "the target row is unambiguous). Pick a column of one of those data items, or bind a specific "
+            + "cell with insert_field (locationType 'tableCell').",
+            nameof(dataPath));
+
+        static bool IsSameOrDescendant(string path, string ancestor) =>
+            string.Equals(path, ancestor, StringComparison.Ordinal)
+            || path.StartsWith(ancestor + "/", StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The dataset path (<c>/Header/Line</c>) of the data item a row repeats over: the binding of the
+    /// INNERMOST repeating section in the row's wrapper chain (the one closest to the <c>w:tr</c>, i.e. the
+    /// item the row is cloned for). Null for a bare row, and for a row-level control that is not a
+    /// repeater (or carries no binding) — such a row is planned like any other plain row.
+    /// </summary>
+    private static string? RepeaterDataItemPath(TableGridNavigator.RowSlot row)
+    {
+        for (var i = row.Wrappers.Count - 1; i >= 0; i--)
+        {
+            var wrapper = row.Wrappers[i];
+            if (!SdtInspector.IsRepeater(wrapper))
+            {
+                continue;
+            }
+
+            var binding = wrapper.GetFirstChild<SdtProperties>() is { } pr ? SdtInspector.FindRepeaterBinding(pr) : null;
+            var segments = BindingXPath.Segments(binding is null ? null : SdtInspector.Attr(binding, "xpath", OoxmlNames.W));
+            return segments.Count <= 1 ? null : "/" + string.Join("/", segments.Skip(1));
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// True for a plain table's CAPTION row: it holds at least one bound label control and no other bound
+    /// control (field, picture, repeater). Literal text does not count — a hand-typed row is
+    /// indistinguishable from a row of values, and BC's own captions are label-bound.
+    /// </summary>
+    private static bool IsCaptionRow(TableRow innerRow)
+    {
+        var kinds = innerRow.Descendants<SdtElement>().Select(SdtInspector.ClassifyControlKind).ToList();
+        return kinds.Contains(ControlKind.Label)
+            && !kinds.Any(k => k is ControlKind.Field or ControlKind.Picture or ControlKind.Repeater);
+    }
 
     /// <summary>
     /// Where a new cell covering grid column <paramref name="target"/> goes in one row:
@@ -764,7 +1031,11 @@ public static class TableStructureEditor
     /// decremented when it spans more. Repeater/cell wrappers are preserved (only the inner cells/rows are
     /// touched). Every row's coverage stays equal to the shrunk grid, verified by the consistency guard.
     /// </summary>
-    /// <exception cref="ArgumentException"><paramref name="gridColumn"/> is out of range, it is the last remaining column, or the table uses vMerge.</exception>
+    /// <exception cref="ArgumentException">
+    /// <paramref name="gridColumn"/> is out of range, it is the last remaining column, it is some row's only
+    /// cell, no row of the table matches its grid (see <see cref="RejectUnremovableColumn"/>), or the table
+    /// uses vMerge.
+    /// </exception>
     /// <exception cref="NotFoundException"><paramref name="tableIndex"/> is out of range for the part.</exception>
     public static TableEditResult RemoveColumn(
         WordprocessingDocument doc, LayoutPart part, string? partName, int tableIndex, int gridColumn)
@@ -791,6 +1062,9 @@ public static class TableStructureEditor
         }
 
         RejectUnsupportedShape(table, "remove_column");
+
+        // Refuse BEFORE mutating anything, so a refused call leaves the document exactly as it was.
+        RejectUnremovableColumn(table, tableIndex, gridColumn, gridCount);
 
         // BC line tables span the full content width; silently shrinking the table by the removed
         // column's width is the kind of visual regression a caller only catches in a preview. Capture
@@ -885,16 +1159,100 @@ public static class TableStructureEditor
     }
 
     /// <summary>
+    /// The two shapes <see cref="RemoveColumn"/> must refuse rather than "succeed" on, checked up front.
+    /// </summary>
+    /// <remarks>
+    /// <list type="bullet">
+    /// <item>A TABLE NO ROW OF WHICH MATCHES ITS GRID. Rows whose coverage differs from the grid are skipped
+    /// (there is no honest way to shrink a row that is already wrong), which is right for one pre-existing
+    /// ragged row in an otherwise sound table. When EVERY row is skipped, though, the grid itself is the
+    /// outlier (a hand-edited <c>w:tblGrid</c> shorter or longer than the rows), and dropping a
+    /// <c>w:gridCol</c> while touching no row only widens the mismatch — the call used to report
+    /// <c>ok:true</c> and "updating 0 row(s)" there (GitHub issue #78).</item>
+    /// <item>A ROW WHOSE ONLY CELL IS THE ONE TO DELETE. A row covering most of the grid with
+    /// <c>w:gridBefore</c>/<c>w:gridAfter</c> can be down to a single span-1 cell; deleting it leaves a
+    /// <c>w:tr</c> with no <c>w:tc</c>, which the grid arithmetic still accepts (the skipped run covers
+    /// the shrunk grid) and <see cref="DocumentFormat.OpenXml.Validation.OpenXmlValidator"/> accepts too —
+    /// but Word cannot open the file (issue #78's three-removal repro on
+    /// <c>StandardSalesInvoiceVatSpec.docx</c>'s first table). Neither keeping a cell there nor dropping
+    /// the row is what the caller asked for, so the call is refused naming the row.
+    /// <see cref="TableGridConsistencyGuard"/>'s <see cref="TableGridViolationKind.NoCells"/> check is the
+    /// backstop behind this one.</item>
+    /// </list>
+    /// </remarks>
+    private static void RejectUnremovableColumn(Table table, int tableIndex, int gridColumn, int gridCount)
+    {
+        var rows = TableGridNavigator.Rows(table);
+        var rowsWithInnerRow = 0;
+        var wellFormedRows = 0;
+        int? firstMalformedRow = null;
+        for (var r = 0; r < rows.Count; r++)
+        {
+            if (rows[r].InnerRow is not { } innerRow)
+            {
+                continue;
+            }
+
+            rowsWithInnerRow++;
+            var coverage = TableGridNavigator.Coverage(innerRow);
+            if (coverage.Total != gridCount)
+            {
+                firstMalformedRow ??= r;
+                continue;
+            }
+
+            wellFormedRows++;
+            var cells = TableGridNavigator.Cells(innerRow);
+            if (cells.Count == 1 && cells[0].GridSpan == 1
+                && gridColumn >= coverage.Before && gridColumn < coverage.ContentEnd)
+            {
+                throw new ArgumentException(
+                    $"Cannot remove grid column {gridColumn} from table {tableIndex}: in row {r} it is that "
+                    + $"row's ONLY cell (the rest of the row is skipped grid columns - w:gridBefore "
+                    + $"{coverage.Before}, w:gridAfter {coverage.After}), and a table row with no cells makes "
+                    + "the document impossible for Word to open. Pick a different column, or remove that row by "
+                    + "hand first if it is no longer wanted.",
+                    nameof(gridColumn));
+            }
+        }
+
+        if (firstMalformedRow is { } malformed && wellFormedRows == 0)
+        {
+            throw new ArgumentException(
+                $"Cannot remove a column from table {tableIndex}: none of its {rowsWithInnerRow} row(s) matches "
+                + $"its w:tblGrid ({gridCount} declared column(s); row {malformed} covers "
+                + $"{TableGridNavigator.Coverage(rows[malformed].InnerRow!).Total}), so there is no row the "
+                + "removal could update and dropping a w:gridCol would only widen the mismatch. Repair the "
+                + "table's w:tblGrid by hand before removing columns.",
+                nameof(gridColumn));
+        }
+
+        if (rowsWithInnerRow == 0)
+        {
+            throw new ArgumentException(
+                $"Cannot remove a column from table {tableIndex}: it has no row with cells to update, so "
+                + "removing a w:gridCol would leave the grid describing columns no row has.",
+                nameof(gridColumn));
+        }
+    }
+
+    /// <summary>
     /// Scales every width except <paramref name="removedIndex"/> up so their sum equals the ORIGINAL
     /// total (largest-remainder rounding — the result sums exactly, no drift).
     /// </summary>
-    private static int[] RedistributeWidth(int[] widthsBefore, int removedIndex)
-    {
-        var target = widthsBefore.Sum();
-        var remaining = widthsBefore.Where((_, i) => i != removedIndex).ToArray();
-        var remainingTotal = remaining.Sum();
+    private static int[] RedistributeWidth(int[] widthsBefore, int removedIndex) =>
+        ScaleToTotal(widthsBefore.Where((_, i) => i != removedIndex).ToArray(), widthsBefore.Sum());
 
-        var exact = remaining.Select(w => (double)w * target / remainingTotal).ToArray();
+    /// <summary>
+    /// Scales <paramref name="widths"/> proportionally so they sum to exactly <paramref name="target"/>
+    /// (largest-remainder rounding — no drift). Shared by <see cref="RemoveColumn"/> (scaling the remaining
+    /// columns UP to the old total) and <see cref="InsertColumn"/> (scaling the existing columns DOWN to
+    /// make room for the new one).
+    /// </summary>
+    private static int[] ScaleToTotal(int[] widths, int target)
+    {
+        var total = widths.Sum();
+        var exact = widths.Select(w => (double)w * target / total).ToArray();
         var result = exact.Select(e => (int)e).ToArray();
         var shortfall = target - result.Sum();
         foreach (var i in Enumerable.Range(0, exact.Length)
@@ -1067,7 +1425,7 @@ public static class TableStructureEditor
     /// re-slices every well-formed row's cell widths (<c>w:tcW</c>) to match — a spanning cell gets the
     /// sum of its covered grid columns. Rows whose grid coverage doesn't equal the grid (pre-existing
     /// malformed rows) are left alone rather than mis-sliced. Shared by <see cref="SetColumnWidths"/>
-    /// and <see cref="RemoveColumn"/>'s width redistribution.
+    /// and the width redistribution of <see cref="RemoveColumn"/> and <see cref="InsertColumn"/>.
     /// </summary>
     private static int ApplyGridWidths(Table table, IReadOnlyList<int> widths)
     {

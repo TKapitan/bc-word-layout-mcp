@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.Text.RegularExpressions;
 using System.Xml;
 using System.Xml.Linq;
 using System.Xml.XPath;
@@ -145,9 +144,6 @@ public sealed class MergeResult
 /// </summary>
 public static class MergeEngine
 {
-    private static readonly Regex PrefixMappingPattern =
-        new(@"xmlns:(?<prefix>\w+)\s*=\s*'(?<uri>[^']*)'", RegexOptions.Compiled);
-
     /// <summary>
     /// Copies <paramref name="layoutPath"/>, fills the copy with a generated (or overridden) sample dataset,
     /// and — only once that fully succeeds — places the merged result at <paramref name="outputPath"/>.
@@ -1437,17 +1433,11 @@ public static class MergeEngine
                 }
 
                 var mappings = SdtInspector.Attr(binding, "prefixMappings", OoxmlNames.W);
-                if (string.IsNullOrEmpty(mappings))
+                foreach (var (prefix, uri) in BindingXPath.PrefixDeclarations(mappings))
                 {
-                    continue;
-                }
-
-                foreach (Match m in PrefixMappingPattern.Matches(mappings))
-                {
-                    var prefix = m.Groups["prefix"].Value;
                     if (seen.Add(prefix))
                     {
-                        nsmgr.AddNamespace(prefix, m.Groups["uri"].Value);
+                        nsmgr.AddNamespace(prefix, uri);
                     }
                 }
             }

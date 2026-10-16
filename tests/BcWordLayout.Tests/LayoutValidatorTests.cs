@@ -93,6 +93,26 @@ public class LayoutValidatorTests
         Assert.Equal("Customer", segments[1]);
     }
 
+    [Theory]
+    [InlineData(Corpus.SalesInvoice)]
+    [InlineData(Corpus.InventoryOrderDetails)]
+    [InlineData(Corpus.StandardStatement)]
+    [InlineData(Corpus.SalespersonCommission)]
+    [InlineData(Corpus.JobQuote)]
+    [InlineData(Corpus.StandardSalesQuote)]
+    [InlineData(Corpus.StandardPurchaseOrder)]
+    [InlineData(Corpus.SalesInvoiceVatSpec)]
+    [InlineData(Corpus.PaymentPracticeByPeriod)]
+    [InlineData(Corpus.SubcontractorDispatchList)]
+    public void No_corpus_layout_trips_the_document_content_type_check(string fileName)
+    {
+        // document-content-type is an ERROR, so every layout BC exports must carry the content type it
+        // requires - the whole corpus, including the captures excluded from the pass-clean theory above.
+        var result = LayoutValidator.Quick(Corpus.Path(fileName));
+
+        Assert.DoesNotContain(result.Findings, f => f.Check == "document-content-type");
+    }
+
     [Fact]
     public void SalesInvoice_surfaces_attachedTemplate_as_warning_not_error()
     {
@@ -173,5 +193,74 @@ public class LayoutValidatorTests
     public void Missing_file_throws_file_not_found()
     {
         Assert.Throws<FileNotFoundException>(() => LayoutValidator.Quick("Z:\\does-not-exist.docx"));
+    }
+
+    // ---- binding-prefix-mapping (GitHub issue #79) ----
+
+    [Theory]
+    [InlineData(Corpus.SalesInvoice)]
+    [InlineData(Corpus.InventoryOrderDetails)]
+    [InlineData(Corpus.StandardStatement)]
+    [InlineData(Corpus.SalespersonCommission)]
+    [InlineData(Corpus.JobQuote)]
+    [InlineData(Corpus.StandardSalesQuote)]
+    [InlineData(Corpus.StandardPurchaseOrder)]
+    [InlineData(Corpus.SalesInvoiceVatSpec)]
+    [InlineData(Corpus.PaymentPracticeByPeriod)]
+    [InlineData(Corpus.SubcontractorDispatchList)]
+    public void No_corpus_layout_trips_the_binding_prefix_mapping_check(string fileName)
+    {
+        // binding-prefix-mapping is an ERROR, and an unmodified capture must not gain one. All 631 corpus
+        // bindings are rooted at NavWordReportXmlPart and declare xmlns:ns0='...' for an ns0-only XPath, except
+        // StandardSalesInvoiceVatSpec's two bare Mini_Sales_Invoice mappings - which name a foreign BC
+        // namespace and so stay binding-namespace's to report - and the foreign-namespace bindings of
+        // PaymentPracticeByPeriod/SubcontractorDispatchList, likewise left to binding-namespace.
+        var result = LayoutValidator.Quick(Corpus.Path(fileName));
+
+        Assert.DoesNotContain(result.Findings, f => f.Check == "binding-prefix-mapping");
+    }
+
+    private const string JobQuoteNamespace = "urn:microsoft-dynamics-nav/reports/Job_Quote/1016/";
+
+    [Theory]
+    // The rows of GitHub issue #79's measurement table, each against Word's ContentControl.XMLMapping.IsMapped
+    // for the same change: one binding (#Nav: /Job/JobQuoteCaptLbl) of a JobQuote.docx copy rewritten.
+    [InlineData("xmlns:ns0='urn:microsoft-dynamics-365/report/Job_Quote/1016/'", true)] // IsMapped False
+    [InlineData("xmlns:ns0='urn:microsoft-dynamics-nav/report/Job_Quote/1016/'", true)]  // IsMapped False
+    [InlineData("xmlns:ns1='" + JobQuoteNamespace + "'", true)]                            // IsMapped False
+    [InlineData(JobQuoteNamespace, false)]  // bare: IsMapped False, but BC prints the shape - deliberately no finding
+    [InlineData(null, false)]               // attribute absent: IsMapped True
+    public void JobQuote_with_one_binding_rewritten_reports_exactly_the_unresolvable_mappings(
+        string? prefixMappings, bool expectError)
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"bcwl-prefixmap-{Guid.NewGuid():N}.docx");
+        File.Copy(Corpus.Path(Corpus.JobQuote), path);
+        try
+        {
+            using (var doc = DocumentFormat.OpenXml.Packaging.WordprocessingDocument.Open(path, true))
+            {
+                var sdt = doc.MainDocumentPart!.Document!.Descendants<DocumentFormat.OpenXml.Wordprocessing.SdtElement>()
+                    .Single(s => SdtInspector.ReadAlias(s) == "#Nav: /Job/JobQuoteCaptLbl");
+                var binding = SdtInspector.FindBinding(sdt)!;
+                binding.RemoveAttribute("prefixMappings", OoxmlNames.W);
+                if (prefixMappings is not null)
+                {
+                    binding.SetAttribute(new DocumentFormat.OpenXml.OpenXmlAttribute("w", "prefixMappings", OoxmlNames.W, prefixMappings));
+                }
+
+                doc.MainDocumentPart.Document.Save();
+            }
+
+            var result = LayoutValidator.Quick(path);
+
+            var findings = result.Findings.Where(f => f.Check == "binding-prefix-mapping").ToList();
+            Assert.Equal(expectError ? 1 : 0, findings.Count);
+            Assert.All(findings, f => Assert.Equal(FindingSeverity.Error, f.Severity));
+            Assert.Equal(!expectError, result.Passed);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 }

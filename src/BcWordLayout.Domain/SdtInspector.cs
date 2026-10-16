@@ -215,11 +215,16 @@ internal static class SdtInspector
     /// prefixes; only the BC one is of interest here, and only the first is returned (no real layout declares
     /// two different BC namespaces in one binding).
     /// </remarks>
-    internal static string? ReadBindingNamespace(SdtElement sdt)
+    internal static string? ReadBindingNamespace(SdtElement sdt) => ExtractBcNamespace(ReadPrefixMappings(sdt));
+
+    /// <summary>
+    /// The sdt's binding <c>w:prefixMappings</c> value verbatim (see <see cref="FindBinding(SdtElement)"/>), or
+    /// null when the control is unbound or the binding carries no such attribute.
+    /// </summary>
+    internal static string? ReadPrefixMappings(SdtElement sdt)
     {
         var binding = FindBinding(sdt);
-        var mappings = binding is null ? null : Attr(binding, "prefixMappings", OoxmlNames.W);
-        return ExtractBcNamespace(mappings);
+        return binding is null ? null : Attr(binding, "prefixMappings", OoxmlNames.W);
     }
 
     /// <summary>

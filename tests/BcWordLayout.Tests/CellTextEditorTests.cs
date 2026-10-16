@@ -1,5 +1,7 @@
 using BcWordLayout.Domain;
 using BcWordLayout.Domain.Models;
+using BcWordLayout.McpHost;
+using BcWordLayout.McpHost.Tools;
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Validation;
@@ -295,6 +297,217 @@ public class CellTextEditorTests
             using var doc = WordprocessingDocument.Open(path, true);
             var ex = Assert.Throws<NotFoundException>(() => CellTextEditor.SetCellText(doc, Cell(0, 0, 5), "x"));
             Assert.Equal(NotFoundTarget.TableCoordinate, ex.TargetKind);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    // ---- non-text content in the cell is kept (GitHub issue #86) ----
+
+    private static string CopyOfCorpus(string corpusFile)
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"bcwl-celltext-{Guid.NewGuid():N}.docx");
+        File.Copy(Corpus.Path(corpusFile), path, overwrite: true);
+        return path;
+    }
+
+    private static OpenXmlPartRootElement DefaultFooterRoot(WordprocessingDocument doc) =>
+        doc.MainDocumentPart!.FooterParts.Single(p => p.Uri.OriginalString.EndsWith("footer2.xml", StringComparison.Ordinal))
+            .RootElement!;
+
+    [Fact]
+    public void ClearCellText_on_the_purchase_order_footer_keeps_the_nested_table_in_the_cell()
+    {
+        // The issue's reproduction: footer2.xml's outer cell holds a nested 1x1 table followed by the
+        // paragraph a w:tc must end with. The clear used to rebuild the cell from its tcPr, deleting the
+        // nested table (w:tbl count 2 -> 1) while reporting ok and "was ''".
+        var path = CopyOfCorpus(Corpus.StandardPurchaseOrder);
+        try
+        {
+            string cellXmlBefore;
+            using (var probe = WordprocessingDocument.Open(path, false))
+            {
+                var root = DefaultFooterRoot(probe);
+                Assert.Equal(2, root.Descendants<Table>().Count());
+                cellXmlBefore = root.Descendants<TableCell>().First().OuterXml;
+            }
+
+            var response = EditTools.ClearCellText(path, tableIndex: 0, row: 0, col: 0, layoutPart: "footer");
+
+            Assert.True(response.Ok, response.Error?.Message);
+            var dto = Assert.IsType<CellEditResultDto>(response.Data);
+            Assert.Equal("footer2.xml", dto.Part);
+            Assert.Equal(string.Empty, dto.PreviousText);
+            Assert.Contains("a nested table", dto.Summary, StringComparison.Ordinal);
+
+            using var reopened = WordprocessingDocument.Open(path, false);
+            var after = DefaultFooterRoot(reopened);
+            Assert.Equal(2, after.Descendants<Table>().Count());
+            // A text-less cell has nothing to clear: it is left exactly as it was.
+            Assert.Equal(cellXmlBefore, after.Descendants<TableCell>().First().OuterXml);
+            Assert.Empty(new OpenXmlValidator(FileFormatVersions.Office2021).Validate(reopened));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void SetCellText_on_the_purchase_order_footer_puts_the_text_after_the_nested_table_and_keeps_it()
+    {
+        var path = CopyOfCorpus(Corpus.StandardPurchaseOrder);
+        try
+        {
+            var response = EditTools.SetCellText(
+                path, tableIndex: 0, row: 0, col: 0, text: "Thank you for your business", layoutPart: "footer");
+
+            Assert.True(response.Ok, response.Error?.Message);
+            var dto = Assert.IsType<CellEditResultDto>(response.Data);
+            Assert.Equal(string.Empty, dto.PreviousText);
+            Assert.True(dto.QuickValidation.Passed);
+
+            using var reopened = WordprocessingDocument.Open(path, false);
+            var root = DefaultFooterRoot(reopened);
+            Assert.Equal(2, root.Descendants<Table>().Count());
+
+            var cell = root.Descendants<TableCell>().First();
+            Assert.Equal(
+                new[] { "tcPr", "tbl", "p" },
+                cell.ChildElements.Select(e => e.LocalName).ToArray());
+            var trailing = cell.Elements<Paragraph>().Single();
+            Assert.Equal("NoSpacing", trailing.ParagraphProperties!.ParagraphStyleId!.Val!.Value);
+            Assert.Equal("Thank you for your business", trailing.InnerText);
+            Assert.Empty(new OpenXmlValidator(FileFormatVersions.Office2021).Validate(reopened));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void SetCellText_replaces_the_text_around_a_nested_table_and_reports_only_that_text()
+    {
+        const string body =
+            "<w:tbl><w:tblPr/><w:tblGrid><w:gridCol w:w=\"4000\"/></w:tblGrid>"
+            + "<w:tr><w:tc><w:tcPr><w:tcW w:w=\"4000\" w:type=\"dxa\"/></w:tcPr>"
+            + "<w:p><w:pPr><w:jc w:val=\"right\"/></w:pPr><w:r><w:rPr><w:b/></w:rPr><w:t>Before</w:t></w:r></w:p>"
+            + "<w:tbl><w:tblPr/><w:tblGrid><w:gridCol w:w=\"3000\"/></w:tblGrid>"
+            + "<w:tr><w:tc><w:tcPr><w:tcW w:w=\"3000\" w:type=\"dxa\"/></w:tcPr><w:p><w:r><w:t>Inner</w:t></w:r></w:p></w:tc></w:tr></w:tbl>"
+            + "<w:p><w:r><w:t>After</w:t></w:r></w:p>"
+            + "</w:tc></w:tr></w:tbl>";
+        var path = SyntheticLayout.Create(body);
+        try
+        {
+            using (var doc = WordprocessingDocument.Open(path, true))
+            {
+                var result = CellTextEditor.SetCellText(doc, Cell(0, 0, 0), "New");
+
+                // The nested table's own text is not this cell's text: it was not replaced, so it is not reported.
+                Assert.Equal("BeforeAfter", result.PreviousText);
+                Assert.Contains("a nested table", result.Summary, StringComparison.Ordinal);
+                doc.MainDocumentPart!.Document!.Save();
+            }
+
+            using var reopened = WordprocessingDocument.Open(path, false);
+            var cell = reopened.MainDocumentPart!.Document!.Body!.Elements<Table>().Single()
+                .Elements<TableRow>().Single().Elements<TableCell>().Single();
+
+            // The new text takes the first text run's place (keeping its paragraph and run styling); the
+            // paragraph after the nested table is emptied but stays, because a w:tc must end with a w:p.
+            Assert.Equal(new[] { "tcPr", "p", "tbl", "p" }, cell.ChildElements.Select(e => e.LocalName).ToArray());
+            var first = cell.Elements<Paragraph>().First();
+            Assert.Equal("New", first.InnerText);
+            Assert.Equal(JustificationValues.Right, first.ParagraphProperties!.Justification!.Val!.Value);
+            Assert.NotNull(first.GetFirstChild<Run>()!.RunProperties!.Bold);
+            Assert.Equal("Inner", cell.Elements<Table>().Single().InnerText);
+            Assert.Equal(string.Empty, cell.Elements<Paragraph>().Last().InnerText);
+            Assert.Empty(new OpenXmlValidator(FileFormatVersions.Office2021).Validate(reopened));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void SetCellText_keeps_a_field_and_its_cached_result_and_replaces_only_the_text_beside_it()
+    {
+        // A field's cached result is w:t too; replacing it would leave a PAGE field whose result is the
+        // caller's caption. The whole field (begin..end) is kept, and its result is not "previous text".
+        const string body =
+            "<w:tbl><w:tblPr/><w:tblGrid><w:gridCol w:w=\"2000\"/></w:tblGrid>"
+            + "<w:tr><w:tc><w:tcPr/><w:p>"
+            + "<w:r><w:t xml:space=\"preserve\">Page </w:t></w:r>"
+            + "<w:r><w:fldChar w:fldCharType=\"begin\"/></w:r>"
+            + "<w:r><w:instrText xml:space=\"preserve\"> PAGE </w:instrText></w:r>"
+            + "<w:r><w:fldChar w:fldCharType=\"separate\"/></w:r>"
+            + "<w:r><w:t>1</w:t></w:r>"
+            + "<w:r><w:fldChar w:fldCharType=\"end\"/></w:r>"
+            + "</w:p></w:tc></w:tr></w:tbl>";
+        var path = SyntheticLayout.Create(body);
+        try
+        {
+            using (var doc = WordprocessingDocument.Open(path, true))
+            {
+                var result = CellTextEditor.SetCellText(doc, Cell(0, 0, 0), "Seite ");
+
+                Assert.Equal("Page ", result.PreviousText);
+                Assert.Contains("a field", result.Summary, StringComparison.Ordinal);
+                doc.MainDocumentPart!.Document!.Save();
+            }
+
+            using var reopened = WordprocessingDocument.Open(path, false);
+            var paragraph = reopened.MainDocumentPart!.Document!.Descendants<TableCell>().Single()
+                .Elements<Paragraph>().Single();
+            var runs = paragraph.Elements<Run>().ToList();
+            Assert.Equal(6, runs.Count);
+            Assert.Equal("Seite ", runs[0].InnerText);
+            Assert.Equal(" PAGE ", runs[2].GetFirstChild<FieldCode>()!.Text);
+            Assert.Equal("1", runs[4].InnerText);
+            Assert.Empty(new OpenXmlValidator(FileFormatVersions.Office2021).Validate(reopened));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void ClearCellText_keeps_a_picture_run_and_applies_no_format_to_it()
+    {
+        // The picture is a run of its own; only the text run beside it goes. A later set's bold must land
+        // on the new text run, not on the kept picture run that now comes first in the paragraph.
+        const string body =
+            "<w:tbl><w:tblPr/><w:tblGrid><w:gridCol w:w=\"2000\"/></w:tblGrid>"
+            + "<w:tr><w:tc><w:tcPr/><w:p>"
+            + "<w:r><w:pict/></w:r>"
+            + "<w:r><w:t>Logo caption</w:t></w:r>"
+            + "</w:p></w:tc></w:tr></w:tbl>";
+        var path = SyntheticLayout.Create(body);
+        try
+        {
+            using (var doc = WordprocessingDocument.Open(path, true))
+            {
+                var cleared = CellTextEditor.ClearCellText(doc, Cell(0, 0, 0));
+                Assert.Equal("Logo caption", cleared.PreviousText);
+                Assert.Contains("a picture", cleared.Summary, StringComparison.Ordinal);
+
+                CellTextEditor.SetCellText(doc, Cell(0, 0, 0), "Caption", new CellTextFormat { Bold = true });
+                doc.MainDocumentPart!.Document!.Save();
+            }
+
+            using var reopened = WordprocessingDocument.Open(path, false);
+            var runs = reopened.MainDocumentPart!.Document!.Descendants<TableCell>().Single()
+                .Elements<Paragraph>().Single().Elements<Run>().ToList();
+            Assert.Equal(2, runs.Count);
+            Assert.NotNull(runs[0].GetFirstChild<Picture>());
+            Assert.Null(runs[0].RunProperties);
+            Assert.Equal("Caption", runs[1].InnerText);
+            Assert.NotNull(runs[1].RunProperties!.Bold);
         }
         finally
         {

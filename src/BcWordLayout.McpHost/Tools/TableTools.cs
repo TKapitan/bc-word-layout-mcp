@@ -70,7 +70,9 @@ public static class TableTools
         [Description("Optional Word table style name to reference via w:tblStyle, e.g. 'TableGrid'.")]
         string? tableStyle = null,
         [Description("Optional comma-separated column widths in twips (1/20 pt), one per column; count must "
-                     + "match the number of columns. Omit for an even default width per column. The widths "
+                     + "match the number of columns. Omit for an even split of the document's content width "
+                     + "(page width minus margins; for a table placed inside a cell, that cell's width), so "
+                     + "the table always fits the page however many columns it has. The widths "
                      + "are BINDING, not advisory: the table is emitted with w:tblLayout='fixed' and a "
                      + "w:tblW total equal to their sum, so Word renders the grid as specified instead of "
                      + "autofitting the columns to whatever the merged content happens to be.")]
@@ -410,10 +412,21 @@ public static class TableTools
                  + "'label' bind the data cell via dataPath (a full dataset path exactly like insert_field/"
                  + "insert_label, e.g. '/Header/Line/Discount_Line' - it may bind a column of the repeater's "
                  + "data item OR a parent/Header field); 'plainText' adds an unbound column (headerText plus "
-                 + "empty cells). The bound control is placed in the repeater's DATA row (or, in a table with "
-                 + "no repeater, in every non-header row); header rows (w:tblHeader) get a header cell (bind "
-                 + "headerLabelPath, else headerText, else a humanized column name); all other rows get an "
-                 + "empty cell. One w:gridCol is added; width defaults to the mean of the existing columns. "
+                 + "empty cells). In a line-items table the bound control goes ONLY into the rows of the "
+                 + "repeater whose data item contains dataPath (a /Header/Line field into the Line row, never "
+                 + "into a ReportTotalsLine row of the same table, which is treated like any other non-content "
+                 + "row); a parent/Header field is accepted only when the table has a single repeater, and a "
+                 + "dataPath matching none of the table's repeaters is refused. In a table with no repeater it "
+                 + "goes into every non-header row. Header rows get a header cell (bind headerLabelPath, else "
+                 + "headerText, else a humanized column name): rows marked w:tblHeader, else the first row of "
+                 + "a line-items table, else - in a plain table - its caption rows (rows whose bound controls "
+                 + "are all labels, the BC caption-over-value shape). headerText/headerLabelPath on a table "
+                 + "with no header row are refused rather than dropped, and headerLabelPath is checked against "
+                 + "the dataset in every mode. All other rows get an empty cell. One w:gridCol is added and "
+                 + "the table KEEPS its total width, like remove_column: the new column's width is taken "
+                 + "proportionally from the existing columns and every row's cell widths are re-sliced from "
+                 + "the new grid (cells declared in percent become twips), so a full-width table stays "
+                 + "within the margins and a percentage-width table does not squeeze the new column. "
                  + "REJECTED for tables using w:vMerge (w:gridBefore/w:gridAfter rows are supported). Same write/validate/"
                  + "save-or-reject safety as insert_field, plus the grid-consistency backstop.")]
     public static ToolResponse InsertColumn(
@@ -425,7 +438,8 @@ public static class TableTools
                      + "'/Header/Line/Discount_Line'), exactly as insert_field/insert_label take. Ignored for "
                      + "'plainText'.")] string? dataPath = null,
         [Description("Optional header-cell text (used as the header in header rows; the only text for "
-                     + "'plainText'). Omit to humanize the dataPath leaf name.")] string? headerText = null,
+                     + "'plainText'). Omit to humanize the dataPath leaf name. Refused for a table with no "
+                     + "header row (see this tool's description).")] string? headerText = null,
         [Description("Optional: bind the header cell to this label-column dataset path (by default a "
                      + "'*Lbl'/'*_Lbl' path - see list_dataset_fields's isLabel flag) instead of static text.")]
         string? headerLabelPath = null,
@@ -433,7 +447,10 @@ public static class TableTools
                      + "table's columnCount, to append at the far-right edge; an interior value inserts "
                      + "between existing columns (see this tool's description for the spanned-cell rule).")]
         int? atColumn = null,
-        [Description("Optional new-column width in twips; omit for the mean of the existing columns.")]
+        [Description("Optional width of the NEW column in twips, taken proportionally from the existing "
+                     + "columns (the table's total width does not change), so it must be positive and less "
+                     + "than the table's current total. Omit for an equal share: total / (columnCount + 1). "
+                     + "Follow with set_column_widths for any other distribution.")]
         int? width = null,
         [Description("Which OOXML part the table is in: 'body' (default), 'header', or 'footer'.")] string layoutPart = "body",
         [Description("Only used when layoutPart is 'header'/'footer': a specific part file name (e.g. "
@@ -462,7 +479,10 @@ public static class TableTools
                  + "including a bound field/label cell, whose binding is dropped with it (UNLIKE remove_control, "
                  + "which preserves the cell) - or has its w:gridSpan decremented when it spans more. Repeater "
                  + "and cell-level wrappers are preserved (only the inner cells/rows change). The last "
-                 + "remaining column cannot be removed. The removed column's width is redistributed "
+                 + "remaining column cannot be removed, and neither can a column that is some row's ONLY cell "
+                 + "(a row otherwise made of w:gridBefore/w:gridAfter skipped columns - Word cannot open a row "
+                 + "with no cells); a table none of whose rows matches its w:tblGrid is refused too (the "
+                 + "grid itself is out of step). The removed column's width is redistributed "
                  + "proportionally across the remaining columns, so a table that spanned the full content "
                  + "width still does (follow up with set_column_widths if you want a different distribution). "
                  + "REJECTED for tables using w:vMerge (w:gridBefore/"

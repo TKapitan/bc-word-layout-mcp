@@ -315,14 +315,17 @@ public static class LayoutRefresher
     /// </remarks>
     private static void RepointBindingPrefix(SdtProperties pr, string newNamespace)
     {
-        switch (SdtInspector.FindBinding(pr))
+        var binding = SdtInspector.FindBinding(pr);
+        var xpath = binding is null ? null : SdtInspector.Attr(binding, "xpath", OoxmlNames.W);
+
+        switch (binding)
         {
-            case DataBinding w when RepointNamespace(w.PrefixMappings?.Value, newNamespace) is { } updated:
+            case DataBinding w when RepointNamespace(w.PrefixMappings?.Value, xpath, newNamespace) is { } updated:
                 w.PrefixMappings = updated;
                 break;
 
             case Office2013Word.DataBinding w15
-                when RepointNamespace(w15.PrefixMappings?.Value, newNamespace) is { } updated:
+                when RepointNamespace(w15.PrefixMappings?.Value, xpath, newNamespace) is { } updated:
                 w15.PrefixMappings = updated;
                 break;
         }
@@ -330,26 +333,44 @@ public static class LayoutRefresher
 
     /// <summary>
     /// Replaces the BC namespace <paramref name="prefixMappings"/> currently names with
-    /// <paramref name="newNamespace"/>, leaving everything else in the value byte-for-byte: the prefix itself
-    /// (<c>ns0</c>), the quoting, and the incidental formatting real corpus bindings are inconsistent about (a
-    /// trailing space before the closing quote; a bare URI with no <c>xmlns:</c> declaration at all, as
-    /// StandardSalesInvoiceVatSpec.docx writes). Finding the current URI via
-    /// <see cref="SdtInspector.ExtractBcNamespace"/> - the same parser the read/validate side uses to REPORT a
-    /// binding's namespace - is what makes that possible without knowing the old value, and keeps write and
-    /// read agreeing by construction.
+    /// <paramref name="newNamespace"/>, leaving everything else in an <c>xmlns:</c> declaration list
+    /// byte-for-byte: the prefix itself (<c>ns0</c>), the quoting, and the incidental formatting real corpus
+    /// bindings are inconsistent about (a trailing space before the closing quote). Finding the current URI
+    /// via <see cref="SdtInspector.ExtractBcNamespace"/> - the same parser the read/validate side uses to
+    /// REPORT a binding's namespace - is what makes that possible without knowing the old value, and keeps
+    /// write and read agreeing by construction.
+    /// <para>
+    /// A BARE URI with no <c>xmlns:</c> declaration at all (StandardSalesInvoiceVatSpec.docx's
+    /// Mini_Sales_Invoice bindings) is the one exception: it is rewritten as
+    /// <c>xmlns:&lt;prefix&gt;='&lt;newNamespace&gt;'</c> - the form <see cref="SdtFactory"/> writes - for the
+    /// single prefix <paramref name="xpath"/> uses. Swapping only the URI left it bare, and Word reports a
+    /// bare-mapped control as unmapped (ContentControl.XMLMapping.IsMapped is False on both re-pointed
+    /// bindings, GitHub issue #79), so the repair stopped halfway. Writing the declaration is not a guess:
+    /// the XPath names the prefix and the re-point fixes the URI it must map to. An XPath with no prefix, or
+    /// with several, gives no single prefix to declare, so such a value keeps the plain URI swap.
+    /// </para>
     /// <para>
     /// Returns <c>null</c> to mean "nothing to rewrite" — the value names no BC namespace (so it is none of
     /// this method's business) or already names the new one — which is what lets the caller leave such a
     /// binding's attribute completely alone; see <see cref="RepointBindingPrefix"/>'s remarks for why that
-    /// distinction matters.
+    /// distinction matters. A bare mapping that already names the new namespace is therefore left bare: this
+    /// method repairs what it re-points, and does not rewrite a binding BC already accepts.
     /// </para>
     /// </summary>
-    private static string? RepointNamespace(string? prefixMappings, string newNamespace)
+    private static string? RepointNamespace(string? prefixMappings, string? xpath, string newNamespace)
     {
         var current = SdtInspector.ExtractBcNamespace(prefixMappings);
-        return current is null || string.Equals(current, newNamespace, StringComparison.Ordinal)
-            ? null
-            : prefixMappings!.Replace(current, newNamespace, StringComparison.Ordinal);
+        if (current is null || string.Equals(current, newNamespace, StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        if (BindingXPath.PrefixDeclarations(prefixMappings).Count == 0 && BindingXPath.Prefixes(xpath) is [var prefix])
+        {
+            return $"xmlns:{prefix}='{newNamespace}'";
+        }
+
+        return prefixMappings!.Replace(current, newNamespace, StringComparison.Ordinal);
     }
 
     /// <summary>

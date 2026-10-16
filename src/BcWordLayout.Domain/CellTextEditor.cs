@@ -22,18 +22,20 @@ namespace BcWordLayout.Domain;
 /// (a bound field/label — anything with a <c>w:sdt</c> inside it) is rejected up front, so a set/clear can
 /// never silently clobber a binding — that is <see cref="LayoutEditor.RemoveControl"/> /
 /// <c>insert_field</c>/<c>insert_label</c> territory. The cell (and thus the table column) is always
-/// preserved: a set/clear only ever rewrites the cell's own paragraph content, never removes the
-/// <c>w:tc</c>. Deleting or collapsing a whole column (its cell in every row + the <c>w:tblGrid</c>) is a
+/// preserved: a set/clear only ever replaces the text runs of the cell's own paragraphs, never removes the
+/// <c>w:tc</c> or any non-text content in it (a nested table, a picture, a field). Deleting or collapsing a whole column (its cell in every row + the <c>w:tblGrid</c>) is a
 /// TABLE-STRUCTURE change, deliberately out of scope here (see <see cref="TableStructureEditor"/>).
 /// </remarks>
 public static class CellTextEditor
 {
     /// <summary>
     /// Replaces the plain text of the cell addressed by <paramref name="location"/> with
-    /// <paramref name="text"/> (a single run), collapsing any existing paragraphs/runs into one paragraph.
-    /// The cell's <c>w:tcPr</c> (width, span, borders, vertical alignment) is preserved, and the new run
-    /// inherits the first existing paragraph's <c>w:pPr</c> (e.g. <c>pStyle</c>) and first run's <c>w:rPr</c>
-    /// when there was one, so a re-labelled header keeps its styling.
+    /// <paramref name="text"/> (a single run): the cell's text runs are replaced and the paragraphs they
+    /// emptied collapse into the one holding the new run, while any non-text content (a nested table, a
+    /// picture, a field) stays in place — see <see cref="ReplaceCellText"/>. The cell's <c>w:tcPr</c>
+    /// (width, span, borders, vertical alignment) is preserved, and the new run sits in the paragraph the old
+    /// text was in, keeping its <c>w:pPr</c> (e.g. <c>pStyle</c>), and inherits the first replaced run's
+    /// <c>w:rPr</c>, so a re-labelled header keeps its styling.
     /// </summary>
     /// <exception cref="ArgumentException">
     /// <paramref name="location"/> is not a <see cref="LocationKind.TableCell"/> (or is otherwise
@@ -55,9 +57,10 @@ public static class CellTextEditor
     }
 
     /// <summary>
-    /// Clears all plain text from the cell addressed by <paramref name="location"/>, leaving a valid empty
-    /// cell (its <c>w:tcPr</c> kept, its content collapsed to a single empty paragraph that preserves the
-    /// first paragraph's <c>w:pPr</c> when there was one). The cell — and its table column — is preserved.
+    /// Clears all plain text from the cell addressed by <paramref name="location"/>, leaving a valid cell
+    /// (its <c>w:tcPr</c> kept, the paragraphs its text emptied collapsed to one that keeps its <c>w:pPr</c>).
+    /// Only the text runs go: a nested table, picture or field in the cell stays in place (see
+    /// <see cref="ReplaceCellText"/>). The cell — and its table column — is preserved.
     /// </summary>
     /// <exception cref="ArgumentException">
     /// <paramref name="location"/> is not a <see cref="LocationKind.TableCell"/> (or is otherwise
@@ -112,9 +115,7 @@ public static class CellTextEditor
                 nameof(location));
         }
 
-        var previousText = string.Concat(cell.Descendants<Text>().Select(t => t.Text));
-
-        ReplaceCellText(cell, text, format);
+        var (previousText, kept) = ReplaceCellText(cell, text, format);
 
         var newText = text ?? string.Empty;
         return new CellEditResult
@@ -126,62 +127,198 @@ public static class CellTextEditor
             Col = location.Col!.Value,
             PreviousText = previousText,
             NewText = newText,
-            Summary = BuildSummary(operation, location, partName, previousText, newText),
+            Summary = BuildSummary(operation, location, partName, previousText, newText, kept),
         };
     }
 
     /// <summary>
-    /// Rewrites <paramref name="cell"/>'s content to a single paragraph: its <c>w:tcPr</c> is kept first,
-    /// then one paragraph carrying the first old paragraph's <c>w:pPr</c> (when any) plus — for a SET
-    /// (<paramref name="text"/> non-null) — one run carrying the first old run's <c>w:rPr</c> (when any) and
-    /// the new text. A CLEAR (<paramref name="text"/> null) leaves the paragraph run-less. A <c>w:tc</c>
-    /// must contain at least one block-level child, so the single paragraph is always present, keeping the
-    /// cell (and its column) well-formed.
+    /// Replaces ONLY the cell's text runs (see <see cref="FindTextRuns"/>) and leaves everything else in the
+    /// cell where it is — a nested table, a picture, a field, a bookmark. For a SET
+    /// (<paramref name="text"/> non-null) one new run, carrying the first replaced run's <c>w:rPr</c>, takes
+    /// the first replaced run's place (appended to the cell's first paragraph when the cell had no text);
+    /// a CLEAR (<paramref name="text"/> null) only removes. A paragraph left empty by the removal collapses
+    /// into the one that holds the new text, as the multi-paragraph header labels the tools were built for
+    /// always did, except where it is still needed: <c>w:tc</c> must end with a paragraph, so one following a
+    /// nested table stays. Returns the text of the replaced runs only, plus a description of the non-text
+    /// content kept in place for the summary.
     /// </summary>
-    private static void ReplaceCellText(TableCell cell, string? text, CellTextFormat? format = null)
+    /// <remarks>
+    /// This used to rebuild the cell from its <c>w:tcPr</c> and first paragraph's <c>w:pPr</c>, which
+    /// silently deleted any other content: on <c>StandardPurchaseOrder.docx</c>'s default footer, whose
+    /// outer cell holds a nested 1×1 table, a clear removed that table and shifted every later
+    /// <c>tableIndex</c> in the part, while the tools promise that only the text is removed (GitHub issue #86).
+    /// Replacing in place keeps that promise without refusing such cells: the corpus's only nested-table cell
+    /// and its only picture cell are both legitimate targets for a caption.
+    /// </remarks>
+    private static (string PreviousText, List<string> Kept) ReplaceCellText(
+        TableCell cell, string? text, CellTextFormat? format = null)
     {
-        var tcPr = cell.GetFirstChild<TableCellProperties>();
-        var firstParagraph = cell.Elements<Paragraph>().FirstOrDefault();
-        var pPr = firstParagraph?.GetFirstChild<ParagraphProperties>()?.CloneNode(true);
-        var rPr = firstParagraph?.Elements<Run>().FirstOrDefault()?.GetFirstChild<RunProperties>()?.CloneNode(true);
+        var paragraphs = cell.Elements<Paragraph>().ToList();
+        var textRuns = FindTextRuns(paragraphs);
+        var previousText = string.Concat(textRuns.SelectMany(r => r.Elements<Text>()).Select(t => t.Text));
+        var host = textRuns.FirstOrDefault()?.Parent as Paragraph ?? paragraphs.FirstOrDefault();
 
-        cell.RemoveAllChildren();
-
-        if (tcPr is not null)
-        {
-            cell.AppendChild(tcPr);
-        }
-
-        var paragraph = new Paragraph();
-        if (pPr is not null)
-        {
-            paragraph.AppendChild(pPr);
-        }
-
+        Run? newRun = null;
         if (text is not null)
         {
-            var run = new Run();
-            if (rPr is not null)
+            newRun = new Run();
+            if (textRuns.FirstOrDefault()?.RunProperties?.CloneNode(true) is { } rPr)
             {
-                run.AppendChild(rPr);
+                newRun.AppendChild(rPr);
             }
 
-            run.AppendChild(new Text(text) { Space = SpaceProcessingModeValues.Preserve });
-            paragraph.AppendChild(run);
+            newRun.AppendChild(new Text(text) { Space = SpaceProcessingModeValues.Preserve });
+
+            if (textRuns.Count > 0)
+            {
+                textRuns[0].InsertBeforeSelf(newRun);
+            }
+            else if (host is not null)
+            {
+                host.AppendChild(newRun);
+            }
+            else
+            {
+                // No paragraph at all (not schema-valid, but nothing here should make it worse).
+                host = cell.AppendChild(new Paragraph(newRun));
+            }
         }
 
-        cell.AppendChild(paragraph);
+        var emptied = textRuns.Select(r => (Paragraph)r.Parent!).Distinct().ToList();
+        foreach (var run in textRuns)
+        {
+            run.Remove();
+        }
 
-        ApplyFormat(paragraph, format);
+        foreach (var paragraph in emptied)
+        {
+            // Spell-check marks bracket the text just removed; with it gone they mark nothing.
+            foreach (var proofError in paragraph.Elements<ProofError>().ToList())
+            {
+                proofError.Remove();
+            }
+
+            if (ReferenceEquals(paragraph, host)
+                || paragraph.ChildElements.Any(c => c is not ParagraphProperties)
+                || IsRequiredTrailingParagraph(paragraph))
+            {
+                continue;
+            }
+
+            paragraph.Remove();
+        }
+
+        if (host is not null)
+        {
+            ApplyFormat(host, newRun, format);
+        }
+
+        return (previousText, DescribeKeptContent(cell));
+    }
+
+    /// <summary>
+    /// The runs of the cell's own paragraphs that hold nothing but text (<c>w:t</c>, tabs, breaks and the
+    /// like) — what "the cell's text" means here. Runs inside a nested table belong to that table and are
+    /// never reached (only the cell's DIRECT paragraphs are walked). A run that carries a picture, a symbol
+    /// or any other non-text child is kept, and so is every run of a complex field, from its
+    /// <c>fldChar begin</c> to its <c>end</c>: the field's cached result is <c>w:t</c> too, and replacing it
+    /// would leave a field whose result is the caller's caption. Field depth is tracked across paragraphs
+    /// because a field may span them. Runs wrapped in another element (a hyperlink, a simple field, a
+    /// tracked change) are not direct paragraph children and are kept the same way.
+    /// </summary>
+    private static List<Run> FindTextRuns(IEnumerable<Paragraph> paragraphs)
+    {
+        var textRuns = new List<Run>();
+        var fieldDepth = 0;
+        foreach (var run in paragraphs.SelectMany(p => p.Elements<Run>()))
+        {
+            var fieldChars = run.Elements<FieldChar>().ToList();
+            if (fieldChars.Count > 0)
+            {
+                foreach (var fieldChar in fieldChars)
+                {
+                    if (fieldChar.FieldCharType?.Value == FieldCharValues.Begin)
+                    {
+                        fieldDepth++;
+                    }
+                    else if (fieldChar.FieldCharType?.Value == FieldCharValues.End && fieldDepth > 0)
+                    {
+                        fieldDepth--;
+                    }
+                }
+
+                continue;
+            }
+
+            if (fieldDepth == 0 && run.ChildElements.All(IsTextContent))
+            {
+                textRuns.Add(run);
+            }
+        }
+
+        return textRuns;
+    }
+
+    private static bool IsTextContent(OpenXmlElement runChild) =>
+        runChild is RunProperties or Text or TabChar or Break or CarriageReturn or NoBreakHyphen or SoftHyphen
+            or LastRenderedPageBreak;
+
+    /// <summary>
+    /// True when <paramref name="paragraph"/> is the cell's last child and the block before it is not a
+    /// paragraph (a nested table): <c>w:tc</c> must end with a <c>w:p</c>, so that paragraph has to stay.
+    /// </summary>
+    private static bool IsRequiredTrailingParagraph(Paragraph paragraph) =>
+        paragraph.NextSibling() is null
+        && paragraph.ElementsBefore().LastOrDefault(e => e is Paragraph or Table or SdtBlock) is not Paragraph;
+
+    /// <summary>
+    /// Phrases for the non-text content still in the cell after the edit, for the summary to name, so the
+    /// caller knows the cell was not reduced to the new text alone. Empty for an ordinary text cell.
+    /// </summary>
+    private static List<string> DescribeKeptContent(TableCell cell)
+    {
+        var kept = new List<string>();
+        var ownParagraphs = cell.Elements<Paragraph>().ToList();
+
+        var tables = cell.Elements<Table>().Count();
+        if (tables > 0)
+        {
+            kept.Add(tables == 1 ? "a nested table" : $"{tables} nested tables");
+        }
+
+        var pictures = ownParagraphs.SelectMany(p => p.Descendants<Run>())
+            .Count(r => r.Elements<Drawing>().Any() || r.Elements<Picture>().Any() || r.Elements<EmbeddedObject>().Any());
+        if (pictures > 0)
+        {
+            kept.Add(pictures == 1 ? "a picture" : $"{pictures} pictures");
+        }
+
+        var fields = ownParagraphs.Sum(p =>
+            p.Descendants<FieldChar>().Count(f => f.FieldCharType?.Value == FieldCharValues.Begin)
+            + p.Descendants<SimpleField>().Count());
+        if (fields > 0)
+        {
+            kept.Add(fields == 1 ? "a field" : $"{fields} fields");
+        }
+
+        if (ownParagraphs.SelectMany(p => p.ChildElements)
+            .Any(c => c is not (ParagraphProperties or Run or ProofError or BookmarkStart or BookmarkEnd or SimpleField)))
+        {
+            kept.Add("other inline content (e.g. a hyperlink)");
+        }
+
+        return kept;
     }
 
     /// <summary>
     /// Applies the OPTIONAL formatting knobs of a set: every null member means "leave as inherited/kept" —
-    /// the pre-format behavior exactly. The strongly-typed OpenXml property setters place each element at
+    /// the pre-format behavior exactly. Alignment goes on <paramref name="paragraph"/> (the one holding the
+    /// new text); bold and size go on <paramref name="run"/>, the new run itself, never on a picture or
+    /// field run kept beside it. The strongly-typed OpenXml property setters place each element at
     /// its schema-ordered position inside <c>w:pPr</c>/<c>w:rPr</c>, so the pre-save validator gate stays
     /// clean regardless of what the preserved properties already contain.
     /// </summary>
-    private static void ApplyFormat(Paragraph paragraph, CellTextFormat? format)
+    private static void ApplyFormat(Paragraph paragraph, Run? run, CellTextFormat? format)
     {
         if (format is null)
         {
@@ -195,7 +332,6 @@ public static class CellTextEditor
                 new Justification { Val = ParseAlignment(alignment, nameof(format)) };
         }
 
-        var run = paragraph.Elements<Run>().FirstOrDefault();
         if (run is null || (format.Bold is null && format.FontSizePoints is null))
         {
             return;
@@ -223,13 +359,19 @@ public static class CellTextEditor
     }
 
     private static string BuildSummary(
-        string operation, Location location, string partName, string previousText, string newText)
+        string operation, Location location, string partName, string previousText, string newText,
+        List<string> kept)
     {
         var where = $"table {location.TableIndex} row {location.Row} col {location.Col}"
             + (partName == "document.xml" ? string.Empty : $" in {partName}");
 
-        return operation == "clear_cell_text"
+        var summary = operation == "clear_cell_text"
             ? $"Cleared the plain text of {where} (was '{previousText}'); the cell and its column are preserved."
             : $"Set the plain text of {where} to '{newText}' (was '{previousText}').";
+
+        return kept.Count == 0
+            ? summary
+            : $"{summary} Only the text was replaced; the cell's other content was kept in place: "
+                + $"{string.Join(", ", kept)}.";
     }
 }

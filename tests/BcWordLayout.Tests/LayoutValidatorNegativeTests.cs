@@ -214,6 +214,145 @@ public class LayoutValidatorNegativeTests
             var result = LayoutValidator.Quick(path);
 
             Assert.DoesNotContain(result.Findings, f => f.Check == "binding-namespace");
+            Assert.DoesNotContain(result.Findings, f => f.Check == "binding-prefix-mapping");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    // ---- binding-prefix-mapping: the binding's own declarations must resolve its XPath (GitHub issue #79) ----
+
+    [Theory]
+    // The wrong-namespace pitfall SOLUTION-DESIGN §2 calls out: dynamics-365, singular "report".
+    [InlineData("xmlns:ns0='urn:microsoft-dynamics-365/report/TestReport/50000/'", "urn:microsoft-dynamics-365/report/TestReport/50000/")]
+    // nav, but singular "report".
+    [InlineData("xmlns:ns0='urn:microsoft-dynamics-nav/report/TestReport/50000/'", "urn:microsoft-dynamics-nav/report/TestReport/50000/")]
+    // The right namespace on the wrong prefix: the XPath uses ns0.
+    [InlineData("xmlns:ns1='urn:microsoft-dynamics-nav/reports/TestReport/50000/'", "'ns0:'")]
+    // A bare value naming something that is not this layout's namespace.
+    [InlineData("urn:microsoft-dynamics-365/report/TestReport/50000/", "bare value")]
+    public void Prefix_mapping_that_cannot_resolve_the_xpath_is_an_error_but_a_matching_sibling_is_not(
+        string brokenMappings, string messageMustMention)
+    {
+        // Every one of these shapes was measured unmapped in Word (IsMapped=False) on a copy of JobQuote.docx
+        // while quick validation passed it: binding-namespace only sees a namespace that LOOKS like a BC one,
+        // and xpath-resolves strips prefixes. The sibling uses the form Word writes and must stay silent.
+        var body =
+            SyntheticLayout.BoundFieldWithPrefixMappings(
+                ValidFieldXPath, SyntheticLayout.GoodItemId, $"xmlns:ns0='{SyntheticLayout.DatasetNamespace}'") +
+            SyntheticLayout.BoundFieldWithPrefixMappings(ValidFieldXPath, SyntheticLayout.GoodItemId, brokenMappings);
+        var path = SyntheticLayout.Create(body);
+
+        try
+        {
+            var result = LayoutValidator.Quick(path);
+
+            var finding = Assert.Single(result.Findings, f => f.Check == "binding-prefix-mapping");
+            Assert.Equal(FindingSeverity.Error, finding.Severity);
+            Assert.Contains(messageMustMention, finding.Message, StringComparison.Ordinal);
+            Assert.Contains(SyntheticLayout.DatasetNamespace, finding.Message, StringComparison.Ordinal);
+            Assert.False(result.Passed);
+
+            // None of these is binding-namespace's business, and the xpath itself still resolves.
+            Assert.DoesNotContain(result.Findings, f => f.Check == "binding-namespace");
+            Assert.DoesNotContain(result.Findings, f => f.Check == "xpath-resolves");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Theory]
+    // The form Word and SdtFactory write, with and without the trailing space some captures carry.
+    [InlineData("xmlns:ns0='urn:microsoft-dynamics-nav/reports/TestReport/50000/'")]
+    [InlineData("xmlns:ns0='urn:microsoft-dynamics-nav/reports/TestReport/50000/' ")]
+    // An extra declaration the XPath never uses is harmless.
+    [InlineData("xmlns:ns0='urn:microsoft-dynamics-nav/reports/TestReport/50000/' xmlns:ns1='http://example.com/other'")]
+    // A BARE uri naming the layout's own namespace: stock layouts ship it and BC prints them, so it is
+    // deliberately not reported (see the check's own remarks).
+    [InlineData("urn:microsoft-dynamics-nav/reports/TestReport/50000/")]
+    public void Prefix_mapping_shapes_that_name_the_layouts_namespace_are_not_flagged(string mappings)
+    {
+        var path = SyntheticLayout.Create(
+            SyntheticLayout.BoundFieldWithPrefixMappings(ValidFieldXPath, SyntheticLayout.GoodItemId, mappings));
+
+        try
+        {
+            Assert.DoesNotContain(LayoutValidator.Quick(path).Findings, f => f.Check == "binding-prefix-mapping");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Foreign_bc_namespace_is_reported_once_by_binding_namespace_not_again_by_the_prefix_check(bool bareUri)
+    {
+        // binding-namespace already reports a foreign BC namespace, with the refresh_xml_part repair hint that
+        // applies to exactly that case; a second finding for the same wrong namespace would be noise.
+        var path = SyntheticLayout.Create(
+            SyntheticLayout.BoundFieldInNamespace(
+                ValidFieldXPath, SyntheticLayout.GoodItemId, SyntheticLayout.ForeignNamespace, bareUri));
+
+        try
+        {
+            var result = LayoutValidator.Quick(path);
+
+            Assert.Single(result.Findings, f => f.Check == "binding-namespace");
+            Assert.DoesNotContain(result.Findings, f => f.Check == "binding-prefix-mapping");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Undeclared_prefix_is_reported_even_when_binding_namespace_also_fires()
+    {
+        // Two separate defects on one binding: a foreign BC namespace on ns0 (binding-namespace) and an XPath
+        // step on ns1 that nothing declares. refresh_xml_part repairs only the first, so the second must not be
+        // hidden behind it.
+        var xpath = Root + "/ns0:Header[1]/ns1:CompanyName[1]";
+        var path = SyntheticLayout.Create(
+            SyntheticLayout.BoundFieldWithPrefixMappings(
+                xpath, SyntheticLayout.GoodItemId, $"xmlns:ns0='{SyntheticLayout.ForeignNamespace}'"));
+
+        try
+        {
+            var result = LayoutValidator.Quick(path);
+
+            Assert.Single(result.Findings, f => f.Check == "binding-namespace");
+            var finding = Assert.Single(result.Findings, f => f.Check == "binding-prefix-mapping");
+            Assert.Contains("'ns1:'", finding.Message, StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Binding_into_another_data_store_is_out_of_the_prefix_checks_scope()
+    {
+        // A document-property control binds Word's core-properties part, with prefixMappings that name no BC
+        // namespace at all. Scoping by the XPath's root step (not NavWordReportXmlPart here) keeps it out.
+        const string corePropsMappings =
+            "xmlns:ns0='http://purl.org/dc/elements/1.1/' "
+            + "xmlns:ns1='http://schemas.openxmlformats.org/package/2006/metadata/core-properties' ";
+        var path = SyntheticLayout.Create(
+            SyntheticLayout.BoundFieldWithPrefixMappings(
+                "/ns1:coreProperties[1]/ns0:title[1]", "{6C3C8BC8-F283-45AE-878A-BAB7291924A1}", corePropsMappings));
+
+        try
+        {
+            Assert.DoesNotContain(LayoutValidator.Quick(path).Findings, f => f.Check == "binding-prefix-mapping");
         }
         finally
         {
@@ -248,6 +387,37 @@ public class LayoutValidatorNegativeTests
         finally
         {
             File.Delete(path);
+        }
+    }
+
+    // ---- document-content-type: a .docx whose main part is typed as something Word will not open as one (#77) ----
+
+    [Theory]
+    [InlineData(DocumentFormat.OpenXml.WordprocessingDocumentType.Template, "template.main+xml")]
+    [InlineData(DocumentFormat.OpenXml.WordprocessingDocumentType.MacroEnabledTemplate, "template.macroEnabledTemplate.main+xml")]
+    [InlineData(DocumentFormat.OpenXml.WordprocessingDocumentType.MacroEnabledDocument, "document.macroEnabled.main+xml")]
+    public void Main_part_not_typed_as_a_document_is_flagged_but_a_document_typed_sibling_is_not(
+        DocumentFormat.OpenXml.WordprocessingDocumentType documentType, string contentTypeFragment)
+    {
+        // A template (or macro-enabled package) renamed to .docx: OpenXmlValidator and every binding check
+        // pass it, and Word refuses to open it. The fixtures carry no BC part (single-bc-part fires on both
+        // alike), so the pairing isolates the content type as the only difference between them.
+        var renamed = SyntheticLayout.CreateWordPackage(documentType, ".docx");
+        var sibling = SyntheticLayout.CreateWordPackage(DocumentFormat.OpenXml.WordprocessingDocumentType.Document, ".docx");
+
+        try
+        {
+            var findings = LayoutValidator.Quick(renamed).Findings.Where(f => f.Check == "document-content-type").ToList();
+            var finding = Assert.Single(findings);
+            Assert.Equal(FindingSeverity.Error, finding.Severity);
+            Assert.Contains(contentTypeFragment, finding.Message, StringComparison.OrdinalIgnoreCase);
+
+            Assert.DoesNotContain(LayoutValidator.Quick(sibling).Findings, f => f.Check == "document-content-type");
+        }
+        finally
+        {
+            File.Delete(renamed);
+            File.Delete(sibling);
         }
     }
 

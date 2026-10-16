@@ -104,37 +104,28 @@ public class LayoutEditorTests
     }
 
     [Fact]
-    public void InsertField_afterControl_on_a_real_cell_level_plaintext_control_is_valid_OOXML_but_a_plaintext_nesting()
+    public void InsertField_afterControl_on_a_real_cell_level_plaintext_control_is_refused_before_any_mutation()
     {
-        // YourReference_Lbl is a cell-level SdtCell (parent is a TableRow) AND a PLAIN-TEXT control (its
-        // w:sdtPr carries <w:text/>). LayoutEditor is a raw primitive: it happily anchors the new field
-        // inside that control's own cell, and the result is well-formed OOXML that OpenXmlValidator fully
-        // accepts. But that nesting - a content control inside a plain-text control - is exactly what Word
-        // rejects as a corrupt document. This test pins down that split: the structural validator alone is
-        // NOT enough, which is why the tool-layer write gate additionally consults PlainTextNestingGuard
-        // (see McpHostToolTests.InsertField_afterControl_into_a_plaintext_cell_control_is_refused...).
+        // YourReference_Lbl is a cell-level SdtCell (parent is a TableRow) AND a bound PLAIN-TEXT control.
+        // LayoutEditor used to anchor the new field inside that control's own cell - well-formed OOXML that
+        // OpenXmlValidator fully accepts, yet a content control inside a plain-text control, which Word
+        // rejects as a corrupt document (only the tool layer's PlainTextNestingGuard caught it). Since GitHub
+        // issue #76 the location itself is refused (LocationResolver), so even the raw primitive cannot
+        // produce it, and the document is left exactly as it was.
         var path = CopyOfCorpus(Corpus.SalesInvoice);
         try
         {
-            using (var doc = WordprocessingDocument.Open(path, true))
-            {
-                var body = doc.MainDocumentPart!.Document!.Body!;
-                Assert.IsType<SdtCell>(body.Descendants<SdtElement>().Single(s => ReadId(s) == CellLevelLabelId));
+            using var doc = WordprocessingDocument.Open(path, true);
+            var body = doc.MainDocumentPart!.Document!.Body!;
+            Assert.IsType<SdtCell>(body.Descendants<SdtElement>().Single(s => ReadId(s) == CellLevelLabelId));
+            var controlsBefore = body.Descendants<SdtElement>().Count();
 
-                LayoutEditor.InsertField(
-                    doc, "/Header/SalesPersonName", new Location { Type = LocationKind.AfterControl, ControlId = CellLevelLabelId });
-                doc.MainDocumentPart!.Document!.Save();
-            }
+            var ex = Assert.Throws<ArgumentException>(() => LayoutEditor.InsertField(
+                doc, "/Header/SalesPersonName", new Location { Type = LocationKind.AfterControl, ControlId = CellLevelLabelId }));
+            Assert.Equal("location", ex.ParamName);
 
-            using var reopened = WordprocessingDocument.Open(path, false);
-
-            // OpenXmlValidator sees nothing wrong ...
-            var openXmlErrors = new OpenXmlValidator(FileFormatVersions.Office2021).Validate(reopened).ToList();
-            Assert.Empty(openXmlErrors);
-
-            // ... but the plain-text nesting guard DOES catch the newly-nested field.
-            var nestings = PlainTextNestingGuard.Find(reopened);
-            Assert.Contains(nestings, n => n.OuterId == CellLevelLabelId);
+            Assert.Equal(controlsBefore, body.Descendants<SdtElement>().Count());
+            Assert.Empty(PlainTextNestingGuard.Find(doc));
         }
         finally
         {
@@ -545,6 +536,92 @@ public class LayoutEditorTests
             using var reopened = WordprocessingDocument.Open(path, false);
             var openXmlErrors = new OpenXmlValidator(FileFormatVersions.Office2021).Validate(reopened).ToList();
             Assert.Empty(openXmlErrors);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    // ---- remove_control keepText on the w:group of a block-level top-level repeater (GitHub issue #87) ----
+
+    private const string TopLevelHeaderXPath = "/ns0:NavWordReportXmlPart[1]/ns0:Header";
+    private const string NestedLineXPath = "/ns0:NavWordReportXmlPart[1]/ns0:Header[1]/ns0:Line";
+
+    [Fact]
+    public void RemoveControl_keepText_on_the_group_of_a_top_level_block_repeater_throws_and_leaves_it_in_place()
+    {
+        // Unwrapping the group turns StandardStatement's shape (repeatingSection > group > item) into the one
+        // BC prints as an EMPTY document - exactly what the top-level-repeater-group check reports.
+        var path = SyntheticLayout.Create(SyntheticLayout.GroupedRepeater(TopLevelHeaderXPath, SyntheticLayout.GoodItemId));
+        try
+        {
+            using var doc = WordprocessingDocument.Open(path, true);
+
+            var ex = Assert.Throws<ArgumentException>(() => LayoutEditor.RemoveControl(doc, 111, keepText: true));
+
+            Assert.Equal("keepText", ex.ParamName);
+            Assert.Contains("w:group", ex.Message, StringComparison.Ordinal);
+            Assert.Contains("id 110", ex.Message, StringComparison.Ordinal);
+            Assert.Contains(doc.MainDocumentPart!.Document!.Body!.Descendants<SdtElement>(), s => ReadId(s) == 111);
+            Assert.DoesNotContain(LayoutValidator.Quick(doc).Findings, f => f.Check == "top-level-repeater-group");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void RemoveControl_keepText_on_the_group_of_a_nested_item_block_repeater_still_unwraps_it()
+    {
+        // Only the top-level shape needs the group (block repeaters over nested items render without one in
+        // the stock 1304/1306 layouts), so the refusal must not reach any further than the check does.
+        var path = SyntheticLayout.Create(
+            SyntheticLayout.GroupedRepeater(NestedLineXPath, SyntheticLayout.GoodItemId),
+            datasetXml: SyntheticLayout.DatasetWithLineXml);
+        try
+        {
+            using var doc = WordprocessingDocument.Open(path, true);
+
+            LayoutEditor.RemoveControl(doc, 111, keepText: true);
+
+            var body = doc.MainDocumentPart!.Document!.Body!;
+            Assert.DoesNotContain(body.Descendants<SdtElement>(), s => ReadId(s) == 111);
+            Assert.Contains(body.Descendants<SdtElement>(), s => ReadId(s) == 112);
+            Assert.DoesNotContain(LayoutValidator.Quick(doc).Findings, f => f.Severity == FindingSeverity.Error);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void RemoveControl_keepText_on_another_group_inside_a_top_level_repeaters_item_still_unwraps_it()
+    {
+        // The refusal asks whether the unwrap would take away the repeater's group, not whether the control
+        // is "a group in a top-level repeater": a group INSIDE the item is not the one BC needs.
+        var body =
+            "<w:sdt><w:sdtPr><w:id w:val=\"110\"/>"
+            + $"<w15:dataBinding w:xpath=\"{TopLevelHeaderXPath}\" w:storeItemID=\"{SyntheticLayout.GoodItemId}\"/>"
+            + "<w15:repeatingSection/></w:sdtPr><w:sdtContent>"
+            + "<w:sdt><w:sdtPr><w:id w:val=\"111\"/><w:lock w:val=\"contentLocked\"/><w:group/></w:sdtPr><w:sdtContent>"
+            + "<w:sdt><w:sdtPr><w:id w:val=\"112\"/><w15:repeatingSectionItem/></w:sdtPr><w:sdtContent>"
+            + "<w:sdt><w:sdtPr><w:id w:val=\"113\"/><w:group/></w:sdtPr><w:sdtContent>"
+            + "<w:p><w:r><w:t>inner</w:t></w:r></w:p></w:sdtContent></w:sdt>"
+            + "</w:sdtContent></w:sdt>"
+            + "</w:sdtContent></w:sdt>"
+            + "</w:sdtContent></w:sdt>";
+        var path = SyntheticLayout.Create(body);
+        try
+        {
+            using var doc = WordprocessingDocument.Open(path, true);
+
+            LayoutEditor.RemoveControl(doc, 113, keepText: true);
+
+            Assert.DoesNotContain(doc.MainDocumentPart!.Document!.Body!.Descendants<SdtElement>(), s => ReadId(s) == 113);
+            Assert.DoesNotContain(LayoutValidator.Quick(doc).Findings, f => f.Check == "top-level-repeater-group");
         }
         finally
         {
