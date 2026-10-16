@@ -1114,6 +1114,120 @@ public class TableStructureEditorTests
         }
     }
 
+    // ---- GitHub issue #78: remove_column must never leave a row with no cells, nor "succeed" on a table
+    // whose rows all disagree with its grid ----
+
+    [Fact]
+    public void RemoveColumn_refuses_to_delete_a_gridAfter_rows_only_cell_naming_the_row()
+    {
+        // The issue's repro: VatSpec's first table is 4 grid columns, and row 0 is [span 2][span 1] plus
+        // gridAfter=1. Removing columns 2, 0, 0 brings that row down to one span-1 cell, then deletes it -
+        // a w:tr with only <w:trPr><w:gridAfter/></w:trPr>, which the coverage arithmetic and OpenXmlValidator
+        // both accept and Word cannot open.
+        var path = CopyOfCorpus(Corpus.SalesInvoiceVatSpec);
+        try
+        {
+            using var doc = WordprocessingDocument.Open(path, true);
+            TableStructureEditor.RemoveColumn(doc, LayoutPart.Body, null, 0, 2);
+            TableStructureEditor.RemoveColumn(doc, LayoutPart.Body, null, 0, 0);
+
+            var table = BodyTable(doc, 0);
+            Assert.Equal((0, 1, 1), Coverage(table, 0)); // the fixture really is down to one cell + gridAfter
+
+            var ex = Assert.Throws<ArgumentException>(() =>
+                TableStructureEditor.RemoveColumn(doc, LayoutPart.Body, null, 0, 0));
+            Assert.Equal("gridColumn", ex.ParamName);
+            Assert.Contains("row 0", ex.Message, StringComparison.Ordinal);
+            Assert.Contains("ONLY cell", ex.Message, StringComparison.Ordinal);
+
+            // Refused before touching anything: the grid and that row are as they were.
+            Assert.Equal(2, TableGridNavigator.GridColumnCount(table));
+            Assert.Equal((0, 1, 1), Coverage(table, 0));
+            Assert.Empty(TableGridConsistencyGuard.Find(doc));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void RemoveColumn_on_a_skipped_column_of_a_single_cell_row_still_shrinks_the_run()
+    {
+        // The refusal is about deleting the row's only CELL - removing a column that falls in the same row's
+        // skipped run leaves that cell alone and must keep working.
+        var body =
+            "<w:tbl><w:tblPr/><w:tblGrid><w:gridCol w:w=\"1000\"/><w:gridCol w:w=\"1000\"/><w:gridCol w:w=\"1000\"/></w:tblGrid>"
+            + "<w:tr><w:tc><w:tcPr/><w:p/></w:tc><w:tc><w:tcPr/><w:p/></w:tc><w:tc><w:tcPr/><w:p/></w:tc></w:tr>"
+            + "<w:tr><w:trPr><w:gridAfter w:val=\"2\"/></w:trPr><w:tc><w:tcPr/><w:p/></w:tc></w:tr></w:tbl>";
+        var path = SyntheticLayout.Create(body);
+        try
+        {
+            using var doc = WordprocessingDocument.Open(path, true);
+            TableStructureEditor.RemoveColumn(doc, LayoutPart.Body, null, 0, 2);
+
+            var table = BodyTable(doc, 0);
+            Assert.Equal((0, 1, 1), Coverage(table, 1));
+            Assert.Empty(TableGridConsistencyGuard.Find(doc));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void RemoveColumn_refuses_a_table_none_of_whose_rows_matches_its_grid()
+    {
+        // The issue's second gap: a w:tblGrid already shorter than every row (a hand-edit defect). Every row
+        // is skipped as malformed, so the call used to drop a w:gridCol anyway and report "updating 0 row(s)".
+        var body =
+            "<w:tbl><w:tblPr/><w:tblGrid><w:gridCol w:w=\"1000\"/><w:gridCol w:w=\"1000\"/></w:tblGrid>"
+            + "<w:tr><w:tc><w:tcPr/><w:p/></w:tc><w:tc><w:tcPr/><w:p/></w:tc><w:tc><w:tcPr/><w:p/></w:tc></w:tr>"
+            + "<w:tr><w:tc><w:tcPr/><w:p/></w:tc><w:tc><w:tcPr/><w:p/></w:tc><w:tc><w:tcPr/><w:p/></w:tc></w:tr>"
+            + "</w:tbl>";
+        var path = SyntheticLayout.Create(body);
+        try
+        {
+            using var doc = WordprocessingDocument.Open(path, true);
+            var ex = Assert.Throws<ArgumentException>(() =>
+                TableStructureEditor.RemoveColumn(doc, LayoutPart.Body, null, 0, 0));
+            Assert.Equal("gridColumn", ex.ParamName);
+            Assert.Contains("none of its 2 row(s) matches", ex.Message, StringComparison.Ordinal);
+
+            var table = BodyTable(doc, 0);
+            Assert.Equal(2, TableGridNavigator.GridColumnCount(table));
+            Assert.All(table.Elements<TableRow>(), r => Assert.Equal(3, r.Elements<TableCell>().Count()));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Guard_flags_a_row_with_no_cells_even_when_its_skipped_run_covers_the_grid()
+    {
+        // grid 2; row 1 is nothing but <w:gridAfter w:val="2"/> - coverage 2 == grid 2, so only the
+        // dedicated zero-cell check can see it.
+        var body =
+            "<w:tbl><w:tblPr/><w:tblGrid><w:gridCol w:w=\"1000\"/><w:gridCol w:w=\"1000\"/></w:tblGrid>"
+            + "<w:tr><w:tc><w:tcPr/><w:p/></w:tc><w:tc><w:tcPr/><w:p/></w:tc></w:tr>"
+            + "<w:tr><w:trPr><w:gridAfter w:val=\"2\"/></w:trPr></w:tr></w:tbl>";
+        var path = SyntheticLayout.Create(body);
+        try
+        {
+            using var doc = WordprocessingDocument.Open(path, false);
+            var violation = Assert.Single(TableGridConsistencyGuard.Find(doc));
+            Assert.Equal(TableGridViolationKind.NoCells, violation.Kind);
+            Assert.Equal(1, violation.RowIndex);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     [Fact]
     public void Guard_reports_no_violations_on_the_pristine_gridAfter_corpus_layouts()
     {
@@ -1175,6 +1289,32 @@ public class TableStructureToolTests
             Assert.True(response.Ok, response.Error?.Message);
             var dto = Assert.IsType<TableEditResultDto>(response.Data);
             Assert.Equal(8, dto.ColumnCountAfter);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Tool_remove_column_refuses_to_empty_a_row_and_leaves_the_file_untouched()
+    {
+        // GitHub issue #78's tool-level repro: the third removal used to return ok:true and leave a row
+        // Word cannot open. It must now be an invalid_argument refusal with an actionable hint.
+        var path = CopyOfCorpus(Corpus.SalesInvoiceVatSpec);
+        try
+        {
+            Assert.True(TableTools.RemoveColumn(path, tableIndex: 0, column: 2).Ok);
+            Assert.True(TableTools.RemoveColumn(path, tableIndex: 0, column: 0).Ok);
+            var before = File.ReadAllBytes(path);
+
+            var response = TableTools.RemoveColumn(path, tableIndex: 0, column: 0);
+
+            Assert.False(response.Ok);
+            Assert.Equal("invalid_argument", response.Error!.Code);
+            Assert.Contains("row 0", response.Error.Message, StringComparison.Ordinal);
+            Assert.Contains("ONLY cell", response.Error.Hint, StringComparison.Ordinal);
+            Assert.Equal(before, File.ReadAllBytes(path));
         }
         finally
         {

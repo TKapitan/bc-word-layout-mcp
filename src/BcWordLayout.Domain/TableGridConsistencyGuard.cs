@@ -16,12 +16,20 @@ public enum TableGridViolationKind
 
     /// <summary>A cell holds no block-level content (its <c>w:tc</c> has nothing but <c>w:tcPr</c>, or its cell-level control wraps no <c>w:tc</c> at all).</summary>
     EmptyCell,
+
+    /// <summary>
+    /// A row has no cells at all (no <c>w:tc</c> and no cell-level control) — its grid columns, if any, are
+    /// accounted for by <c>w:gridBefore</c>/<c>w:gridAfter</c> alone. <see cref="CoverageMismatch"/> cannot
+    /// see this: the arithmetic still adds up. Word cannot open or convert a document holding such a row
+    /// (GitHub issue #78: <c>remove_column</c> once produced one from a <c>gridAfter</c> row's only cell).
+    /// </summary>
+    NoCells,
 }
 
 /// <summary>
-/// One table row whose cell layout is inconsistent with its <c>w:tblGrid</c> — either its cells cover a
-/// different number of grid columns than the grid declares, or one of its cells is empty of block content.
-/// Both are Word-visible table corruptions that <see cref="DocumentFormat.OpenXml.Validation.OpenXmlValidator"/>
+/// One table row whose cell layout is inconsistent with its <c>w:tblGrid</c> — its cells cover a different
+/// number of grid columns than the grid declares, one of its cells is empty of block content, or it has no
+/// cells at all. All three are Word-visible table corruptions that <see cref="DocumentFormat.OpenXml.Validation.OpenXmlValidator"/>
 /// accepts silently (a <c>w:tr</c> may schema-legally hold any number of <c>w:tc</c>, and a
 /// <c>w:tc</c>'s content model does not force a paragraph), which is exactly why this dedicated guard
 /// exists alongside the structural gate — the same relationship <see cref="PlainTextNestingGuard"/> has.
@@ -93,7 +101,7 @@ public readonly record struct TableGridViolation(string Part, int TableIndex, in
 /// Detects table rows whose cell layout is inconsistent with the table's <c>w:tblGrid</c>. For every row
 /// (resolving repeater/cell wrappers via <see cref="TableGridNavigator"/>), the sum of its cells'
 /// <c>w:gridSpan</c> values plus any <c>w:gridBefore</c>/<c>w:gridAfter</c> must equal the grid's column
-/// count; and every cell must hold at least one block-level child.
+/// count; every row must hold at least one cell; and every cell must hold at least one block-level child.
 /// </summary>
 /// <remarks>
 /// WHY THIS EXISTS: the structural table-editing tools (<c>set_column_widths</c>, <c>insert_column</c>,
@@ -153,6 +161,15 @@ public static class TableGridConsistencyGuard
             }
 
             var cells = TableGridNavigator.Cells(innerRow);
+            if (cells.Count == 0)
+            {
+                // Checked on its own rather than left to the coverage arithmetic below: a row whose grid
+                // is covered by w:gridBefore/w:gridAfter alone sums to the grid exactly and would pass.
+                found.Add(new TableGridViolation(
+                    part, tableIndex, r, TableGridViolationKind.NoCells,
+                    "row has no cells (no w:tc); Word cannot open a table row without at least one cell"));
+            }
+
             var (before, after) = TableGridNavigator.GridEdges(innerRow);
             var coverage = before + after + cells.Sum(c => c.GridSpan);
             if (coverage != gridCount)

@@ -1170,7 +1170,10 @@ internal static class ToolGuards
 
         "gridcolumn" =>
             "remove_column's column is a 0-based GRID column index (0..columnCount-1 from get_layout_info); "
-            + "the last remaining column cannot be removed.",
+            + "the last remaining column cannot be removed, nor a column that is some row's ONLY cell (a row "
+            + "otherwise made of w:gridBefore/w:gridAfter skipped columns - Word cannot open a row with no "
+            + "cells), nor any column of a table none of whose rows matches its w:tblGrid (repair the grid "
+            + "first). The message above names the row or the mismatch.",
 
         "fromcolumn" or "tocolumn" =>
             "merge_cells needs 0 <= fromColumn < toColumn < the row's cell count (see get_layout_info's "

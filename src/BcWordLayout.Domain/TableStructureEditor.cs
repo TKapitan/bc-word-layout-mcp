@@ -764,7 +764,11 @@ public static class TableStructureEditor
     /// decremented when it spans more. Repeater/cell wrappers are preserved (only the inner cells/rows are
     /// touched). Every row's coverage stays equal to the shrunk grid, verified by the consistency guard.
     /// </summary>
-    /// <exception cref="ArgumentException"><paramref name="gridColumn"/> is out of range, it is the last remaining column, or the table uses vMerge.</exception>
+    /// <exception cref="ArgumentException">
+    /// <paramref name="gridColumn"/> is out of range, it is the last remaining column, it is some row's only
+    /// cell, no row of the table matches its grid (see <see cref="RejectUnremovableColumn"/>), or the table
+    /// uses vMerge.
+    /// </exception>
     /// <exception cref="NotFoundException"><paramref name="tableIndex"/> is out of range for the part.</exception>
     public static TableEditResult RemoveColumn(
         WordprocessingDocument doc, LayoutPart part, string? partName, int tableIndex, int gridColumn)
@@ -791,6 +795,9 @@ public static class TableStructureEditor
         }
 
         RejectUnsupportedShape(table, "remove_column");
+
+        // Refuse BEFORE mutating anything, so a refused call leaves the document exactly as it was.
+        RejectUnremovableColumn(table, tableIndex, gridColumn, gridCount);
 
         // BC line tables span the full content width; silently shrinking the table by the removed
         // column's width is the kind of visual regression a caller only catches in a preview. Capture
@@ -882,6 +889,84 @@ public static class TableStructureEditor
                 + (partFile == "document.xml" ? string.Empty : $" in {partFile}")
                 + $", updating {rowsAffected} row(s){widthNote}.",
         };
+    }
+
+    /// <summary>
+    /// The two shapes <see cref="RemoveColumn"/> must refuse rather than "succeed" on, checked up front.
+    /// </summary>
+    /// <remarks>
+    /// <list type="bullet">
+    /// <item>A TABLE NO ROW OF WHICH MATCHES ITS GRID. Rows whose coverage differs from the grid are skipped
+    /// (there is no honest way to shrink a row that is already wrong), which is right for one pre-existing
+    /// ragged row in an otherwise sound table. When EVERY row is skipped, though, the grid itself is the
+    /// outlier (a hand-edited <c>w:tblGrid</c> shorter or longer than the rows), and dropping a
+    /// <c>w:gridCol</c> while touching no row only widens the mismatch — the call used to report
+    /// <c>ok:true</c> and "updating 0 row(s)" there (GitHub issue #78).</item>
+    /// <item>A ROW WHOSE ONLY CELL IS THE ONE TO DELETE. A row covering most of the grid with
+    /// <c>w:gridBefore</c>/<c>w:gridAfter</c> can be down to a single span-1 cell; deleting it leaves a
+    /// <c>w:tr</c> with no <c>w:tc</c>, which the grid arithmetic still accepts (the skipped run covers
+    /// the shrunk grid) and <see cref="DocumentFormat.OpenXml.Validation.OpenXmlValidator"/> accepts too —
+    /// but Word cannot open the file (issue #78's three-removal repro on
+    /// <c>StandardSalesInvoiceVatSpec.docx</c>'s first table). Neither keeping a cell there nor dropping
+    /// the row is what the caller asked for, so the call is refused naming the row.
+    /// <see cref="TableGridConsistencyGuard"/>'s <see cref="TableGridViolationKind.NoCells"/> check is the
+    /// backstop behind this one.</item>
+    /// </list>
+    /// </remarks>
+    private static void RejectUnremovableColumn(Table table, int tableIndex, int gridColumn, int gridCount)
+    {
+        var rows = TableGridNavigator.Rows(table);
+        var rowsWithInnerRow = 0;
+        var wellFormedRows = 0;
+        int? firstMalformedRow = null;
+        for (var r = 0; r < rows.Count; r++)
+        {
+            if (rows[r].InnerRow is not { } innerRow)
+            {
+                continue;
+            }
+
+            rowsWithInnerRow++;
+            var coverage = TableGridNavigator.Coverage(innerRow);
+            if (coverage.Total != gridCount)
+            {
+                firstMalformedRow ??= r;
+                continue;
+            }
+
+            wellFormedRows++;
+            var cells = TableGridNavigator.Cells(innerRow);
+            if (cells.Count == 1 && cells[0].GridSpan == 1
+                && gridColumn >= coverage.Before && gridColumn < coverage.ContentEnd)
+            {
+                throw new ArgumentException(
+                    $"Cannot remove grid column {gridColumn} from table {tableIndex}: in row {r} it is that "
+                    + $"row's ONLY cell (the rest of the row is skipped grid columns - w:gridBefore "
+                    + $"{coverage.Before}, w:gridAfter {coverage.After}), and a table row with no cells makes "
+                    + "the document impossible for Word to open. Pick a different column, or remove that row by "
+                    + "hand first if it is no longer wanted.",
+                    nameof(gridColumn));
+            }
+        }
+
+        if (firstMalformedRow is { } malformed && wellFormedRows == 0)
+        {
+            throw new ArgumentException(
+                $"Cannot remove a column from table {tableIndex}: none of its {rowsWithInnerRow} row(s) matches "
+                + $"its w:tblGrid ({gridCount} declared column(s); row {malformed} covers "
+                + $"{TableGridNavigator.Coverage(rows[malformed].InnerRow!).Total}), so there is no row the "
+                + "removal could update and dropping a w:gridCol would only widen the mismatch. Repair the "
+                + "table's w:tblGrid by hand before removing columns.",
+                nameof(gridColumn));
+        }
+
+        if (rowsWithInnerRow == 0)
+        {
+            throw new ArgumentException(
+                $"Cannot remove a column from table {tableIndex}: it has no row with cells to update, so "
+                + "removing a w:gridCol would leave the grid describing columns no row has.",
+                nameof(gridColumn));
+        }
     }
 
     /// <summary>

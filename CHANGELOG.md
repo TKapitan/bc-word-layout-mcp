@@ -82,6 +82,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `/Customer` group it returned ok and left a layout Business Central prints as an empty document.
   The hint points to removing the repeater itself with `keepText=false`.
 
+- **`remove_column` no longer leaves a table row with no cells** (GitHub issue #78). Removing the
+  only cell of a row whose other columns are skipped (`w:gridBefore`/`w:gridAfter`) returned
+  `ok:true` and left a file Word cannot open. It is now refused, naming the row, and the table-grid
+  safety check rejects any edit that leaves a row with no cells. `remove_column` also refuses a
+  table none of whose rows matches its `w:tblGrid`; it used to drop a grid column there and report
+  "updating 0 row(s)".
+
 ### Security
 
 - **A crafted layout can no longer kill the server through the OpenXml SDK's own parse** (GitHub
