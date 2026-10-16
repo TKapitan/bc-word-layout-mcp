@@ -44,4 +44,33 @@ public class BindingXPathTests
         Assert.Empty(BindingXPath.Segments(null));
         Assert.Null(BindingXPath.LeafName(""));
     }
+
+    [Fact]
+    public void Prefixes_lists_each_step_prefix_once_in_first_use_order()
+    {
+        Assert.Equal(
+            new[] { "ns0", "ns1" },
+            BindingXPath.Prefixes("/ns0:NavWordReportXmlPart[1]/ns1:Header[1]/ns0:Line[1]/ns1:ItemNo_Line[1]"));
+        Assert.Empty(BindingXPath.Prefixes("/NavWordReportXmlPart[1]/Header[1]"));
+        Assert.Empty(BindingXPath.Prefixes(null));
+    }
+
+    [Fact]
+    public void PrefixDeclarations_parses_xmlns_declarations_and_nothing_from_a_bare_uri()
+    {
+        Assert.Equal(
+            new[] { ("ns0", "urn:a/"), ("ns1", "urn:b/") },
+            BindingXPath.PrefixDeclarations("xmlns:ns0='urn:a/' xmlns:ns1=\"urn:b/\" xmlns:ns0='urn:ignored/'"));
+        Assert.Empty(BindingXPath.PrefixDeclarations("urn:microsoft-dynamics-nav/reports/Mini_Sales_Invoice/1306/"));
+        Assert.Empty(BindingXPath.PrefixDeclarations(null));
+    }
+
+    [Fact]
+    public void IsBcDatasetBinding_is_decided_by_the_root_step_whatever_its_prefix()
+    {
+        Assert.True(BindingXPath.IsBcDatasetBinding("/ns0:NavWordReportXmlPart[1]/ns0:Header[1]"));
+        Assert.True(BindingXPath.IsBcDatasetBinding("/x:NavWordReportXmlPart[1]"));
+        Assert.False(BindingXPath.IsBcDatasetBinding("/ns1:coreProperties[1]/ns0:title[1]"));
+        Assert.False(BindingXPath.IsBcDatasetBinding(null));
+    }
 }

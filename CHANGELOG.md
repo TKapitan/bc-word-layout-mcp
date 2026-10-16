@@ -54,6 +54,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - A new `validate_layout` check, `document-content-type` (error), flags any layout whose main
     part is not typed as a plain Word document, such as a template renamed to `.docx`.
 
+- **`validate_layout` now catches bindings whose `w:prefixMappings` cannot resolve their XPath**
+  (GitHub issue #79). These mappings validated clean although Word cannot map the control:
+  - a namespace in the `dynamics-365/report` form;
+  - the singular `nav/report` form;
+  - `ns1` declared while the XPath uses `ns0`.
+
+  This was possible because `binding-namespace` only looked at namespaces that resemble BC ones,
+  and `xpath-resolves` ignores prefixes. The new `binding-prefix-mapping` check (error) requires
+  every prefix a dataset binding's XPath uses to be declared as the layout's own namespace. A
+  missing attribute, or a bare URI naming the right namespace (a shape stock layouts ship), draws
+  no finding. `refresh_xml_part` now writes a bare mapping it re-points as an `xmlns:ns0='…'`
+  declaration; before, it stayed bare and Word still reported the control as unmapped.
+
 ### Security
 
 - **A crafted layout can no longer kill the server through the OpenXml SDK's own parse** (GitHub

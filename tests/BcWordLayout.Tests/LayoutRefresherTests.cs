@@ -565,14 +565,19 @@ public class LayoutRefresherTests
             using var reopened = WordprocessingDocument.Open(path, false);
             var xml = reopened.MainDocumentPart!.Document!.OuterXml;
 
-            // Both foreign shapes re-pointed; the bare-URI one keeps being bare (only the URI changed).
+            // Both foreign shapes re-pointed. The xmlns: one keeps its own formatting (the trailing space);
+            // the bare-URI one is written as a declaration of the prefix its XPath uses, because Word reports a
+            // bare-mapped control as unmapped (GitHub issue #79) - only swapping its URI left it half repaired.
             Assert.DoesNotContain(SyntheticLayout.ForeignNamespace, xml, StringComparison.Ordinal);
-            Assert.Contains(
+            Assert.DoesNotContain(
                 $"w:prefixMappings=\"{SyntheticLayout.DatasetNamespace}\"", xml, StringComparison.Ordinal);
+            Assert.Contains(
+                $"w:prefixMappings=\"xmlns:ns0='{SyntheticLayout.DatasetNamespace}'\"", xml, StringComparison.Ordinal);
             Assert.Contains(
                 $"w:prefixMappings=\"xmlns:ns0='{SyntheticLayout.DatasetNamespace}' \"",
                 xml,
                 StringComparison.Ordinal);
+            Assert.DoesNotContain(after.Findings, f => f.Check == "binding-prefix-mapping");
 
             // The prefixMappings-less binding is untouched: still exactly one binding with no mappings at all.
             // Not just "still null": writing an unchanged value back through StringValue materialises an
@@ -589,6 +594,46 @@ public class LayoutRefresherTests
         {
             File.Delete(path);
             File.Delete(schemaSource);
+        }
+    }
+
+    [Fact]
+    public void Refresh_writes_the_stock_bare_mappings_it_repoints_as_xmlns_declarations()
+    {
+        // StandardSalesInvoiceVatSpec's two Mini_Sales_Invoice bindings (sdtIds 573011813 and -1454010444) are
+        // the stock witnesses for a bare prefixMappings. Re-pointing them only swapped the URI, and Word still
+        // reported both unmapped (IsMapped=False, GitHub issue #79).
+        var path = CopyOfCorpus(Corpus.SalesInvoiceVatSpec);
+        try
+        {
+            RefreshResult result;
+            using (var doc = WordprocessingDocument.Open(path, true))
+            {
+                result = LayoutRefresher.Refresh(doc, Corpus.Path(Corpus.SalesInvoiceVatSpec));
+                SaveAllParts(doc);
+            }
+
+            Assert.Equal(
+                new int?[] { -1454010444, 573011813 },
+                result.RepointedForeignBindings.Select(r => r.SdtId).OrderBy(id => id).ToArray());
+
+            using var reopened = WordprocessingDocument.Open(path, false);
+            var expected = SchemaProvider.FromLayout(reopened).Report.Namespace;
+            var repointed = LayoutReader.Read(reopened).Controls
+                .Where(c => c.SdtId is 573011813 or -1454010444)
+                .ToList();
+            Assert.Equal(2, repointed.Count);
+            Assert.All(repointed, c => Assert.Equal($"xmlns:ns0='{expected}'", c.PrefixMappings));
+
+            // Every other binding keeps the exact value it had: the rewrite touches only what it re-points.
+            Assert.All(
+                LayoutReader.Read(reopened).Controls.Where(c => c.PrefixMappings is not null),
+                c => Assert.StartsWith("xmlns:ns0='", c.PrefixMappings, StringComparison.Ordinal));
+            Assert.DoesNotContain(LayoutValidator.Quick(path).Findings, f => f.Check is "binding-namespace" or "binding-prefix-mapping");
+        }
+        finally
+        {
+            File.Delete(path);
         }
     }
 

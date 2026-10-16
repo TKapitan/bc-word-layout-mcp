@@ -51,6 +51,14 @@ public sealed class LayoutControl
     /// </summary>
     public string? BindingNamespace { get; init; }
 
+    /// <summary>
+    /// The binding's raw <c>w:prefixMappings</c> value, or null when the control is unbound or the attribute
+    /// is absent. Kept verbatim (an <c>xmlns:ns0='…'</c> declaration list, or a bare URI) for
+    /// <c>LayoutValidator</c>'s <c>binding-prefix-mapping</c> check, which needs to know which PREFIXES are
+    /// declared, not just which BC namespace is named (<see cref="BindingNamespace"/>).
+    /// </summary>
+    public string? PrefixMappings { get; init; }
+
     /// <summary>Which OOXML part the control lives in (e.g. <c>document.xml</c>, <c>header1.xml</c>).</summary>
     public required string Part { get; init; }
 

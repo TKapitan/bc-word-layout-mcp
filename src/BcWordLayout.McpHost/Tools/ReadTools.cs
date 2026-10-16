@@ -134,7 +134,11 @@ public static class ReadTools
     [McpServerTool(Name = "validate_layout")]
     [Description("Validate a BC Word layout. level='quick' runs structural + binding checks (OpenXML "
                  + "validity, a document-content-type ERROR when the main part is typed as a Word template or "
-                 + "macro-enabled file - which Word refuses to open as a .docx, single BC XML part, storeItemID match, binding dataset-namespace match, XPath "
+                 + "macro-enabled file - which Word refuses to open as a .docx, single BC XML part, storeItemID match, binding dataset-namespace match, a "
+                 + "binding-prefix-mapping ERROR when a dataset binding's w:prefixMappings does not declare "
+                 + "every prefix its XPath uses as the layout's own namespace (a wrong or misspelled namespace, "
+                 + "or a prefix the mappings never declare - Word cannot map such a control; a bare URI that "
+                 + "names the right namespace is tolerated, as stock layouts ship it), XPath "
                  + "resolution, repeater shape, attachedTemplate warning, a compatibility-mode warning "
                  + "when a layout that CONTAINS repeaters declares a Word compatibility mode below 15, and"
                  + "a repeater-downgraded ERROR when a control's alias names a whole data item but the"

@@ -87,6 +87,17 @@ internal static class SyntheticLayout
             + "</w:sdtPr><w:sdtContent><w:p><w:r><w:t>x</w:t></w:r></w:p></w:sdtContent></w:sdt>";
     }
 
+    /// <summary>
+    /// A bound field sdt whose <c>w:prefixMappings</c> is exactly <paramref name="prefixMappings"/>, verbatim —
+    /// for <c>LayoutValidator</c>'s <c>binding-prefix-mapping</c> tests, where the declaration itself (its
+    /// prefix, its URI, or its absence) is what is under test (GitHub issue #79).
+    /// </summary>
+    public static string BoundFieldWithPrefixMappings(string xpath, string storeItemId, string prefixMappings) =>
+        "<w:sdt><w:sdtPr>"
+        + $"<w:dataBinding w:prefixMappings=\"{prefixMappings}\" w:xpath=\"{xpath}\" "
+        + $"w:storeItemID=\"{storeItemId}\"/>"
+        + "</w:sdtPr><w:sdtContent><w:p><w:r><w:t>x</w:t></w:r></w:p></w:sdtContent></w:sdt>";
+
     /// <summary>A well-formed repeater (w15:repeatingSection) enclosing exactly one repeatingSectionItem.</summary>
     public static string ProperRepeater(string xpath, string storeItemId) =>
         "<w:sdt><w:sdtPr><w:id w:val=\"100\"/>"

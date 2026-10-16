@@ -182,6 +182,7 @@ public static class LayoutReader
             XPath = SdtInspector.ReadXPath(sdt),
             StoreItemId = SdtInspector.ReadStoreItemId(sdt),
             BindingNamespace = SdtInspector.ReadBindingNamespace(sdt),
+            PrefixMappings = SdtInspector.ReadPrefixMappings(sdt),
             Part = partName,
             SdtId = SdtInspector.ReadControlId(sdt),
             UsesW15Binding = SdtInspector.UsesW15Binding(sdt),

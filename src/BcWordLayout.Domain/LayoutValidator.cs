@@ -40,6 +40,7 @@ public static class LayoutValidator
         var inventory = LayoutReader.Read(doc);
         CheckStoreItemIds(inventory, bcPartItemId, findings);
         CheckBindingNamespaces(inventory, schema, findings);
+        CheckBindingPrefixMappings(inventory, schema, findings);
         CheckXPathsResolve(inventory, schema, findings);
         CheckRepeaterShape(main, findings);
         CheckTopLevelBlockRepeaterGroup(main, findings);
@@ -297,6 +298,134 @@ public static class LayoutValidator
             });
         }
     }
+
+    // 3c. Every BC binding's prefixMappings declares each prefix its XPath uses, bound to the layout's OWN
+    //     BC dataset namespace.
+    //
+    //     The blind spot between 3b and 4: binding-namespace only sees a namespace that LOOKS like a BC one
+    //     (SdtInspector.ExtractBcNamespace matches the urn:microsoft-dynamics-nav/reports/ form), and
+    //     xpath-resolves strips prefixes before resolving, so neither asks whether the binding's own
+    //     declarations can resolve its XPath. Word does ask: measured with ContentControl.XMLMapping.IsMapped
+    //     on copies of JobQuote.docx with one binding changed (GitHub issue #79), the control is unmapped when
+    //     its prefixMappings names the dynamics-365/report form of the namespace (the pitfall SOLUTION-DESIGN
+    //     §2 calls out), the singular nav/report form, or declares ns1 while the XPath uses ns0 - and quick and
+    //     full validation passed all three (the full merge registers ns0 for the dataset namespace itself, so
+    //     the mock fills them regardless).
+    //
+    //     Scoped by the XPath's ROOT STEP (NavWordReportXmlPart), not by what the mappings name: scoping by
+    //     the mappings is precisely the blind spot, and the root step still keeps genuine non-BC bindings
+    //     (a document-property control binds coreProperties) out of it.
+    //
+    //     ERROR for a prefix that is undeclared or declared to another namespace, on the same footing as
+    //     binding-namespace: Word cannot map the control, and BC validates every binding's prefixMappings
+    //     against the report's current namespace at upload (InvalidPrefixMapping - sandbox-verified for
+    //     foreign BC namespaces in issue #1; these exact shapes have not been sandbox-tested). A mismatch
+    //     binding-namespace has already reported for the same binding is not reported a second time.
+    //
+    //     Two shapes deliberately draw NO finding:
+    //     - no prefixMappings at all: Word maps such a binding (IsMapped=True in the same measurements), the
+    //       exemption binding-namespace has always made;
+    //     - a BARE uri with no xmlns: declaration that names the layout's own namespace. Word reports it
+    //       unmapped, but stock base-app layouts ship this shape and BC prints them (SOLUTION-DESIGN §2.5); the
+    //       only corpus witnesses (StandardSalesInvoiceVatSpec's two Mini_Sales_Invoice bindings) already carry
+    //       a binding-namespace Error for their foreign namespace, so a warning would add nothing there; and on
+    //       a bare mapping that names the RIGHT namespace it would flag a file BC accepts, with no tool here
+    //       able to rewrite it in place (refresh_xml_part normalises a bare mapping only when it re-points one).
+    //       A bare uri naming any OTHER namespace is read as a declaration of the XPath's prefix and fails
+    //       exactly like the xmlns: form.
+    private static void CheckBindingPrefixMappings(
+        LayoutInventory inventory, DatasetTree? schema, List<ValidationFinding> findings)
+    {
+        if (schema is null)
+        {
+            return; // Already reported by TryBuildSchema.
+        }
+
+        var expected = schema.Report.Namespace;
+
+        foreach (var control in inventory.Controls)
+        {
+            var mappings = control.PrefixMappings;
+            if (!BindingXPath.IsBcDatasetBinding(control.XPath) || string.IsNullOrWhiteSpace(mappings))
+            {
+                continue;
+            }
+
+            var location = $"{control.Part}: {control.Alias ?? control.XPath}";
+            var declared = BindingXPath.PrefixDeclarations(mappings);
+
+            if (declared.Count == 0)
+            {
+                var bare = mappings.Trim();
+                if (!string.Equals(bare, expected, StringComparison.Ordinal) && !ReportedByBindingNamespace(control, bare, expected))
+                {
+                    var usedPrefixes = BindingXPath.Prefixes(control.XPath);
+                    findings.Add(PrefixMappingFinding(
+                        $"Binding's w:prefixMappings is the bare value '{bare}' rather than a namespace declaration, "
+                        + $"and it does not name this layout's BC dataset namespace '{expected}' either, so its "
+                        + "XPath cannot resolve against the dataset.",
+                        PrefixMappingRepair(usedPrefixes.Count > 0 ? usedPrefixes[0] : "ns0", expected),
+                        location));
+                }
+
+                continue;
+            }
+
+            foreach (var prefix in BindingXPath.Prefixes(control.XPath))
+            {
+                var declaration = declared.FirstOrDefault(d => string.Equals(d.Prefix, prefix, StringComparison.Ordinal));
+                if (declaration.Prefix is null)
+                {
+                    findings.Add(PrefixMappingFinding(
+                        $"Binding XPath uses the prefix '{prefix}:', but its w:prefixMappings ('{mappings.Trim()}') "
+                        + "declares no such prefix, so the XPath cannot resolve against the dataset.",
+                        PrefixMappingRepair(prefix, expected),
+                        location));
+                    continue;
+                }
+
+                if (string.Equals(declaration.Uri, expected, StringComparison.Ordinal)
+                    || ReportedByBindingNamespace(control, declaration.Uri, expected))
+                {
+                    continue;
+                }
+
+                findings.Add(PrefixMappingFinding(
+                    $"Binding XPath uses the prefix '{prefix}:', which its w:prefixMappings declares as "
+                    + $"'{declaration.Uri}', but this layout's BC part declares '{expected}', so the XPath cannot "
+                    + "resolve against the dataset.",
+                    PrefixMappingRepair(prefix, expected),
+                    location));
+            }
+        }
+    }
+
+    /// <summary>
+    /// True when <paramref name="uri"/> is the foreign BC namespace <see cref="CheckBindingNamespaces"/> has
+    /// already reported for this binding — the one mismatch <c>binding-prefix-mapping</c> leaves to it, so a
+    /// binding never draws two findings for one wrong namespace (and keeps binding-namespace's
+    /// refresh_xml_part repair hint, which applies to exactly that case).
+    /// </summary>
+    private static bool ReportedByBindingNamespace(LayoutControl control, string uri, string expected) =>
+        control.BindingNamespace is { } named
+        && !string.Equals(named, expected, StringComparison.Ordinal)
+        && string.Equals(named, uri, StringComparison.Ordinal);
+
+    private static ValidationFinding PrefixMappingFinding(string problem, string repair, string location) => new()
+    {
+        Check = "binding-prefix-mapping",
+        Severity = FindingSeverity.Error,
+        Message = problem
+                  + " Word cannot map the control to the dataset (ContentControl.XMLMapping.IsMapped is False), "
+                  + "and Business Central validates every binding's prefixMappings against the report's "
+                  + "namespace at upload, rejecting mismatches with InvalidPrefixMapping. " + repair,
+        Location = location,
+    };
+
+    private static string PrefixMappingRepair(string prefix, string expected) =>
+        "refresh_xml_part does not repair this (it re-points only a BC dataset namespace a binding already "
+        + "names). Rebuild the control - remove_control, then insert_field/insert_label, which write "
+        + $"xmlns:ns0='{expected}' - or correct the attribute to xmlns:{prefix}='{expected}' by hand.";
 
     // 4. Every binding's XPath resolves against the parsed schema tree (segment-by-segment).
     private static void CheckXPathsResolve(LayoutInventory inventory, DatasetTree? schema, List<ValidationFinding> findings)
