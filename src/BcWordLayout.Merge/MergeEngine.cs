@@ -135,9 +135,11 @@ public sealed class MergeResult
 /// Fills a BC Word layout with sample data by walking the live OOXML tree of the main document plus every
 /// header and footer: bound field/label controls get their visible text set, and repeating sections are
 /// expanded row by row by cloning their row template once per selected data node. Inner bindings inside a
-/// repeater store fully absolute XPaths, so each clone's bindings are re-anchored to that row's own data
-/// node rather than the document root — see <see cref="XPathReanchor"/> — which is what makes arbitrary
-/// nesting depth (the corpus reaches 3–4 levels) resolve correctly. Picture controls have their blip
+/// repeater store fully absolute XPaths, so each clone's bindings are re-anchored to the data node of the
+/// DEEPEST enclosing row whose own path they extend — the innermost row for its own columns, an outer row
+/// for that row's columns — rather than the document root — see <see cref="XPathReanchor"/> and
+/// <see cref="ResolveAnchor"/> — which is what makes arbitrary nesting depth (the corpus reaches 3–4 levels)
+/// resolve correctly. Picture controls have their blip
 /// repointed to a small embedded placeholder image (<see cref="PlaceholderImage"/>), one placeholder
 /// <see cref="ImagePart"/> added and cached per hosting part and reused by every picture in it, so a
 /// downstream converter renders a visible box instead of BC's real (10-byte stub) image reference.
@@ -601,7 +603,7 @@ public static class MergeEngine
 
         foreach (var (root, hostPart, partName) in PartWalker.ContentPartsWithHost(main))
         {
-            WalkElement(root, data.Xml, 0, null, hostPart, partName, nsmgr, data, state);
+            WalkElement(root, null, hostPart, partName, nsmgr, data, state);
         }
 
         // The steps above fill each content control's VISIBLE run text and clone repeater rows in the OOXML.
@@ -789,18 +791,31 @@ public static class MergeEngine
         public Dictionary<OpenXmlPart, ImagePart> PlaceholderImageParts { get; } = new();
 
         public List<MergeWarning> Warnings { get; } = new();
+
+        /// <summary>
+        /// The one <c>xpath-fallback</c> warning raised so far per (control kind, <c>"part: xpath"</c>
+        /// location): its index in <see cref="Warnings"/> and how many evaluations it stands for. A
+        /// control inside a repeater row is evaluated once per generated row — rows^depth times when
+        /// nested — so one warning per evaluation buried every other finding under copies of the same
+        /// one; <see cref="RecordXPathFallback"/> instead rewrites this single warning's count in place,
+        /// which keeps it at the position the FIRST evaluation raised it (warning order stays the walk's
+        /// document order).
+        /// </summary>
+        public Dictionary<(string Subject, string Location), (int Index, int Count)> XPathFallbacks { get; } = new();
+
+        /// <summary>
+        /// <see cref="FindFirstOfSeveral"/>'s answer per (is-repeater, binding) — null meaning the root read
+        /// is unambiguous — so a control in a generated row is judged once, not once per row.
+        /// </summary>
+        public Dictionary<(bool IsRepeater, string XPath), FirstOfSeveral?> FirstOfSeveralByBinding { get; } = new();
     }
 
     /// <summary>
     /// Recursively walks <paramref name="element"/>'s children, filling bound fields and expanding
-    /// repeaters. <paramref name="context"/> is the current data context node — an <see cref="XDocument"/>
-    /// at the top of each part, an <see cref="XElement"/> once inside a repeater row — and
-    /// <paramref name="consumedSteps"/> is how many of a binding's leading raw XPath steps that context
-    /// already represents (see <see cref="XPathReanchor"/>). <paramref name="contextXPath"/> is the
-    /// enclosing repeater's own absolute binding XPath backing that same count (null at the top of a walk,
-    /// where <paramref name="consumedSteps"/> is 0) — threaded down so <see cref="XPathReanchor.Remainder"/>
-    /// can verify a candidate binding's dropped prefix actually matches this context structurally, not just
-    /// in step count. <paramref name="hostPart"/> is the <see cref="OpenXmlPart"/> that owns this walk's
+    /// repeaters. <paramref name="row"/> is the innermost repeater row this walk is inside, linked to every
+    /// row enclosing it (see <see cref="RowContext"/>), or null at the top of each part, where bindings are
+    /// read from the document root; <see cref="ResolveAnchor"/> picks, per binding, which of those rows it
+    /// is evaluated against. <paramref name="hostPart"/> is the <see cref="OpenXmlPart"/> that owns this walk's
     /// part — <see cref="MainDocumentPart"/> for document.xml, else the specific
     /// <see cref="HeaderPart"/>/<see cref="FooterPart"/> — needed so a picture control found here gets its
     /// placeholder image added to the correct part. <paramref name="depth"/> (0 at the top of each part's
@@ -812,9 +827,7 @@ public static class MergeEngine
     /// </summary>
     private static void WalkElement(
         OpenXmlElement element,
-        XNode context,
-        int consumedSteps,
-        string? contextXPath,
+        RowContext? row,
         OpenXmlPart hostPart,
         string partName,
         XmlNamespaceManager nsmgr,
@@ -835,13 +848,13 @@ public static class MergeEngine
                 switch (SdtInspector.Classify(pr))
                 {
                     case SdtInspector.Classification.Repeater:
-                        ProcessRepeater(sdt, pr, context, consumedSteps, contextXPath, hostPart, partName, nsmgr, data, state, depth + 1);
+                        ProcessRepeater(sdt, pr, row, hostPart, partName, nsmgr, data, state, depth + 1);
                         break; // Rows already recursed into; do not also walk the un-expanded template.
 
                     case SdtInspector.Classification.RepeaterItem:
                         // Defensive only: a well-formed layout never reaches an item sdt here directly —
                         // ProcessRepeater's own descendant search consumes it. Stay transparent if it does.
-                        WalkElement(sdt, context, consumedSteps, contextXPath, hostPart, partName, nsmgr, data, state, depth + 1);
+                        WalkElement(sdt, row, hostPart, partName, nsmgr, data, state, depth + 1);
                         break;
 
                     case SdtInspector.Classification.Picture:
@@ -849,20 +862,237 @@ public static class MergeEngine
                         break; // A picture's content is just a drawing; nothing further to walk into.
 
                     case SdtInspector.Classification.Bound:
-                        ProcessField(sdt, pr, context, consumedSteps, contextXPath, partName, nsmgr, data, state);
-                        WalkElement(sdt, context, consumedSteps, contextXPath, hostPart, partName, nsmgr, data, state, depth + 1);
+                        ProcessField(sdt, pr, row, partName, nsmgr, data, state);
+                        WalkElement(sdt, row, hostPart, partName, nsmgr, data, state, depth + 1);
                         break;
 
                     default:
-                        WalkElement(sdt, context, consumedSteps, contextXPath, hostPart, partName, nsmgr, data, state, depth + 1);
+                        WalkElement(sdt, row, hostPart, partName, nsmgr, data, state, depth + 1);
                         break;
                 }
             }
             else
             {
-                WalkElement(child, context, consumedSteps, contextXPath, hostPart, partName, nsmgr, data, state, depth + 1);
+                WalkElement(child, row, hostPart, partName, nsmgr, data, state, depth + 1);
             }
         }
+    }
+
+    // ---- binding re-anchoring ----
+
+    /// <summary>
+    /// One repeater row the walk is inside: the data node the row was cloned for (<see cref="Node"/>), the
+    /// absolute binding XPath of the repeater that selected it (<see cref="XPath"/>), how many of a
+    /// binding's leading raw XPath steps that node stands for (<see cref="ConsumedSteps"/>, always
+    /// <see cref="XPathReanchor.RawSteps"/> of <see cref="XPath"/>), and the row that repeater itself sits
+    /// in (<see cref="Enclosing"/>, null for a repeater outside every other one). Following
+    /// <see cref="Enclosing"/> from a control's row therefore visits every repeater row enclosing that
+    /// control, innermost first — the set BC re-anchors a binding through. An immutable linked chain rather
+    /// than a mutable stack: each clone's walk starts one new link on top of the chain it was cloned in, so
+    /// no push/pop can ever leak between sibling rows.
+    /// </summary>
+    private sealed record RowContext(XElement Node, string XPath, int ConsumedSteps, RowContext? Enclosing);
+
+    /// <summary>
+    /// Where one binding is evaluated: <see cref="Expression"/> against <see cref="Context"/> (an empty
+    /// expression meaning the context node itself). <see cref="Fallback"/> is set when the read is one the
+    /// merge cannot vouch for (see <see cref="ResolveAnchor"/>): it renders that binding's
+    /// <c>xpath-fallback</c> message for a given evaluation count.
+    /// </summary>
+    private readonly record struct BindingAnchor(XNode Context, string Expression, Func<int, string>? Fallback);
+
+    /// <summary>
+    /// One step of a binding read from the document root that picks the first of several same-named
+    /// records: <see cref="Path"/> is the binding's own data path (<c>/Header/Line/No</c>),
+    /// <see cref="ItemPath"/> the repeating item's (<c>/Header/Line</c>), <see cref="Records"/> how many
+    /// <see cref="ItemName"/> records the data holds at that point.
+    /// </summary>
+    private sealed record FirstOfSeveral(string Path, string ItemPath, string ItemName, int Records);
+
+    /// <summary>
+    /// Re-anchors <paramref name="xpath"/> the way BC does: against the DEEPEST row in
+    /// <paramref name="row"/>'s chain whose own repeater path is a structural prefix of the binding (see
+    /// <see cref="XPathReanchor.Remainder"/>), so a field in a nested Sales_Line row bound to its Item row's
+    /// <c>No_Item</c> reads the Item row it sits in — not, as when only the innermost row was tried, the
+    /// whole path from the root with every <c>[1]</c> intact, which showed the FIRST item's number in every
+    /// group. A binding no enclosing row holds lies outside every enclosing repeater's data item (a
+    /// <c>/Labels</c> caption in a Salesperson row, a <c>/Header</c> field in a Line row, a sibling
+    /// repeater's absolute path, any binding outside every repeater) and is read from the document root —
+    /// what BC does with it too; for a well-formed repeater path, "no row's <c>Remainder</c> matched" and
+    /// "the binding lies outside every row's path" are the same test.
+    /// <para>
+    /// A binding outside EVERY repeater row is genuinely absolute and always silent: stock layouts
+    /// deliberately read first records there (the 1306 header block's <c>/Header/Line[1]/JobNo</c>, JobQuote's
+    /// <c>Description_Job</c>, lines-table heading captions of every suffix). Two shapes are reported as
+    /// <c>xpath-fallback</c> (<see cref="BindingAnchor.Fallback"/>), still read from the root:
+    /// <list type="bullet">
+    /// <item>a <c>//</c> descendant-axis binding, which cannot be re-anchored at all, so every copy reads the
+    /// document's first match and BC may show something else;</item>
+    /// <item>a binding inside at least one repeater row, none of which re-anchors it, whose path below the
+    /// top-level item picks the first of SEVERAL records of a repeating item (<see cref="FindFirstOfSeveral"/>)
+    /// — a <c>/Header/Line</c> field in a ReportTotalsLine row, the shape <c>insert_column</c> produced before
+    /// #82. The control repeats with rows it does not belong to and shows the first Line's value in every one.
+    /// BC prints the same, so the preview is faithful, but no quick-validation check catches this misplaced
+    /// field: this warning, surfaced by <c>validate_layout level=full</c>, is the only signal. A field bound
+    /// to a CAPTION column (as classified by <see cref="LabelConvention.Current"/>, the classification the
+    /// label tools use) is exempt: BC fills a caption with the same text in every record of its data item, so
+    /// its first-record read is never ambiguous.</item>
+    /// </list>
+    /// </para>
+    /// </summary>
+    private static BindingAnchor ResolveAnchor(
+        string xpath, bool isRepeater, RowContext? row, XDocument dataRoot, MergeState state)
+    {
+        for (var enclosing = row; enclosing is not null; enclosing = enclosing.Enclosing)
+        {
+            if (XPathReanchor.Remainder(xpath, enclosing.ConsumedSteps, enclosing.XPath) is { } remainder)
+            {
+                return new BindingAnchor(enclosing.Node, remainder, Fallback: null);
+            }
+        }
+
+        var subject = isRepeater ? "Repeater" : "Field";
+
+        // consumedSteps 0: every step kept, as a path relative to the document node - the same read as the
+        // absolute path itself. Null only for a '//' binding, which is evaluated verbatim instead.
+        if (XPathReanchor.Remainder(xpath, 0, contextXPath: null) is not { } absolute)
+        {
+            return new BindingAnchor(dataRoot, xpath, count =>
+                $"{subject} XPath uses the descendant axis ('//'), which cannot be re-anchored to a repeater "
+                + $"row; evaluated from the document root instead ({count} evaluation(s), one per generated "
+                + "copy of the control), so every copy reads the document's first match and the preview may "
+                + $"differ from Business Central here: '{xpath}'.");
+        }
+
+        // Outside every repeater row (row is null) a root read is genuinely absolute - see the remarks.
+        var readsCaption = !isRepeater && LabelConvention.Current.IsLabelPath(BindingXPath.Segments(xpath));
+        if (row is null || readsCaption || FindFirstOfSeveral(xpath, isRepeater, dataRoot, state) is not { } hit)
+        {
+            return new BindingAnchor(dataRoot, absolute, Fallback: null);
+        }
+
+        var consequence = isRepeater
+            ? $"so it lists the rows of the first of {hit.Records} '{hit.ItemName}' records only"
+            : $"so it shows the first of {hit.Records} '{hit.ItemName}' records";
+        return new BindingAnchor(dataRoot, absolute, count =>
+            $"{subject} '{hit.Path}' lies outside every '{hit.ItemPath}' repeater, {consequence} ({count} "
+            + "evaluation(s), one per generated copy of the control). Business Central prints the first record "
+            + $"there too; to show each record's own value, place the control in a '{hit.ItemPath}' repeater "
+            + $"row: '{xpath}'.");
+    }
+
+    /// <summary>
+    /// Walks <paramref name="xpath"/>'s steps through the data from its root element and returns the first
+    /// step BELOW the top-level item that picks the first of several same-named records — the data holds
+    /// several <c>Line</c> elements under the selected <c>Header</c>, and the step reads <c>Line[1]</c> — or
+    /// null when every step picks the only record there is. The top-level item's own step is exempt: its
+    /// several records are the implicit top-level repeater BC renders the whole body for, not a control
+    /// placed outside its repeater. A repeater's own last step selects every record — that is what it
+    /// repeats — so only the steps above it are judged. Unjudgeable reads (a step that matches nothing, a
+    /// predicate other than a plain position, raw steps that do not line up with the structural segments, an
+    /// unindexed step above a repeater's own, which selects every record) are left to the other checks and
+    /// return null. Cached per (kind, binding) in <see cref="MergeState.FirstOfSeveralByBinding"/>: a root
+    /// read does not depend on the row it sits in, and the merge never changes the data.
+    /// </summary>
+    private static FirstOfSeveral? FindFirstOfSeveral(string xpath, bool isRepeater, XDocument dataRoot, MergeState state)
+    {
+        if (state.FirstOfSeveralByBinding.TryGetValue((isRepeater, xpath), out var cached))
+        {
+            return cached;
+        }
+
+        FirstOfSeveral? found = null;
+        var steps = XPathReanchor.RawSteps(xpath);
+        var segments = BindingXPath.Segments(xpath);
+        var node = dataRoot.Root;
+        if (node is not null && steps.Count == segments.Count && segments.Count > 0
+            && string.Equals(segments[0], node.Name.LocalName, StringComparison.Ordinal))
+        {
+            var judged = isRepeater ? steps.Count - 1 : steps.Count;
+            for (var i = 1; i < judged; i++)
+            {
+                var records = node.Elements()
+                    .Where(e => string.Equals(e.Name.LocalName, segments[i], StringComparison.Ordinal))
+                    .ToList();
+                var position = PositionalIndex(steps[i], unindexedReadsFirst: !isRepeater);
+                if (position is not { } picked || picked > records.Count)
+                {
+                    break;
+                }
+
+                if (i >= 2 && picked == 1 && records.Count > 1)
+                {
+                    found = new FirstOfSeveral(
+                        "/" + string.Join('/', segments.Skip(1)),
+                        "/" + string.Join('/', segments.Skip(1).Take(i)),
+                        segments[i],
+                        records.Count);
+                    break;
+                }
+
+                node = records[picked - 1];
+            }
+        }
+
+        state.FirstOfSeveralByBinding[(isRepeater, xpath)] = found;
+        return found;
+    }
+
+    /// <summary>
+    /// The 1-based record a raw step such as <c>ns0:Line[2]</c> picks, or null when that cannot be told: a
+    /// predicate other than a plain positive position, or — when <paramref name="unindexedReadsFirst"/> is
+    /// false, i.e. for a repeater, which selects every match — an unindexed step. A field's unindexed step
+    /// resolves to the first match, so it counts as <c>[1]</c>.
+    /// </summary>
+    private static int? PositionalIndex(string rawStep, bool unindexedReadsFirst)
+    {
+        var bracket = rawStep.IndexOf('[');
+        if (bracket < 0)
+        {
+            return unindexedReadsFirst ? 1 : null;
+        }
+
+        return rawStep.EndsWith(']')
+            && int.TryParse(rawStep.AsSpan(bracket + 1, rawStep.Length - bracket - 2), NumberStyles.None, CultureInfo.InvariantCulture, out var position)
+            && position >= 1
+                ? position
+                : null;
+    }
+
+    /// <summary>
+    /// Raises the <c>xpath-fallback</c> warning for one more evaluation of a <paramref name="subject"/>
+    /// (<c>"Field"</c>/<c>"Repeater"</c>) binding <see cref="ResolveAnchor"/> could not vouch for — once per
+    /// (subject, part, binding), not once per evaluation: the first evaluation adds the warning, every later
+    /// one (the same control in the next generated row, or another control in the same part with the
+    /// identical binding) only raises the count in its message (see <see cref="MergeState.XPathFallbacks"/>).
+    /// <paramref name="describe"/> renders the message for a count.
+    /// </summary>
+    private static void RecordXPathFallback(
+        MergeState state, string subject, string partName, string xpath, Func<int, string> describe)
+    {
+        var location = $"{partName}: {xpath}";
+        var key = (subject, location);
+        var (index, count) = state.XPathFallbacks.TryGetValue(key, out var seen)
+            ? (seen.Index, seen.Count + 1)
+            : (state.Warnings.Count, 1);
+
+        var warning = new MergeWarning
+        {
+            Kind = "xpath-fallback",
+            Message = describe(count),
+            Location = location,
+        };
+
+        if (count == 1)
+        {
+            state.Warnings.Add(warning);
+        }
+        else
+        {
+            state.Warnings[index] = warning;
+        }
+
+        state.XPathFallbacks[key] = (index, count);
     }
 
     // ---- repeater expansion ----
@@ -870,9 +1100,7 @@ public static class MergeEngine
     private static void ProcessRepeater(
         SdtElement repeaterSdt,
         SdtProperties? pr,
-        XNode context,
-        int consumedSteps,
-        string? contextXPath,
+        RowContext? row,
         OpenXmlPart hostPart,
         string partName,
         XmlNamespaceManager nsmgr,
@@ -906,31 +1134,20 @@ public static class MergeEngine
             return;
         }
 
-        List<XElement> rows;
-        var remainder = XPathReanchor.Remainder(rXPath, consumedSteps, contextXPath);
-        if (remainder is null)
+        // Re-anchored through EVERY enclosing row, deepest match first (see ResolveAnchor): a repeater over
+        // an outer row's child items (e.g. Item/Other inside a nested Item/Sales_Line row) expands THAT
+        // item's rows. A repeater whose path no enclosing row holds - shape (c), an equal-depth sibling such
+        // as Header/Extra inside a Header/Line row - is read from the document root, which resolves the REAL
+        // matched node(s): dropping the Line row's prefix would instead hand "." to SafeSelectElements and
+        // clone one bogus row from the row node itself.
+        var anchor = ResolveAnchor(rXPath, isRepeater: true, row, data.Xml, state);
+        if (anchor.Fallback is { } describe)
         {
-            // Either no re-anchoring is possible at all (top-level, `//` axis, bad step count), or —
-            // shape (c) — this repeater is nested inside an enclosing repeater's row
-            // but its own binding is structurally divergent from that row (equal step count, different
-            // element(s)): dropping the prefix would silently pick the wrong context node and, worse, hand
-            // "." to SafeSelectElements below, cloning one bogus row from the row node itself. Evaluating
-            // the full absolute XPath from the document root instead always resolves the REAL matched
-            // node(s), however many that turns out to be.
-            rows = SafeSelectElements(data.Xml, rXPath, nsmgr, partName, rXPath, state);
-            state.Warnings.Add(new MergeWarning
-            {
-                Kind = "xpath-fallback",
-                Message = "Repeater XPath could not be re-anchored to its row context; evaluated from the "
-                    + $"document root instead: '{rXPath}'.",
-                Location = $"{partName}: {rXPath}",
-            });
+            RecordXPathFallback(state, "Repeater", partName, rXPath, describe);
         }
-        else
-        {
-            var expression = remainder.Length == 0 ? "." : remainder;
-            rows = SafeSelectElements(context, expression, nsmgr, partName, rXPath, state);
-        }
+
+        var expression = anchor.Expression.Length == 0 ? "." : anchor.Expression;
+        var rows = SafeSelectElements(anchor.Context, expression, nsmgr, partName, rXPath, state);
 
         // Robustness cap: a SINGLE repeating section (this call — a nested repeater's own
         // expansion, once per surviving clone of its enclosing row, is a separate call and gets the SAME
@@ -955,14 +1172,17 @@ public static class MergeEngine
         // Use the SAME raw-step splitter as XPathReanchor.Remainder (not BindingXPath.Segments, which
         // strips prefixes/predicates for a different purpose) so the count of steps this row's children
         // should treat as "already consumed" can never drift from what Remainder itself dropped. This
-        // repeater's OWN xpath becomes the new contextXPath for everything inside its rows — regardless of
-        // whether ITS OWN remainder above had to fall back to root evaluation, rXPath still absolutely and
+        // repeater's OWN xpath describes every row pushed onto the chain for everything inside its rows —
+        // regardless of which context ITS OWN rows were selected against above, rXPath still absolutely and
         // correctly describes rowNode's location, so descendants re-anchoring against it is exactly right.
+        // The enclosing chain stays linked underneath, so a binding into an outer row's columns still finds
+        // that outer row.
         var childConsumedSteps = XPathReanchor.RawSteps(rXPath).Count;
 
         for (var rowIndex = 0; rowIndex < rows.Count; rowIndex++)
         {
             var rowNode = rows[rowIndex];
+            var rowContext = new RowContext(rowNode, rXPath, childConsumedSteps, row);
 
             // Cloned rows intentionally keep the template's original SDT w:id values un-renumbered: w:id
             // has no schema-level uniqueness constraint, and OpenXmlValidator passes clean on the full
@@ -972,7 +1192,7 @@ public static class MergeEngine
             var clone = template.CloneNode(true);
             template.InsertBeforeSelf(clone);
             RegenerateClonedIds(clone, state, rowIndex: rowIndex + 1);
-            WalkElement(clone, rowNode, childConsumedSteps, rXPath, hostPart, partName, nsmgr, data, state, depth);
+            WalkElement(clone, rowContext, hostPart, partName, nsmgr, data, state, depth);
         }
 
         template.Remove();
@@ -1147,9 +1367,7 @@ public static class MergeEngine
     private static void ProcessField(
         SdtElement fieldSdt,
         SdtProperties? pr,
-        XNode context,
-        int consumedSteps,
-        string? contextXPath,
+        RowContext? row,
         string partName,
         XmlNamespaceManager nsmgr,
         SampleDataset data,
@@ -1168,35 +1386,25 @@ public static class MergeEngine
             return;
         }
 
-        XElement? resolved;
-        var remainder = XPathReanchor.Remainder(xpath, consumedSteps, contextXPath);
-        if (remainder is null)
+        // Re-anchored through EVERY enclosing row, deepest match first (see ResolveAnchor). Only the row a
+        // binding's path actually extends may supply its prefix: shapes (a)/(b) - an equal-depth sibling
+        // (a Header-level field in a same-depth Line row) or a deeper-but-divergent path - would otherwise
+        // have the Line row's prefix dropped as if it matched, resolving to the ROW node (rendering its
+        // concatenated text) or evaluating the tail against the wrong node. Such a binding lies outside
+        // every enclosing row's data item and is read from the document root, as BC reads it - with a
+        // warning only when that read picks the first of several records of a repeating item. A binding
+        // into an OUTER row's columns (Item/No_Item in a nested Sales_Line row) re-anchors to that outer
+        // row, so each group shows its own value rather than the first group's.
+        var anchor = ResolveAnchor(xpath, isRepeater: false, row, data.Xml, state);
+        if (anchor.Fallback is { } describe)
         {
-            // Either no re-anchoring is possible at all, or — shapes (a)/(b) — this
-            // field sits inside a repeater row but its own binding is structurally divergent from that
-            // row's own path: an equal-depth sibling (e.g. a Header-level field bound inside a same-depth
-            // Line row) would otherwise have its prefix dropped as if it matched, resolving to the ROW node
-            // and rendering its concatenated text; a deeper-but-divergent path would evaluate its tail
-            // against the wrong node entirely. Falling back to the full absolute XPath from the document
-            // root always resolves the value BC itself would show.
-            resolved = SafeSelectElement(data.Xml, xpath, nsmgr, partName, xpath, state);
-            state.Warnings.Add(new MergeWarning
-            {
-                Kind = "xpath-fallback",
-                Message = "Field XPath could not be re-anchored to its row context; evaluated from the "
-                    + $"document root instead: '{xpath}'.",
-                Location = $"{partName}: {xpath}",
-            });
+            RecordXPathFallback(state, "Field", partName, xpath, describe);
         }
-        else if (remainder.Length == 0)
-        {
-            // The binding targets the context node itself (its own XPath is fully consumed already).
-            resolved = context as XElement ?? (context as XDocument)?.Root;
-        }
-        else
-        {
-            resolved = SafeSelectElement(context, remainder, nsmgr, partName, xpath, state);
-        }
+
+        // An empty expression: the binding targets the context node itself (its XPath is fully consumed).
+        var resolved = anchor.Expression.Length == 0
+            ? anchor.Context as XElement ?? (anchor.Context as XDocument)?.Root
+            : SafeSelectElement(anchor.Context, anchor.Expression, nsmgr, partName, xpath, state);
 
         if (resolved is null)
         {

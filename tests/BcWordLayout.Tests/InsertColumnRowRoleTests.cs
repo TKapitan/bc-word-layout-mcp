@@ -46,7 +46,8 @@ public class InsertColumnRowRoleTests
     {
         // The talk demo: an Item Reference column at grid 1 of the stock quote's lines table. Before #82 the
         // field also landed inside the ReportTotalsLine repeater, where it renders Line 1's value beside
-        // every totals line and full validation reports new xpath-fallback warnings for it.
+        // every totals line and full validation reports a new xpath-fallback warning for it (see the next
+        // test, which proves this comparison can fail).
         var path = CopyOfCorpus(Corpus.StandardSalesQuote);
         try
         {
@@ -76,6 +77,44 @@ public class InsertColumnRowRoleTests
             }
 
             Assert.Equal(fallbacksBefore, XPathFallbacks(path));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void The_pre_82_placement_of_the_demo_field_in_the_totals_repeater_row_is_reported_by_full_validation()
+    {
+        // What the comparison above guards against: the same Item Reference field placed in the
+        // ReportTotalsLine row, as insert_column did before #82, prints Line 1's value beside every totals
+        // line. Simulated by rebinding that row's description control; full validation must report it once,
+        // counting every totals row it renders in (GitHub issue #104 kept this signal).
+        const int DescriptionReportTotalsLineId = 1468313313;
+        const string LineField = "/ns0:NavWordReportXmlPart[1]/ns0:Header[1]/ns0:Line[1]/ns0:ItemReferenceNo_Line[1]";
+        var path = CopyOfCorpus(Corpus.StandardSalesQuote);
+        try
+        {
+            var fallbacksBefore = XPathFallbacks(path);
+            using (var doc = WordprocessingDocument.Open(path, true))
+            {
+                var control = Assert.Single(
+                    doc.MainDocumentPart!.Document!.Body!.Descendants<SdtElement>(),
+                    s => SdtInspector.ReadControlId(s) == DescriptionReportTotalsLineId);
+                SdtInspector.FindBinding(control)!.SetAttribute(new OpenXmlAttribute("w", "xpath", OoxmlNames.W, LineField));
+            }
+
+            var findings = FullValidator.Full(path).Findings.Where(f => f.Check == "xpath-fallback").ToList();
+
+            Assert.Equal(fallbacksBefore + 1, findings.Count);
+            var finding = Assert.Single(findings, f => f.Location == $"document.xml: {LineField}");
+            Assert.Equal(FindingSeverity.Warning, finding.Severity);
+            Assert.StartsWith(
+                "Field '/Header/Line/ItemReferenceNo_Line' lies outside every '/Header/Line' repeater, so it shows "
+                + "the first of 3 'Line' records (3 evaluation(s),",
+                finding.Message,
+                StringComparison.Ordinal);
         }
         finally
         {

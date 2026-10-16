@@ -222,7 +222,8 @@ schema ──► SampleDataGenerator ──► sample dataset XML
 layout.docx ──► MergeEngine ◄───────────┘
                     │  1. resolve each binding XPath → fill the control's text
                     │  2. clone repeatingSectionItem per data row, re-anchoring
-                    │     inner bindings per nesting level (XPathReanchor)
+                    │     each inner binding to the deepest enclosing row whose
+                    │     path it extends (XPathReanchor)
                     │  3. regenerate cloned drawing/bookmark ids so clones stay unique
                     │  4. substitute placeholder images for picture controls
                     │  5. strip external references (see §6, principle 5)

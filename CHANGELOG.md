@@ -279,6 +279,24 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - **No consensus:** with no bindings, or disagreeing ones, the call fails `invalid_layout` with a
     hint saying what to do, instead of `invalid_argument` naming internal methods.
 
+- **The mock merge re-anchors each binding through every enclosing repeater row** (GitHub issue
+  #104). It tried only the innermost row and read anything else from the document root with every
+  step indexed `[1]`, warning once per generated row:
+  - **Outer-row fields:** a field in a nested row bound to an outer row's column showed the first
+    outer row's value in every group. On InventoryOrderDetails, an `/Item/No_Item` field in the
+    Sales_Line row printed item 1's number under every item. Fields and nested repeaters now
+    resolve against the deepest enclosing row whose path they extend.
+  - **Absolute bindings:** a binding that no enclosing row holds is read from the document root,
+    as BC reads it, with no warning. SalespersonCommission's `/Labels` caption in the Salesperson
+    row no longer raises three of them. A binding outside every repeater row is always silent.
+  - **When it still warns:** `xpath-fallback` is raised once per control, with its evaluation
+    count, in two cases:
+    - a `//` binding;
+    - a control inside a repeater row that no enclosing row re-anchors, which reads the first of
+      several records of a repeating item, such as a `/Header/Line` field in a ReportTotalsLine
+      row. It repeats with rows it does not belong to, and the warning names the item and the
+      record count. Caption (label) columns are exempt, since they read the same in every record.
+
 ### Security
 
 - **A crafted layout can no longer kill the server through the OpenXml SDK's own parse** (GitHub

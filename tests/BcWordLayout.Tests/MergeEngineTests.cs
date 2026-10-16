@@ -349,6 +349,10 @@ public class MergeEngineTests
     // Reachable through the tool surface, not just hand-authored layouts: insert_column mode=field
     // explicitly allows binding a parent/Header field inside a repeater row.
     //
+    // Each of these bindings lies OUTSIDE the enclosing repeater's data item, so it is read from the document
+    // root, which is how BC reads it too. That read raises no xpath-fallback warning (GitHub issue #104): the
+    // warning used to fire once per generated row for these legitimate shapes.
+    //
     // All three tests below use the internal
     // MergeEngine.Merge(doc, dataset) overload with a hand-built SampleDataset, so the expected string
     // values are asserted directly rather than re-derived through SampleDataGenerator.
@@ -372,8 +376,8 @@ public class MergeEngineTests
         // the first 3 steps because the COUNT matches would resolve the control to the Line ROW NODE
         // itself, rendering its concatenated descendant text ("ITEM-4670Some description") instead of the
         // real Header-level value ("INV-001") — reproduced verbatim in the code review. The fix must
-        // recognize the dropped prefix names a DIFFERENT element (DocumentNo, not Line) and fall back to
-        // document-root evaluation instead of guessing.
+        // recognize the dropped prefix names a DIFFERENT element (DocumentNo, not Line) and read the binding
+        // from the document root instead of guessing.
         const string Ns = "urn:microsoft-dynamics-nav/reports/TestReport/50000/";
         const string RepeaterXPath = "/ns0:NavWordReportXmlPart[1]/ns0:Header[1]/ns0:Line";
         const string FieldXPath = "/ns0:NavWordReportXmlPart[1]/ns0:Header[1]/ns0:DocumentNo[1]";
@@ -405,8 +409,8 @@ public class MergeEngineTests
                 Assert.Equal(1, result.Stats.FieldsFilled);
                 Assert.Equal(0, result.Stats.Unresolved);
 
-                var warning = Assert.Single(result.Warnings, w => w.Kind == "xpath-fallback");
-                Assert.Contains(FieldXPath, warning.Location);
+                // /Header/DocumentNo lies outside the /Header/Line repeater: an absolute read, no warning.
+                Assert.DoesNotContain(result.Warnings, w => w.Kind == "xpath-fallback");
 
                 doc.MainDocumentPart!.Document!.Save();
             }
@@ -432,7 +436,7 @@ public class MergeEngineTests
         // code would still drop 3 steps (count-only check: 4 >= 3) and evaluate the 1-step remainder
         // ("Amount") against the wrong context node (the Line row), typically finding nothing and raising a
         // FALSE unresolved-binding error for a layout BC renders fine. The fix must recognize the divergence
-        // at step 3 (Totals != Line) and fall back to evaluating the full path from the document root.
+        // at step 3 (Totals != Line) and evaluate the full path from the document root instead.
         const string RepeaterXPath = "/ns0:NavWordReportXmlPart[1]/ns0:Header[1]/ns0:Line";
         const string FieldXPath = "/ns0:NavWordReportXmlPart[1]/ns0:Header[1]/ns0:Totals[1]/ns0:Amount[1]";
         const string Ns = "urn:microsoft-dynamics-nav/reports/TestReport/50000/";
@@ -459,8 +463,8 @@ public class MergeEngineTests
                 Assert.Equal(1, result.Stats.FieldsFilled);
                 Assert.Equal(0, result.Stats.Unresolved);
 
-                var warning = Assert.Single(result.Warnings, w => w.Kind == "xpath-fallback");
-                Assert.Contains(FieldXPath, warning.Location);
+                // Header/Totals lies outside the /Header/Line repeater: an absolute read, no warning.
+                Assert.DoesNotContain(result.Warnings, w => w.Kind == "xpath-fallback");
 
                 doc.MainDocumentPart!.Document!.Save();
             }
@@ -483,8 +487,8 @@ public class MergeEngineTests
         // Header/Line) rather than a genuine descendant. The old code would drop all 3 steps (count-only
         // match), leave an EMPTY remainder, and evaluate expression "." against the Line row context —
         // matching that single row node and cloning exactly ONE bogus row regardless of how many real Extra
-        // elements exist. The fix must recognize the divergence and fall back to evaluating the inner
-        // repeater's absolute XPath from the document root, producing clones for the ACTUAL matched nodes.
+        // elements exist. The fix must recognize the divergence and evaluate the inner repeater's absolute
+        // XPath from the document root, producing clones for the ACTUAL matched nodes.
         const string OuterXPath = "/ns0:NavWordReportXmlPart[1]/ns0:Header[1]/ns0:Line";
         const string InnerXPath = "/ns0:NavWordReportXmlPart[1]/ns0:Header[1]/ns0:Extra";
         const string FieldXPath = "/ns0:NavWordReportXmlPart[1]/ns0:Header[1]/ns0:Extra[1]/ns0:Value[1]";
@@ -518,8 +522,8 @@ public class MergeEngineTests
                 Assert.Equal(3, result.Stats.RowsGenerated);
                 Assert.Equal(0, result.Stats.Unresolved);
 
-                var warning = Assert.Single(result.Warnings, w => w.Kind == "xpath-fallback");
-                Assert.Contains(InnerXPath, warning.Location);
+                // Header/Extra lies outside the /Header/Line repeater: an absolute read, no warning.
+                Assert.DoesNotContain(result.Warnings, w => w.Kind == "xpath-fallback");
 
                 doc.MainDocumentPart!.Document!.Save();
             }
