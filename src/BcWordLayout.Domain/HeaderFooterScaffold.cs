@@ -18,7 +18,9 @@ namespace BcWordLayout.Domain;
 /// </summary>
 /// <remarks>
 /// A scaffolded part holds exactly one empty paragraph (a <c>w:hdr</c>/<c>w:ftr</c> must carry at least
-/// one block-level child) and is wired into the body's own trailing <c>w:sectPr</c> via a
+/// one block-level child — the first <c>documentEnd</c> insert reuses it rather than leaving it behind as a
+/// leading empty line, see <see cref="LocationResolver"/>) and is wired into the FIRST section's
+/// <c>w:sectPr</c> (later sections inherit it — see <see cref="AddSectionReference"/>) via a
 /// <c>w:headerReference</c>/<c>w:footerReference</c> of type <c>default</c> — without that reference the
 /// part exists in the package but no page ever renders it. Both reference elements belong to
 /// <c>CT_SectPr</c>'s LEADING choice group (before <c>w:pgSz</c>/<c>w:pgMar</c>), which is why they are
@@ -30,9 +32,9 @@ public static class HeaderFooterScaffold
 {
     /// <summary>
     /// Ensures <paramref name="doc"/> has at least one part of the kind <paramref name="part"/> names,
-    /// adding an empty one (wired into the body <c>sectPr</c>) when it has none. Returns <c>true</c> only
-    /// when a part was actually added — <see cref="LayoutPart.Body"/>, and any layout that already has a
-    /// part of that kind, are no-ops returning <c>false</c>.
+    /// adding an empty one (wired into the first section's <c>sectPr</c>) when it has none. Returns
+    /// <c>true</c> only when a part was actually added — <see cref="LayoutPart.Body"/>, and any layout that
+    /// already has a part of that kind, are no-ops returning <c>false</c>.
     /// </summary>
     /// <exception cref="InvalidDataException"><paramref name="doc"/> has no main document part or no body.</exception>
     public static bool EnsureExists(WordprocessingDocument doc, LayoutPart part)
@@ -87,17 +89,31 @@ public static class HeaderFooterScaffold
     }
 
     /// <summary>
-    /// Wires <paramref name="reference"/> into the body's trailing <c>w:sectPr</c> as its FIRST child (see
-    /// this type's remarks on <c>CT_SectPr</c>'s leading choice group), adding a bare <c>w:sectPr</c> when
-    /// the body has none at all — a layout built by <see cref="LayoutBuilder"/> always has one carrying the
-    /// corpus page setup, so that fallback only ever fires for an externally authored document.
+    /// Wires <paramref name="reference"/> into the FIRST <c>w:sectPr</c> in document order as its first child
+    /// (see this type's remarks on <c>CT_SectPr</c>'s leading choice group), adding a bare body-level
+    /// <c>w:sectPr</c> when the document has none at all — a layout built by <see cref="LayoutBuilder"/>
+    /// always has one carrying the corpus page setup, so that fallback only ever fires for an externally
+    /// authored document.
     /// </summary>
+    /// <remarks>
+    /// WHY THE FIRST, NOT THE BODY'S TRAILING ONE (GitHub issue #91): a section with no reference of a given
+    /// type INHERITS it from the PREVIOUS section — never from a later one. A paragraph-level <c>w:sectPr</c>
+    /// ends the section it sits in, so in a multi-section layout the body's trailing <c>w:sectPr</c> governs
+    /// only the LAST section; a reference placed there left every earlier section, page 1 included, with no
+    /// header/footer at all while the tool reported it "wired into the page setup". The first one is the
+    /// section every later one inherits from, the one <see cref="HeaderFooterPartRoles"/> and
+    /// <see cref="LocationResolver"/>'s default-part rule already treat as governing, and where JobQuote —
+    /// the only multi-section stock layout — keeps its own references. In a single-section layout (every
+    /// other corpus layout, and every <see cref="LayoutBuilder"/> output) the first IS the trailing one, so
+    /// nothing changes there. <c>Descendants</c> — like those two readers — because a paragraph-level
+    /// <c>w:sectPr</c> lives in a <c>w:pPr</c>, not directly under <c>w:body</c>.
+    /// </remarks>
     private static void AddSectionReference(MainDocumentPart main, OpenXmlElement reference)
     {
         var body = main.Document?.Body
             ?? throw new InvalidDataException("Layout has no document body.");
 
-        var sectPr = body.Elements<SectionProperties>().LastOrDefault();
+        var sectPr = body.Descendants<SectionProperties>().FirstOrDefault();
         if (sectPr is null)
         {
             sectPr = new SectionProperties();

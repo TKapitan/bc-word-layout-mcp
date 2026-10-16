@@ -119,7 +119,8 @@ public sealed class InsertionAnchor
     /// Inserts an inline (run-level) element — e.g. a field/label <c>SdtRun</c> built by
     /// <see cref="SdtFactory"/> — at this anchor. When the anchor sits inside an existing paragraph
     /// (<see cref="LocationKind.AfterControl"/> on an inline control, <see cref="LocationKind.TableCell"/>,
-    /// or <see cref="LocationKind.AtText"/>), the content is placed directly in that paragraph's run
+    /// <see cref="LocationKind.AtText"/>, or <see cref="LocationKind.DocumentEnd"/> on a part whose only
+    /// child is an empty paragraph), the content is placed directly in that paragraph's run
     /// flow — immediately after the reference run/control when one is known, otherwise appended at the
     /// paragraph's end. Otherwise (the anchor is purely block-level, e.g.
     /// <see cref="LocationKind.DocumentEnd"/>, or <see cref="LocationKind.AfterControl"/> on a
@@ -444,8 +445,25 @@ public static class LocationResolver
     // section break instead). A header/footer never has one — HeaderFooterContent's own content model has
     // no place for a w:sectPr at all — so for those parts this always falls through to a plain append at
     // the end of the part's own content, exactly as a body with no trailing sectPr already does.
+    //
+    // One exception (GitHub issue #91): a part whose ONLY child is an empty paragraph — what
+    // HeaderFooterScaffold creates, since a w:hdr/w:ftr must hold at least one block — has no content to
+    // append after; opening a new paragraph there left every from-scratch header/footer starting with a
+    // stray empty line (<w:ftr><w:p/><w:p>…</w:p></w:ftr>). That paragraph is reused instead: inline
+    // content goes INTO it, block content goes BEFORE it (where it then serves as the trailing paragraph
+    // InsertBlock guarantees after a table). "Empty" means no runs or other content — a w:pPr alone (e.g. a
+    // Word-cleared header's Header-styled paragraph) still counts, and is kept so its style carries over.
+    // A body with its trailing w:sectPr never qualifies: that sectPr is a second child.
     private static InsertionAnchor ResolveDocumentEnd(OpenXmlElement root, string partName)
     {
+        if (root.ChildElements.Count == 1
+            && root.FirstChild is Paragraph lone
+            && lone.ChildElements.All(c => c is ParagraphProperties))
+        {
+            return new InsertionAnchor(
+                blockContainer: root, insertBeforeBlock: lone, inlineParagraph: lone, insertAfterInline: null, partName: partName);
+        }
+
         var sectPr = root.Elements<SectionProperties>().FirstOrDefault();
         return new InsertionAnchor(
             blockContainer: root, insertBeforeBlock: sectPr, inlineParagraph: null, insertAfterInline: null, partName: partName);

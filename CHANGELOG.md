@@ -39,6 +39,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   cell-level label now fails as `invalid_argument`, before any edit, instead of
   `edit_would_corrupt`.
 
+- **A header or footer an insert creates is now referenced from the first section** (GitHub
+  issue #91). Only the last section referenced it, so in a multi-section layout such as JobQuote the
+  earlier sections, page 1 included, rendered without it. The first insert into such a new header
+  or footer also no longer leaves an empty line above its content.
+
 ### Security
 
 - **A crafted layout can no longer kill the server through the OpenXml SDK's own parse** (GitHub
