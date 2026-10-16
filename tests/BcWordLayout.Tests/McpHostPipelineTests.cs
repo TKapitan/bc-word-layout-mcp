@@ -384,6 +384,114 @@ public sealed class McpHostPipelineTests(McpHostPipeline pipeline) : IClassFixtu
         Assert.True(stale.Count == 0, $"FilePathParameters names no tool's string parameter: {string.Join(", ", stale)}.");
     }
 
+    // ---- numeric ranges (GitHub issue #98) ----
+
+    [Theory]
+    [InlineData("set_column_widths", """ "tableIndex":0,"widths":"-500,5103" """, "widths entry '-500'", "set_column_widths' widths")]
+    [InlineData("set_column_widths", """ "tableIndex":0,"widths":"0,0" """, "widths entry '0'", "set_column_widths' widths")]
+    [InlineData("set_column_widths", """ "tableIndex":0,"widths":"40000,100" """, "widths entry '40000'", "set_column_widths' widths")]
+    [InlineData("insert_table", """ "rows":1,"columns":2,"locationType":"documentEnd","columnWidths":"-100,200" """, "columnWidths entry '-100'", "columnWidths, if supplied")]
+    [InlineData("insert_table", """ "rows":1,"columns":2,"locationType":"documentEnd","columnWidths":"0,200" """, "columnWidths entry '0'", "columnWidths, if supplied")]
+    [InlineData("insert_repeater_table", """ "dataItem":"/Header/Line","columns":"ItemNo_Line","locationType":"documentEnd","columnWidths":"-5" """, "columnWidths entry '-5'", "columnWidths, if supplied")]
+    [InlineData("insert_column", """ "tableIndex":0,"mode":"plainText","width":40000 """, "width 40000", "insert_column's width")]
+    [InlineData("insert_column", """ "tableIndex":0,"mode":"plainText","width":0 """, "width 0", "insert_column's width")]
+    public async Task A_column_width_outside_1_to_Words_maximum_page_width_is_invalid_argument_and_nothing_is_written(
+        string tool, string otherArguments, string messageFragment, string hintFragment)
+    {
+        var path = CopyOfCorpus(Corpus.SalesInvoice);
+        var before = await File.ReadAllBytesAsync(path);
+
+        var result = await pipeline.CallAsync(tool, $$"""{"layoutPath":{{J(path)}},{{otherArguments}}}""");
+
+        // Was edit_would_corrupt ("likely a bug in the tool") for a negative width and ok:true - writing
+        // w:gridCol w:w="0" - for a zero one.
+        result.AssertFailure("invalid_argument", messageFragment);
+        Assert.Contains(hintFragment, result.Hint, StringComparison.Ordinal);
+        Assert.Equal(before, await File.ReadAllBytesAsync(path));
+    }
+
+    [Fact]
+    public async Task Column_widths_at_both_bounds_are_accepted()
+    {
+        var result = await pipeline.CallAsync(
+            "set_column_widths", $$"""{"layoutPath":{{J(CopyOfCorpus(Corpus.SalesInvoice))}},"tableIndex":0,"widths":"1,{{TableTools.MaxColumnWidthTwips}}"}""");
+
+        Assert.True(result.Ok, result.RawText);
+    }
+
+    [Theory]
+    [InlineData("insert_table_row", """ "tableIndex":0,"cells":"3:-,-1:-" """, "'-1:-' spans -1")]
+    [InlineData("insert_table_row", """ "tableIndex":0,"cells":"-5:-,13:-" """, "'-5:-' spans -5")]
+    [InlineData("insert_table_row", """ "tableIndex":0,"cells":"0:-,2:-" """, "'0:-' spans 0")]
+    [InlineData("insert_table_row", """ "tableIndex":0,"cells":"64:-" """, "'64:-' spans 64")]
+    [InlineData("insert_subtotal_row", """ "parentControlId":0,"cells":"1:-,-1:-" """, "'-1:-' spans -1")]
+    [InlineData("insert_repeater_row", """ "parentControlId":0,"dataItem":"/Header/Line","cells":"-3:-" """, "'-3:-' spans -3")]
+    public async Task A_cell_span_outside_1_to_63_is_invalid_argument_with_the_cells_hint(
+        string tool, string otherArguments, string messageFragment)
+    {
+        var result = await pipeline.CallAsync(
+            tool, $$"""{"layoutPath":{{J(CopyOfCorpus(Corpus.SalesInvoice))}},{{otherArguments}}}""");
+
+        // "3:-,-1:-" used to crash with "Index was out of range (Parameter 'index')" and a generic hint.
+        result.AssertFailure("invalid_argument", messageFragment, "between 1 and 63");
+        Assert.Contains("cells is a comma-separated list of cell specs", result.Hint, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(""" "rows":1,"columns":0 """, "columns must be between 1 and 30", "insert_table's columns is how many columns")]
+    [InlineData(""" "rows":1,"columns":31 """, "columns must be between 1 and 30", "insert_table's columns is how many columns")]
+    [InlineData(""" "rows":0,"columns":2 """, "rows must be between 1 and 100", "insert_table's rows is how many rows")]
+    public async Task Insert_table_count_hints_describe_insert_tables_own_parameters(
+        string counts, string messageFragment, string hintFragment)
+    {
+        var result = await pipeline.CallAsync(
+            "insert_table", $$"""{"layoutPath":{{J(CopyOfCorpus(Corpus.SalesInvoice))}},{{counts}},"locationType":"documentEnd"}""");
+
+        // The columns hint used to describe insert_repeater_table's comma-separated list of column names.
+        result.AssertFailure("invalid_argument", messageFragment);
+        Assert.Contains(hintFragment, result.Hint, StringComparison.Ordinal);
+        Assert.DoesNotContain("LEAF column names", result.Hint, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Insert_repeater_tables_columns_keeps_its_own_list_hint()
+    {
+        var result = await pipeline.CallAsync(
+            "insert_repeater_table", $$"""{"layoutPath":{{J(CopyOfCorpus(Corpus.SalesInvoice))}},"dataItem":"/Header/Line","columns":" , ","locationType":"documentEnd"}""");
+
+        result.AssertFailure("invalid_argument", "At least one column is required");
+        Assert.Contains("insert_repeater_table's columns must be a non-empty, comma-separated list", result.Hint, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-5)]
+    public async Task Preview_rows_below_1_is_invalid_argument_with_the_preview_hint(int rows)
+    {
+        // The layout is missing, so even a regression in the rows check could not reach a conversion: the
+        // call would stop at file_not_found instead, and fail this test.
+        var result = await pipeline.CallAsync(
+            "preview_layout", $$"""{"layoutPath":{{J(MissingFile())}},"rows":{{rows}}}""");
+
+        result.AssertFailure("invalid_argument", $"rows must be 1 or more (got {rows})");
+        Assert.Contains("preview_layout's rows is how many sample rows", result.Hint, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("firstPage", 0)]
+    [InlineData("firstPage", -3)]
+    [InlineData("maxPages", 0)]
+    public async Task Render_page_arguments_below_1_are_invalid_argument_instead_of_a_silent_clamp(string parameter, int value)
+    {
+        // Was: page 1 rendered while the response echoed firstPage 0/-3. The PDF is missing, so nothing renders
+        // either way; the argument check runs first.
+        var result = await pipeline.CallAsync(
+            "render_preview_pages", $$"""{"pdfPath":{{J(MissingFile(".pdf"))}},"{{parameter}}":{{value}}}""");
+
+        result.AssertFailure("invalid_argument", $"{parameter} must be 1 or more (got {value})");
+        Assert.Contains("pageCount", result.Hint, StringComparison.Ordinal);
+    }
+
     // ---- belt-and-braces: an SDK-swallowed binding failure ----
 
     [Fact]

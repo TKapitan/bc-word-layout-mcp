@@ -189,6 +189,22 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     `newSchemaSource`, `templatePath`, `outputPath`, `dataOverridesPath`, `outputDir`, `pdfPath`)
     must now be fully qualified, or the call is `invalid_argument` naming it.
 
+- **Numeric arguments are range-checked where they are parsed** (GitHub issue #98).
+  - **Column widths** (`set_column_widths`' `widths`, `insert_table`'s and
+    `insert_repeater_table`'s `columnWidths`, `insert_column`'s `width`) must be 1–31680 twips
+    (22 in, Word's maximum page width). A negative width failed as `edit_would_corrupt`, whose
+    hint blames the tool; a zero width was written as `w:gridCol w:w="0"`.
+  - **Cell spans** in the `cells` syntax (`insert_table_row`, `insert_repeater_row`,
+    `insert_subtotal_row`) must be 1–63, Word's maximum table column count. `"3:-,-1:-"` crashed
+    with "Index was out of range"; the refusal now has a hint explaining the `cells` syntax.
+  - **`preview_layout`'s `rows`** below 1 is `invalid_argument`. It used to return `ok:true` with
+    an empty body, plus warnings caused only by the row count.
+  - **`render_preview_pages`' `firstPage` and `maxPages`** below 1 are `invalid_argument`. Before,
+    page 1 rendered while the response echoed `firstPage: 0`.
+  - **Hints for parameter names that mean different things on different tools** now depend on the
+    tool as well as the name. `insert_table`'s `columns` (a count) no longer gets the hint for
+    `insert_repeater_table`'s list of column names, and its `rows` no longer gets the generic hint.
+
 ### Security
 
 - **A crafted layout can no longer kill the server through the OpenXml SDK's own parse** (GitHub

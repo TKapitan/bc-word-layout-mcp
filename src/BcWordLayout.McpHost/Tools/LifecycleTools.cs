@@ -247,7 +247,7 @@ public static class LifecycleTools
                  + "image blocks.")]
     public static ToolResponse PreviewLayout(
         [Description("Absolute path to the .docx layout file.")] string layoutPath,
-        [Description("Number of sample rows to generate per repeating section. Default 3. Bounded per "
+        [Description("Number of sample rows to generate per repeating section: 1 or more, default 3. Bounded per "
                      + "repeater/data item by an internal safeguard (default cap 100): a value above the "
                      + "cap never generates or merges more than the cap's worth of rows for any single "
                      + "repeating section, reported via a row-cap warning rather than silently ignored.")]
@@ -279,6 +279,18 @@ public static class LifecycleTools
     {
         return Guard(() =>
         {
+            // Checked first, before the file is even looked at: a zero/negative count used to "succeed" with an
+            // empty body plus unresolved-binding warnings caused only by the row count, which reads as a broken
+            // layout rather than a bad argument (GitHub issue #98). Nothing in the merge intends a zero-row
+            // preview, so it is refused rather than documented as one.
+            if (rows < 1)
+            {
+                throw new ArgumentException(
+                    $"rows must be 1 or more (got {rows}): it is the number of sample rows generated per "
+                    + "repeating section.",
+                    nameof(rows));
+            }
+
             if (!File.Exists(layoutPath))
             {
                 throw new FileNotFoundException("layoutPath does not point to an existing file.", layoutPath);
@@ -396,7 +408,7 @@ public static class LifecycleTools
 
                 return ToolResponse.Success(dto);
             }
-        }, layoutPath);
+        }, layoutPath, tool: "preview_layout"); // rows means something else on insert_table - see ToolGuards.ToolSpecificInvalidArgumentHint
     }
 
     // ---- preview_layout helpers ----
@@ -741,8 +753,8 @@ public static class LifecycleTools
     public static CallToolResult RenderPreviewPages(
         [Description("Absolute path to the PDF to render — typically the PdfPath returned by a preceding "
                      + "preview_layout call.")] string pdfPath,
-        [Description("1-based page number to start rendering from. Default 1.")] int firstPage = 1,
-        [Description("How many pages to return, starting at firstPage. Default 3, hard cap 10 per call — "
+        [Description("1-based page number to start rendering from (1 or more). Default 1.")] int firstPage = 1,
+        [Description("How many pages to return, starting at firstPage (1 or more). Default 3, hard cap 10 per call — "
                      + "the JSON envelope's 'truncated' flag tells you when the document has more pages "
                      + "than were returned.")] int maxPages = 3,
         [Description("Render resolution in DPI, clamped to 36–300. Default 120 (an A4 page comes out "
@@ -770,6 +782,21 @@ public static class LifecycleTools
                 "inlineImages=false with no outputDir would render the pages and then discard them.",
                 "Either pass outputDir (the PNGs are written there and their paths come back on "
                 + "pages[].path), or leave inlineImages at its default of true."));
+        }
+
+        // Pages are numbered from 1 and at least one must be asked for. The rasterizer clamps anything lower
+        // to 1, so firstPage=0 or -3 used to render page 1 while the response echoed the value that was sent
+        // (GitHub issue #98) - refused here instead of silently corrected. maxPages' documented cap of 10 is
+        // still a clamp: asking for more is not a mistake, just more than one call returns.
+        if (firstPage < 1 || maxPages < 1)
+        {
+            var (name, value) = firstPage < 1 ? (nameof(firstPage), firstPage) : (nameof(maxPages), maxPages);
+            return EnvelopeOnly(ToolResponse.Failure(
+                "invalid_argument",
+                $"{name} must be 1 or more (got {value}).",
+                "firstPage is the 1-based page to start from (default 1) and maxPages how many pages to render "
+                + "from there (default 3, at most 10 per call); the response's pageCount tells you how many pages "
+                + "the document has."));
         }
 
         // File-existence gets its own code (and the shared file_not_found hint style Guard uses) rather

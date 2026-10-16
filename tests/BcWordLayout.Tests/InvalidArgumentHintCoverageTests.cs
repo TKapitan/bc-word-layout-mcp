@@ -274,6 +274,26 @@ public class InvalidArgumentHintCoverageTests
         }
     }
 
+    // ---- "cells" — TableTools.ParseRepeaterRowCells' span range, and the domain's span-sum check, shared by
+    // insert_table_row/insert_repeater_row/insert_subtotal_row ----
+
+    [Theory]
+    [InlineData("-1:-,4:-")]
+    [InlineData("2:-")]
+    public void InsertTableRow_bad_cells_hint_names_the_cells_dsl(string cells)
+    {
+        var path = SyntheticLayout.Create(SyntheticLayout.SimpleTable(rows: 2, cols: 3));
+        try
+        {
+            var response = TableTools.InsertTableRow(path, tableIndex: 0, cells: cells);
+            AssertActionableFailure(response, "invalid_argument", "cells is a comma-separated list of cell specs");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     // ---- "atcolumn" — TableStructureEditor.InsertColumn's range / spanned-content-cell checks ----
 
     [Fact]
