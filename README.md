@@ -232,6 +232,12 @@ that step, so a call that never reaches a body still returns `isError: true` wit
   parameters.
 - **Wrong JSON type** (`"abc"` or `1.5` for an integer, `"true"` for a boolean, `null` for a number or
   boolean): `invalid_argument` naming the parameter, the type it needs, and what the call sent.
+- **Unknown argument name:** refused with `invalid_argument` rather than ignored, naming the closest
+  real parameter (`layoutpart` → `layoutPart`; names are case-sensitive) and listing them all. An
+  ignored misspelling would silently fall back to the parameter's default.
+- **Relative path:** every path parameter must be absolute; a relative one (or a drive- or
+  root-relative one like `C:Report.docx`) is refused with `invalid_argument` naming the parameter,
+  instead of resolving against the server's working directory.
 - **Explicit `null` for a string:** an optional enum-like string (`layoutPart`, `look`, `style`,
   `converter`, `level`) takes its documented default, exactly as if it were omitted; a required one
   (`locationType`, `mode`) is refused with `invalid_argument`.

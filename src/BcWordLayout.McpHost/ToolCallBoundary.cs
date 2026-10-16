@@ -54,9 +54,41 @@ namespace BcWordLayout.McpHost;
 /// directly. Folding it into that code keeps the documented list complete; the branch stays as
 /// belt-and-braces against a future SDK that swallows instead of throws.
 /// </para>
+/// <para>
+/// TWO CHECKS THE SDK DOES NOT MAKE, both run before <c>next</c> so a refused call never reaches the binder
+/// or a tool body (ADR-0003, refuse rather than guess; GitHub issue #90):
+/// <list type="bullet">
+/// <item>UNKNOWN ARGUMENT NAMES. The generated input schemas do not set <c>additionalProperties:false</c> and
+/// the binder ignores keys it has no parameter for, so a misspelled OPTIONAL argument (<c>layoutpart</c>,
+/// <c>atcolumn</c>, remove_column's <c>column</c> sent to set_cell_borders, whose parameter is <c>col</c>)
+/// silently fell back to its default and the call "succeeded" doing something the agent did not ask for.
+/// Every key must now be a property of the tool's input schema; the refusal names the closest real
+/// parameter (<see cref="ClosestName"/>) and lists them all.</item>
+/// <item>RELATIVE PATHS. Every path parameter is documented as absolute, but a relative one used to resolve
+/// against the server process's working directory, which the agent cannot see (and <c>create_layout</c>
+/// happily wrote there). A non-blank string for a parameter in <see cref="FilePathParameters"/> must now be
+/// <see cref="Path.IsPathFullyQualified(string)"/>; a blank one passes through to the tool's own "must not
+/// be empty"/file-not-found handling, which names it more precisely.</item>
+/// </list>
+/// </para>
 /// </remarks>
 internal static class ToolCallBoundary
 {
+    /// <summary>
+    /// The parameters, across every tool, that take a FILE-SYSTEM path — keyed by name, because each name means
+    /// the same thing on every tool that has it. An explicit set rather than a naming heuristic, because the
+    /// obvious heuristic is wrong here: <c>insert_column</c>'s <c>dataPath</c>/<c>headerLabelPath</c> end in
+    /// "Path" but are DATASET paths (<c>/Header/Line/Discount_Line</c>), which are never fully qualified file
+    /// paths. <c>McpHostPipelineTests</c> fails if a tool gains a path-like string parameter (a name ending in
+    /// Path/Source/Dir/File/Folder, or a description promising an absolute path) that is neither listed here
+    /// nor explicitly classified as a dataset path there.
+    /// </summary>
+    internal static readonly FrozenSet<string> FilePathParameters = new[]
+    {
+        "layoutPath", "source", "schemaSource", "newSchemaSource", "templatePath", "outputPath",
+        "dataOverridesPath", "outputDir", "pdfPath",
+    }.ToFrozenSet(StringComparer.Ordinal);
+
     /// <summary>
     /// Registers this server's tools and the call-tool filter. Shared by <c>Program.cs</c> and the host-level
     /// tests, so the tests exercise the pipeline the shipped server runs rather than a copy of it. The
@@ -94,15 +126,26 @@ internal static class ToolCallBoundary
 
         if (tool is null)
         {
+            var toolNames = context.Server.ServerOptions.ToolCollection?.Select(t => t.ProtocolTool.Name).ToList() ?? [];
             return EnvelopeError(
                 "invalid_argument",
-                $"Unknown tool '{toolName}'.",
+                $"Unknown tool '{toolName}'."
+                + (ClosestName(toolName, toolNames) is { } closestTool ? $" Did you mean '{closestTool}'?" : string.Empty),
                 "This server has no tool by that name. Call tools/list for the exact names it exposes - they "
                 + "are snake_case, e.g. get_layout_info, list_dataset_fields, insert_field - and re-send the "
                 + "call with one of them.");
         }
 
         var arguments = context.Params?.Arguments;
+        if (RejectUnknownArguments(tool, arguments) is { } unknownArguments)
+        {
+            return unknownArguments;
+        }
+
+        if (RejectRelativePaths(tool, arguments) is { } relativePaths)
+        {
+            return relativePaths;
+        }
 
         try
         {
@@ -175,6 +218,142 @@ internal static class ToolCallBoundary
 
     private static List<string> MissingRequiredArguments(McpServerTool tool, IDictionary<string, JsonElement>? arguments) =>
         RequiredParameters(tool).Where(name => arguments is null || !arguments.ContainsKey(name)).ToList();
+
+    /// <summary>Every parameter name in the tool's input schema, in schema (= method signature) order.</summary>
+    private static List<string> SchemaParameters(McpServerTool tool) =>
+        tool.ProtocolTool.InputSchema.TryGetProperty("properties", out var properties)
+        && properties.ValueKind == JsonValueKind.Object
+            ? properties.EnumerateObject().Select(p => p.Name).ToList()
+            : [];
+
+    /// <summary>
+    /// Refuses a call carrying any argument key that is not a property of the tool's input schema (matched
+    /// ordinally — argument names are case-sensitive, so <c>layoutpart</c> is unknown, not <c>layoutPart</c>).
+    /// Null when every key is known. See the class remarks for why an ignored key is worse than a refusal.
+    /// </summary>
+    private static CallToolResult? RejectUnknownArguments(McpServerTool tool, IDictionary<string, JsonElement>? arguments)
+    {
+        if (arguments is null || arguments.Count == 0)
+        {
+            return null;
+        }
+
+        var known = SchemaParameters(tool);
+        var unknown = arguments.Keys.Where(key => !known.Contains(key, StringComparer.Ordinal)).ToList();
+        if (unknown.Count == 0)
+        {
+            return null;
+        }
+
+        var described = unknown.Select(key =>
+            ClosestName(key, known) is { } closest ? $"'{key}' (did you mean '{closest}'?)" : $"'{key}'");
+        return EnvelopeError(
+            "invalid_argument",
+            $"{tool.ProtocolTool.Name} has no argument named {string.Join(", ", described)}; the call was refused "
+            + "rather than run as if the argument had not been sent.",
+            "Argument names are case-sensitive and must match the tool's input schema exactly. An unknown name is "
+            + "refused rather than ignored, because a misspelled optional argument would otherwise silently fall "
+            + $"back to its default. {tool.ProtocolTool.Name} takes: {string.Join(", ", known)}.");
+    }
+
+    /// <summary>
+    /// Refuses a call passing a relative (or drive-/root-relative, e.g. <c>C:Report.docx</c>,
+    /// <c>\Report.docx</c>) path to any <see cref="FilePathParameters"/> parameter, naming each one. Blank and
+    /// non-string values pass through: the tool's own validation (blank) or the binder (wrong type) reports
+    /// those more precisely. Null when every path argument is fully qualified.
+    /// </summary>
+    private static CallToolResult? RejectRelativePaths(McpServerTool tool, IDictionary<string, JsonElement>? arguments)
+    {
+        if (arguments is null)
+        {
+            return null;
+        }
+
+        var relative = arguments
+            .Where(a => FilePathParameters.Contains(a.Key)
+                        && a.Value.ValueKind == JsonValueKind.String
+                        && a.Value.GetString() is { } path
+                        && !string.IsNullOrWhiteSpace(path)
+                        && !Path.IsPathFullyQualified(path))
+            .Select(a => $"{a.Key} ('{a.Value.GetString()}')")
+            .ToList();
+        if (relative.Count == 0)
+        {
+            return null;
+        }
+
+        return EnvelopeError(
+            "invalid_argument",
+            $"{tool.ProtocolTool.Name} needs absolute paths, but {string.Join(" and ", relative)} "
+            + (relative.Count == 1 ? "is" : "are")
+            + " relative: it would resolve against the server process's working directory, which the caller "
+            + "cannot see.",
+            "Pass a fully qualified path - a drive letter and root (C:\\Work\\Report.docx) or a UNC path "
+            + "(\\\\server\\share\\Report.docx) - built from your own workspace root. A relative path, and a "
+            + "drive- or root-relative one such as 'C:Report.docx' or '\\Report.docx', is refused rather than "
+            + "resolved against the server's current directory.");
+    }
+
+    /// <summary>
+    /// The candidate an agent most plausibly MEANT by <paramref name="name"/>, or null when nothing is close:
+    /// first a case-insensitive match (<c>layoutpart</c> → <c>layoutPart</c>); then the nearest candidate by
+    /// case-insensitive edit distance, if within a quarter of the name's length (at least 1 —
+    /// <c>tabelIndex</c> → <c>tableIndex</c>); then the longest candidate of 3+ characters that is a prefix of
+    /// the name or vice versa (<c>column</c> → <c>col</c>). Deliberately conservative: a far-fetched
+    /// suggestion is worse than none, and every refusal lists the full valid set anyway.
+    /// </summary>
+    internal static string? ClosestName(string name, IReadOnlyCollection<string> candidates)
+    {
+        if (string.IsNullOrEmpty(name) || candidates.Count == 0)
+        {
+            return null;
+        }
+
+        if (candidates.FirstOrDefault(c => string.Equals(c, name, StringComparison.OrdinalIgnoreCase)) is { } exact)
+        {
+            return exact;
+        }
+
+        var lowered = name.ToLowerInvariant();
+        var (nearest, distance) = candidates
+            .Select(c => (Candidate: c, Distance: EditDistance(lowered, c.ToLowerInvariant())))
+            .MinBy(x => x.Distance);
+        if (distance <= Math.Max(1, name.Length / 4))
+        {
+            return nearest;
+        }
+
+        return candidates
+            .Where(c => Math.Min(c.Length, name.Length) >= 3
+                        && (name.StartsWith(c, StringComparison.OrdinalIgnoreCase)
+                            || c.StartsWith(name, StringComparison.OrdinalIgnoreCase)))
+            .MaxBy(c => c.Length);
+    }
+
+    /// <summary>Levenshtein distance (insert/delete/substitute, each cost 1) — two-row dynamic programming.</summary>
+    private static int EditDistance(string a, string b)
+    {
+        var previous = new int[b.Length + 1];
+        var current = new int[b.Length + 1];
+        for (var j = 0; j <= b.Length; j++)
+        {
+            previous[j] = j;
+        }
+
+        for (var i = 1; i <= a.Length; i++)
+        {
+            current[0] = i;
+            for (var j = 1; j <= b.Length; j++)
+            {
+                var substitution = previous[j - 1] + (a[i - 1] == b[j - 1] ? 0 : 1);
+                current[j] = Math.Min(Math.Min(previous[j] + 1, current[j - 1] + 1), substitution);
+            }
+
+            (previous, current) = (current, previous);
+        }
+
+        return previous[b.Length];
+    }
 
     /// <summary>
     /// Recovers WHICH argument failed binding: re-reads every supplied argument into its parameter's CLR type

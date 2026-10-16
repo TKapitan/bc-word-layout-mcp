@@ -186,7 +186,10 @@ alongside the quick checks in `Domain.LayoutValidator`.
 
 Conventions that hold across the surface:
 
-- **Absolute paths only.** Every tool takes absolute file paths; mutating tools write in place.
+- **Absolute paths only.** Every tool takes absolute file paths; mutating tools write in place. The
+  call boundary enforces it: a relative path is refused as `invalid_argument` rather than resolved
+  against the server's working directory, and so is an argument name the tool's schema does not have
+  (a misspelled optional argument would otherwise silently take its default).
 - **One uniform envelope**: `{ok, data, error}`, where `error` carries `code`, `message` and a **`hint`
   that is never empty** — it names the argument to fix and its valid values, or the inspection tool to call
   first. Nothing throws across the MCP boundary, including for calls that never reach a tool body: the

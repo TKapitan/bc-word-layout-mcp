@@ -13,7 +13,8 @@
 /// (a missing required one, a wrong JSON type) — fails inside the SDK first, and <see cref="ToolCallBoundary"/>'s
 /// call-tool filter, which wraps the SDK's tool lookup and binding, turns that failure into the same envelope
 /// (<c>invalid_argument</c> naming the tool or parameter), keyed on the exception TYPE the SDK throws, never
-/// its message text. The filter's own remarks list each case as measured against the pinned SDK, and
+/// its message text. The same filter refuses two calls the SDK would let through — an argument name the
+/// tool's schema does not have, and a relative path — before binding. Its remarks list each case, and
 /// <c>McpHostPipelineTests</c> pins them through the real pipeline. Only a JSON-RPC request too malformed to
 /// parse as a tool call (no <c>name</c>, <c>arguments</c> not an object) stays a protocol-level error.
 /// </remarks>

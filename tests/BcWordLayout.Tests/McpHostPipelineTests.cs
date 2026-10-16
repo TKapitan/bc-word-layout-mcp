@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Text.Json;
+using BcWordLayout.McpHost;
 using BcWordLayout.McpHost.Tools;
 using BcWordLayout.Render;
 using ModelContextProtocol.Server;
@@ -241,6 +242,146 @@ public sealed class McpHostPipelineTests(McpHostPipeline pipeline) : IClassFixtu
         Assert.True(result.IsError);
         result.AssertFailure("invalid_argument", "'no_such_tool'");
         Assert.Contains("tools/list", result.Hint, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task An_unknown_tool_close_to_a_real_one_suggests_it()
+    {
+        var result = await pipeline.CallAsync("insert_feild", "{}");
+
+        result.AssertFailure("invalid_argument", "'insert_feild'", "Did you mean 'insert_field'?");
+    }
+
+    // ---- unknown argument names (GitHub issue #90) ----
+
+    [Theory]
+    [InlineData("insert_text", """ "text":"x","locationType":"documentEnd","layoutpart":"footer" """, "layoutpart", "layoutPart")]
+    [InlineData("insert_column", """ "tableIndex":0,"mode":"plainText","atcolumn":0 """, "atcolumn", "atColumn")]
+    [InlineData("set_cell_borders", """ "tableIndex":0,"row":0,"edges":"top","column":1 """, "column", "col")]
+    [InlineData("insert_field", """ "field":"/Header/CustomerAddress1","locationType":"tableCell","tableIndex":0,"row":0,"col":0,"tabelIndex":1 """, "tabelIndex", "tableIndex")]
+    public async Task An_unknown_argument_name_is_refused_naming_the_closest_real_parameter_and_nothing_is_written(
+        string tool, string otherArguments, string sent, string meant)
+    {
+        var path = CopyOfCorpus(Corpus.SalesInvoice);
+        var before = await File.ReadAllBytesAsync(path);
+
+        var result = await pipeline.CallAsync(tool, $$"""{"layoutPath":{{J(path)}},{{otherArguments}}}""");
+
+        Assert.True(result.IsError);
+        result.AssertFailure("invalid_argument", $"no argument named '{sent}' (did you mean '{meant}'?)");
+        Assert.Contains("case-sensitive", result.Hint, StringComparison.Ordinal);
+        Assert.Contains($"{tool} takes: layoutPath, ", result.Hint, StringComparison.Ordinal);
+        Assert.Equal(before, await File.ReadAllBytesAsync(path));
+    }
+
+    [Fact]
+    public async Task An_unknown_argument_name_with_nothing_close_lists_the_valid_names_without_a_guess()
+    {
+        var result = await pipeline.CallAsync(
+            "remove_control", $$"""{"layoutPath":{{J(MissingFile())}},"controlId":1,"zzz":true}""");
+
+        result.AssertFailure("invalid_argument", "no argument named 'zzz';");
+        Assert.DoesNotContain("did you mean", result.Message, StringComparison.Ordinal);
+        Assert.Contains("remove_control takes: layoutPath, controlId, keepText.", result.Hint, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ClosestName_is_conservative_rather_than_guessing()
+    {
+        string[] candidates = ["layoutPath", "tableIndex", "row", "col", "layoutPart"];
+
+        Assert.Equal("layoutPart", ToolCallBoundary.ClosestName("LAYOUTPART", candidates));
+        Assert.Equal("tableIndex", ToolCallBoundary.ClosestName("tableIdex", candidates));
+        Assert.Equal("col", ToolCallBoundary.ClosestName("column", candidates));
+        Assert.Null(ToolCallBoundary.ClosestName("foo", candidates));
+        Assert.Null(ToolCallBoundary.ClosestName("x", candidates));
+    }
+
+    // ---- relative paths (GitHub issue #90) ----
+
+    [Fact]
+    public async Task Relative_paths_are_refused_naming_each_parameter_and_nothing_is_written_under_the_working_directory()
+    {
+        var outputUnderCwd = Path.Combine(Environment.CurrentDirectory, "sub", "New.docx");
+
+        var result = await pipeline.CallAsync(
+            "create_layout", """{"schemaSource":"RelQuote.docx","outputPath":"sub/New.docx"}""");
+
+        Assert.True(result.IsError);
+        result.AssertFailure("invalid_argument", "schemaSource ('RelQuote.docx')", "outputPath ('sub/New.docx')", "relative");
+        Assert.Contains("fully qualified", result.Hint, StringComparison.Ordinal);
+        Assert.False(File.Exists(outputUnderCwd));
+    }
+
+    [Theory]
+    [InlineData("get_layout_info", "layoutPath", "Layout.docx")]
+    [InlineData("get_layout_info", "layoutPath", @"..\Layout.docx")]
+    [InlineData("get_layout_info", "layoutPath", @"\Layout.docx")]
+    [InlineData("get_layout_info", "layoutPath", "C:Layout.docx")]
+    [InlineData("list_dataset_fields", "source", "schema.xml")]
+    [InlineData("render_preview_pages", "pdfPath", "preview.pdf")]
+    public async Task A_relative_or_drive_or_root_relative_path_is_refused(string tool, string parameter, string path)
+    {
+        var result = await pipeline.CallAsync(tool, $$"""{"{{parameter}}":{{J(path)}}}""");
+
+        result.AssertFailure("invalid_argument", $"{parameter} ('{path}')");
+    }
+
+    [Fact]
+    public async Task A_relative_optional_output_directory_is_refused_before_any_preview_work()
+    {
+        // preview_layout's own file check would also stop this call (the layout is missing); the point is
+        // that the relative outputDir is what gets named, before the tool body runs at all.
+        var result = await pipeline.CallAsync(
+            "preview_layout", $$"""{"layoutPath":{{J(MissingFile())}},"outputDir":"previews"}""");
+
+        result.AssertFailure("invalid_argument", "outputDir ('previews')");
+    }
+
+    [Fact]
+    public async Task A_blank_path_passes_through_to_the_tools_own_more_precise_refusal()
+    {
+        var result = await pipeline.CallAsync(
+            "create_layout", $$"""{"schemaSource":{{J(CopyOfCorpus(Corpus.SalesInvoice))}},"outputPath":""}""");
+
+        result.AssertFailure("invalid_argument", "Output path must not be empty.");
+    }
+
+    /// <summary>
+    /// The relative-path check only covers parameters in <c>ToolCallBoundary.FilePathParameters</c>, so a new
+    /// path parameter missing from that set would silently accept relative paths again. Every string parameter
+    /// that LOOKS like a file path — by name, or by a description promising an absolute path — must be either in
+    /// the set or explicitly classified here as a DATASET path (an XPath-like '/Header/Line/...' string, which
+    /// is never a file); and every entry in the set must still be a real string parameter of some tool.
+    /// </summary>
+    [Fact]
+    public void Every_path_like_string_parameter_is_classified_as_a_file_path_or_a_dataset_path()
+    {
+        string[] datasetPathParameters = ["dataPath", "headerLabelPath"];
+        string[] pathLikeSuffixes = ["path", "source", "dir", "directory", "file", "folder"];
+
+        var stringParameters = ToolMethods()
+            .SelectMany(x => x.Method.GetParameters()
+                .Where(p => p.ParameterType == typeof(string))
+                .Select(p => (x.Tool, Parameter: p)))
+            .ToList();
+
+        var unclassified = stringParameters
+            .Where(x => pathLikeSuffixes.Any(s => x.Parameter.Name!.EndsWith(s, StringComparison.OrdinalIgnoreCase))
+                        || (x.Parameter.GetCustomAttribute<System.ComponentModel.DescriptionAttribute>()?.Description
+                            .Contains("absolute", StringComparison.OrdinalIgnoreCase) ?? false))
+            .Where(x => !ToolCallBoundary.FilePathParameters.Contains(x.Parameter.Name!)
+                        && !datasetPathParameters.Contains(x.Parameter.Name))
+            .Select(x => $"{x.Tool}.{x.Parameter.Name}")
+            .ToList();
+        Assert.True(unclassified.Count == 0,
+            "Path-like string parameters that are neither in ToolCallBoundary.FilePathParameters nor classified as "
+            + $"dataset paths: {string.Join(", ", unclassified)}.");
+
+        var stale = ToolCallBoundary.FilePathParameters
+            .Where(name => !stringParameters.Any(x => x.Parameter.Name == name))
+            .ToList();
+        Assert.True(stale.Count == 0, $"FilePathParameters names no tool's string parameter: {string.Join(", ", stale)}.");
     }
 
     // ---- belt-and-braces: an SDK-swallowed binding failure ----

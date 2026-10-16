@@ -175,6 +175,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     non-enveloped text. They now describe what the server actually returns, and a host-level test
     that runs the real server pipeline pins every case above.
 
+- **Unknown argument names and relative paths are refused instead of quietly changing the
+  outcome** (GitHub issue #90).
+  - **Unknown argument names:** the SDK ignored any key it had no parameter for, so a misspelled
+    optional argument took its default. `insert_text` with `"layoutpart":"footer"` wrote into the
+    body, and `set_cell_borders` with `"column":1` drew every cell. A key outside the tool's input
+    schema is now `invalid_argument`, naming the closest real parameter (`layoutpart` →
+    `layoutPart`, `column` → `col`) and listing them all. An unknown tool name gets the same
+    "did you mean" suggestion.
+  - **Relative paths:** a relative path, or a drive- or root-relative one (`C:Report.docx`,
+    `\Report.docx`), resolved against the server's working directory, and `create_layout` wrote
+    its output there. Every path parameter (`layoutPath`, `source`, `schemaSource`,
+    `newSchemaSource`, `templatePath`, `outputPath`, `dataOverridesPath`, `outputDir`, `pdfPath`)
+    must now be fully qualified, or the call is `invalid_argument` naming it.
+
 ### Security
 
 - **A crafted layout can no longer kill the server through the OpenXml SDK's own parse** (GitHub
