@@ -43,3 +43,10 @@ __pycache__/
 # OS junk
 Thumbs.db
 .DS_Store
+
+# Build output of the dev MCP server (.mcp.json runs it with --artifacts-path .mcp-run, so it
+# never locks the bin/ folders dotnet build and dotnet test write to)
+.mcp-run/
+
+# Claude Code agent worktrees (created under .claude/, which is otherwise tracked for settings.json)
+.claude/worktrees/

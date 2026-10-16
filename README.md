@@ -84,8 +84,23 @@ The documented config then points at the fixed path
 
 ### Option C — from source (contributors)
 
-Clone, then use the repo-root [`.mcp.json`](.mcp.json), which launches the server with
-`dotnet run --project src/BcWordLayout.McpHost` — no publish step while iterating. See
+The repo-root [`.mcp.json`](.mcp.json) launches the server from your working tree with
+`dotnet run --project src/BcWordLayout.McpHost --artifacts-path .mcp-run`, so there's no publish step
+while iterating. The separate `.mcp-run/` build folder matters on Windows: a running server locks
+the DLLs it loaded, and building into the normal `bin/` folders would stop `dotnet build` and
+`dotnet test` while any session is open.
+
+Claude Code starts every `.mcp.json` server when a session opens, whether or not it's used. So the
+committed [`.claude/settings.json`](.claude/settings.json) lists this one in `disabledMcpjsonServers`,
+and sessions in the repo don't start it. To use your build as a server, add it under your own local
+scope, which that setting doesn't cover:
+
+```pwsh
+claude mcp add --scope local bc-word-layout-dev -- dotnet run --project src/BcWordLayout.McpHost --artifacts-path .mcp-run
+```
+
+Remove it again with `claude mcp remove --scope local bc-word-layout-dev`. Either way, the server
+runs the code as built when the session started; restart the session to pick up later edits. See
 [Building from source](#building-from-source).
 
 ### The companion skills and plugin
