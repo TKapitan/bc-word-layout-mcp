@@ -163,7 +163,8 @@ not a support claim).
 
 **Neither Word nor LibreOffice is required** to use the server. Without a converter,
 `preview_layout` still merges the sample data and returns the merged `.docx` path — it reports
-`conversionOk: false` with a `conversionError` explaining why, instead of failing the call. Every
+`conversionOk: false` with a `conversionError` explaining why, instead of failing the call (and
+removes the PDF an earlier preview left, so no stale render remains next to the new merge). Every
 other tool is conversion-free and works everywhere the server runs.
 
 ## Tools

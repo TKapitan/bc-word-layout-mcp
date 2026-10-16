@@ -229,7 +229,7 @@ layout.docx ──► MergeEngine ◄───────────┘
                     │  5. strip external references (see §6, principle 5)
                     │  6. unresolved binding → warning + visible placeholder
                     ▼
-             merged.docx ──► IPdfConverter ──► preview.pdf ──► render_preview_pages ──► PNGs
+             merged.docx ──► IPdfConverter ──► preview-<hash>.pdf ──► render_preview_pages ──► PNGs
 ```
 
 - **`SampleDataGenerator`** produces seeded, type-aware fakes inferred from column names and types (amounts

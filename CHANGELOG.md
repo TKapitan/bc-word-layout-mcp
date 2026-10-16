@@ -297,6 +297,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
       row. It repeats with rows it does not belong to, and the warning names the item and the
       record count. Caption (label) columns are exempt, since they read the same in every record.
 
+- **`preview_layout` never leaves a stale PDF behind, and default previews get distinct PNG names**
+  (GitHub issue #106).
+  - **Stale PDF:** a failed re-conversion (a Word timeout, LibreOffice missing) returned
+    `conversionOk: false` but left the previous render on disk, so an earlier `pdfPath`, or the
+    folder itself, showed the pre-edit layout. The previous PDF is now deleted before converting,
+    and anything a failed attempt leaves there is removed. When the previous PDF cannot be deleted
+    (a viewer has it open), the call skips conversion and says so in `conversionError`.
+  - **PNG collisions:** every default preview was `preview.pdf`, so `render_preview_pages` wrote
+    two layouts' pages into one `outputDir` as the same `preview-page01.png`. The default PDF is
+    now `preview-<hash>.pdf`, as with an explicit `outputDir` (`merged.docx` keeps its name). A
+    `preview.pdf` an earlier version left in a default folder is removed.
+
 ### Security
 
 - **A crafted layout can no longer kill the server through the OpenXml SDK's own parse** (GitHub

@@ -308,8 +308,9 @@ Every tool returns the same envelope and never throws across the MCP boundary:
     `quickValidation` — a non-zero `errorCount` here from `xpath-resolves` findings is expected
     corroboration of the orphan report, not a failure.
   - `preview_layout`: `data.conversionOk` / `data.conversionError` (PDF conversion can fail or be
-    unavailable even though the merge itself succeeded), plus `data.warnings[]` and
-    `data.quickValidation`.
+    unavailable even though the merge itself succeeded; `pdfPath` is then null and no PDF is left on
+    disk, not even an earlier preview's, so never fall back to a `pdfPath` from a previous call), plus
+    `data.warnings[]` and `data.quickValidation`.
 - Mutating tools apply a **structural gate only**: a write is rejected solely if it would introduce a
   *new* OpenXML structural error versus the file's own pre-edit baseline. Semantic issues (like an
   orphaned binding) are always allowed through and reported as validation findings, never blocked.

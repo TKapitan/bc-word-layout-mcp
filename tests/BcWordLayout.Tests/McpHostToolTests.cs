@@ -207,9 +207,9 @@ public class McpHostToolTests
                 StringComparison.OrdinalIgnoreCase);
 
             // The subfolder name itself is exactly LifecycleTools.DefaultPreviewOutputDirName's output - the
-            // fixed "merged.docx"/"preview.pdf" file names inside it stay unhashed (see PreviewLayout: the
-            // hash lives in the FOLDER name here, and only moves onto the FILE names when outputDir is
-            // explicit).
+            // fixed "merged.docx" file name inside it stays unhashed (see PreviewLayout: the hash lives in the
+            // FOLDER name here, and only moves onto the merged FILE name when outputDir is explicit; the PDF
+            // is "preview-<hash>.pdf" either way - see PreviewArtefactTests).
             var expectedDirName = LifecycleTools.DefaultPreviewOutputDirName(Corpus.Path(Corpus.SalesInvoice));
             Assert.Equal(expectedDirName, Path.GetFileName(mergedDir));
             Assert.Equal("merged.docx", Path.GetFileName(dto.MergedDocxPath));
