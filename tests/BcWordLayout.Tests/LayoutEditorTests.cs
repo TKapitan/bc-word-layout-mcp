@@ -104,37 +104,28 @@ public class LayoutEditorTests
     }
 
     [Fact]
-    public void InsertField_afterControl_on_a_real_cell_level_plaintext_control_is_valid_OOXML_but_a_plaintext_nesting()
+    public void InsertField_afterControl_on_a_real_cell_level_plaintext_control_is_refused_before_any_mutation()
     {
-        // YourReference_Lbl is a cell-level SdtCell (parent is a TableRow) AND a PLAIN-TEXT control (its
-        // w:sdtPr carries <w:text/>). LayoutEditor is a raw primitive: it happily anchors the new field
-        // inside that control's own cell, and the result is well-formed OOXML that OpenXmlValidator fully
-        // accepts. But that nesting - a content control inside a plain-text control - is exactly what Word
-        // rejects as a corrupt document. This test pins down that split: the structural validator alone is
-        // NOT enough, which is why the tool-layer write gate additionally consults PlainTextNestingGuard
-        // (see McpHostToolTests.InsertField_afterControl_into_a_plaintext_cell_control_is_refused...).
+        // YourReference_Lbl is a cell-level SdtCell (parent is a TableRow) AND a bound PLAIN-TEXT control.
+        // LayoutEditor used to anchor the new field inside that control's own cell - well-formed OOXML that
+        // OpenXmlValidator fully accepts, yet a content control inside a plain-text control, which Word
+        // rejects as a corrupt document (only the tool layer's PlainTextNestingGuard caught it). Since GitHub
+        // issue #76 the location itself is refused (LocationResolver), so even the raw primitive cannot
+        // produce it, and the document is left exactly as it was.
         var path = CopyOfCorpus(Corpus.SalesInvoice);
         try
         {
-            using (var doc = WordprocessingDocument.Open(path, true))
-            {
-                var body = doc.MainDocumentPart!.Document!.Body!;
-                Assert.IsType<SdtCell>(body.Descendants<SdtElement>().Single(s => ReadId(s) == CellLevelLabelId));
+            using var doc = WordprocessingDocument.Open(path, true);
+            var body = doc.MainDocumentPart!.Document!.Body!;
+            Assert.IsType<SdtCell>(body.Descendants<SdtElement>().Single(s => ReadId(s) == CellLevelLabelId));
+            var controlsBefore = body.Descendants<SdtElement>().Count();
 
-                LayoutEditor.InsertField(
-                    doc, "/Header/SalesPersonName", new Location { Type = LocationKind.AfterControl, ControlId = CellLevelLabelId });
-                doc.MainDocumentPart!.Document!.Save();
-            }
+            var ex = Assert.Throws<ArgumentException>(() => LayoutEditor.InsertField(
+                doc, "/Header/SalesPersonName", new Location { Type = LocationKind.AfterControl, ControlId = CellLevelLabelId }));
+            Assert.Equal("location", ex.ParamName);
 
-            using var reopened = WordprocessingDocument.Open(path, false);
-
-            // OpenXmlValidator sees nothing wrong ...
-            var openXmlErrors = new OpenXmlValidator(FileFormatVersions.Office2021).Validate(reopened).ToList();
-            Assert.Empty(openXmlErrors);
-
-            // ... but the plain-text nesting guard DOES catch the newly-nested field.
-            var nestings = PlainTextNestingGuard.Find(reopened);
-            Assert.Contains(nestings, n => n.OuterId == CellLevelLabelId);
+            Assert.Equal(controlsBefore, body.Descendants<SdtElement>().Count());
+            Assert.Empty(PlainTextNestingGuard.Find(doc));
         }
         finally
         {

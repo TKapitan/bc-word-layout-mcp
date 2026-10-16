@@ -101,6 +101,16 @@ layout with `hasTitlePage` (a distinct first page), the default header/footer do
 page 1 — content that must appear there needs the `first`-role part too, and the insert tools warn in
 their summary when an edit lands in that trap.
 
+A location that resolves **inside a data-bound control's own content** is refused with
+`invalid_argument`, for every insert tool: `afterControl` on a **cell-level** field/label (it wraps
+its whole cell, so there is no "after it" in that cell), `tableCell` on a cell that *is* such a
+control (`get_layout_info`'s `tables[]` cells report `isControlCell`), or `atText` matching a block-
+or cell-level control's text. Word discards — or, for page numbers/tables in a plain-text control,
+refuses to open — anything placed there. Put the content in a plain cell via `tableCell`, or
+`afterControl` an **inline** control (an inline field's paragraph is outside the field, so the
+label → `insert_text` → `insert_page_number` chain still works). Cells of a repeater row are plain
+cells — the repeater is a container, not a bound field.
+
 | Tool | Key params (defaults) | Returns | Reach for it when… |
 |---|---|---|---|
 | `insert_field` | `layoutPath`, `field` (non-label leaf dataset path), `locationType` + its required params, `layoutPart`=`"body"` (also `"header"`/`"footer"`), `partName`=`null` | `operation`, `controlId`, `alias`, `xpath`, `kind`, `part`, `summary`, post-edit `quickValidation` | Binding a plain-text field anywhere in the body, a header, or a footer. |

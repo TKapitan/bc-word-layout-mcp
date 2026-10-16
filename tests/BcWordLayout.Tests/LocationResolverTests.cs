@@ -272,47 +272,31 @@ public class LocationResolverTests
     }
 
     [Fact]
-    public void AfterControl_on_the_real_corpus_cell_level_label_inserts_a_field_that_passes_OpenXmlValidator()
+    public void AfterControl_on_the_real_corpus_cell_level_label_is_refused_rather_than_written_inside_it()
     {
-        // Regression test for the exact bug reported against a real corpus control: YourReference_Lbl
-        // (id -1130623254) in SalesInvoiceForSubscriptionBilling.docx is a cell-level sdt (its sdtContent
-        // wraps a whole <w:tc>, so its parent is a <w:tr>). AfterControl used to insert a wrapping <w:p>
-        // straight into that <w:tr>, which OpenXmlValidator flags as an invalid child element.
+        // YourReference_Lbl (id -1130623254) in SalesInvoiceForSubscriptionBilling.docx is a cell-level sdt
+        // (its sdtContent wraps a whole <w:tc>, so its parent is a <w:tr>). AfterControl once inserted a
+        // wrapping <w:p> straight into that <w:tr> (invalid OOXML); the fix anchored inside the control's own
+        // cell instead - valid OOXML, but INSIDE a bound control's content, which Word rejects (plain-text)
+        // or silently discards. It must now be refused outright (GitHub issue #76); the unbound-wrapper
+        // variant of the anchoring rule is pinned by the synthetic test above.
         const int cellLevelLabelId = -1130623254;
         var path = Path.Combine(Path.GetTempPath(), $"bcwl-aftercontrol-cell-{Guid.NewGuid():N}.docx");
         File.Copy(Corpus.Path(Corpus.SalesInvoice), path, overwrite: true);
 
         try
         {
-            using (var doc = WordprocessingDocument.Open(path, true))
-            {
-                var body = doc.MainDocumentPart!.Document!.Body!;
-                var labelSdt = body.Descendants<SdtElement>().Single(s => ReadId(s) == cellLevelLabelId);
-                Assert.IsType<SdtCell>(labelSdt);
-                Assert.IsType<TableRow>(labelSdt.Parent);
+            using var doc = WordprocessingDocument.Open(path, true);
+            var body = doc.MainDocumentPart!.Document!.Body!;
+            var labelSdt = body.Descendants<SdtElement>().Single(s => ReadId(s) == cellLevelLabelId);
+            Assert.IsType<SdtCell>(labelSdt);
+            Assert.IsType<TableRow>(labelSdt.Parent);
 
-                var schema = SchemaProvider.FromLayout(doc);
-                var field = SdtFactory.BuildField(schema, "/Header/SalesPersonName", placeholderText: "AFTER-CELL");
-
-                var anchor = LocationResolver.Resolve(
-                    new Location { Type = LocationKind.AfterControl, ControlId = cellLevelLabelId }, doc);
-                anchor.InsertInline(field);
-
-                doc.MainDocumentPart!.Document!.Save();
-            }
-
-            using (var reopened = WordprocessingDocument.Open(path, false))
-            {
-                var openXmlErrors = new OpenXmlValidator(FileFormatVersions.Office2021).Validate(reopened).ToList();
-                Assert.Empty(openXmlErrors);
-
-                var body = reopened.MainDocumentPart!.Document!.Body!;
-                var labelSdt = Assert.IsType<SdtCell>(body.Descendants<SdtElement>().Single(s => ReadId(s) == cellLevelLabelId));
-                var cell = labelSdt.SdtContentCell!.GetFirstChild<TableCell>()!;
-
-                // The newly-inserted field must be inside THAT SAME cell (not a new sibling row/cell).
-                Assert.Contains(cell.Descendants<Text>(), t => t.Text == "AFTER-CELL");
-            }
+            var ex = Assert.Throws<ArgumentException>(() => LocationResolver.Resolve(
+                new Location { Type = LocationKind.AfterControl, ControlId = cellLevelLabelId }, doc));
+            Assert.Equal("location", ex.ParamName);
+            Assert.Contains("data-bound", ex.Message, StringComparison.Ordinal);
+            Assert.Contains("YourReference_Lbl", ex.Message, StringComparison.Ordinal);
         }
         finally
         {

@@ -1334,12 +1334,15 @@ public class McpHostToolTests
         {
             var before = File.ReadAllBytes(path);
 
-            // YourReference_Lbl (id -1130623254) is a cell-level PLAIN-TEXT content control (its w:sdtPr
-            // carries <w:text/>). afterControl anchors the new field inside that control's own cell, which
-            // would nest a content control inside a plain-text one - well-formed OOXML that OpenXmlValidator
-            // accepts but that Word rejects as "The file appears to be corrupted". This is the exact defect
-            // behind the reported bug (a sales-invoice edit that reported success yet produced a file Word
-            // could not open); the tool must now refuse it and leave the file byte-for-byte untouched.
+            // YourReference_Lbl (id -1130623254) is a cell-level bound PLAIN-TEXT content control (its
+            // w:sdtPr carries <w:text/>). afterControl on it has no position outside the control (the control
+            // wraps its whole cell), and writing the field INSIDE it nests a content control inside a
+            // plain-text one - well-formed OOXML that OpenXmlValidator accepts but that Word rejects as "The
+            // file appears to be corrupted". This is the exact defect behind the reported bug (a sales-invoice
+            // edit that reported success yet produced a file Word could not open). It used to be caught only
+            // after the mutation, by PlainTextNestingGuard (edit_would_corrupt); since GitHub issue #76 the
+            // location itself is refused up front, with a hint naming the two locations that DO work. Either
+            // way the file must be left byte-for-byte untouched.
             const int cellLevelPlainTextLabelId = -1130623254;
 
             var response = EditTools.InsertField(
@@ -1347,9 +1350,9 @@ public class McpHostToolTests
 
             Assert.False(response.Ok);
             Assert.NotNull(response.Error);
-            Assert.Equal("edit_would_corrupt", response.Error!.Code);
-            Assert.Contains("plain-text", response.Error.Message, StringComparison.OrdinalIgnoreCase);
-            Assert.False(string.IsNullOrWhiteSpace(response.Error.Hint));
+            Assert.Equal("invalid_argument", response.Error!.Code);
+            Assert.Contains("data-bound", response.Error.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("plain cell", response.Error.Hint, StringComparison.OrdinalIgnoreCase);
             Assert.Equal(before, File.ReadAllBytes(path));
         }
         finally

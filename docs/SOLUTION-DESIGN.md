@@ -250,8 +250,10 @@ rejected edit leaves the original byte-identical.
 outright** (`edit_would_corrupt`, file untouched) if it would introduce a *new* structural error — diffed
 against the pre-edit state, so a layout that was already imperfect can still be edited. Table edits pass an
 additional `TableGridConsistencyGuard` that catches rows desyncing from `w:tblGrid`, a corruption class
-`OpenXmlValidator` accepts silently. `PlainTextNestingGuard` catches a second such class: a control nested
-inside a plain-text control passes every structural check and still makes Word declare the file corrupt.
+`OpenXmlValidator` accepts silently. `PlainTextNestingGuard` catches a second such class: a control, field
+code, table or drawing nested inside a plain-text control passes every structural check and still makes
+Word declare the file corrupt. It is the backstop: `LocationResolver` already refuses any insert location
+inside a data-bound control's own content, where Word either rejects the file or silently drops the insert.
 
 **3. Refuse rather than guess.** When an edit has more than one defensible outcome, the tool refuses and
 says why. `insert_column` at a position falling inside a spanned cell of a row that must carry the new

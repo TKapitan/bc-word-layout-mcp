@@ -1,3 +1,4 @@
+using System.Globalization;
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
@@ -46,6 +47,15 @@ public sealed class InsertionAnchor
     /// assuming it is always <c>document.xml</c>.
     /// </summary>
     public string PartName { get; }
+
+    /// <summary>
+    /// The innermost element this anchor writes into — the inline paragraph when there is one (inline
+    /// content lands IN it, block content right next to it), else the block container. Every ancestor of
+    /// the content either insert method produces is this element or one of its ancestors, which is what
+    /// lets <see cref="LocationResolver"/> ask "would this land inside a data-bound control?" once, on this
+    /// element alone, for every location kind.
+    /// </summary>
+    internal OpenXmlElement InnermostHost => (OpenXmlElement?)_inlineParagraph ?? _blockContainer;
 
     /// <summary>
     /// The <see cref="OpenXmlPart"/> this anchor's content lands in — the package-level counterpart of
@@ -159,10 +169,12 @@ public static class LocationResolver
     /// matching <see cref="Location.PartName"/> (<see cref="NotFoundTarget.NamedHeaderFooterPart"/>), is
     /// reported the same way. Also includes <see cref="LocationKind.AfterControl"/> naming a control whose
     /// parent cannot safely host a sibling (<see cref="NotFoundTarget.AfterControlPosition"/> — a row-level
-    /// control, whose parent is a <see cref="Table"/>, or any other unrecognized nesting); a cell-level
-    /// control (parent <see cref="TableRow"/>) is supported by anchoring inside its own cell. A small number
-    /// of "should be impossible" structural invariants (e.g. a paragraph with no parent) still throw a plain
-    /// <see cref="InvalidOperationException"/> instead — see the throw sites' own comments.
+    /// control, whose parent is a <see cref="Table"/>, or any other unrecognized nesting); an UNBOUND
+    /// cell-level control (parent <see cref="TableRow"/>) is supported by anchoring inside its own cell. A
+    /// location of any kind that resolves INSIDE a data-bound control's own content is refused with an
+    /// <see cref="ArgumentException"/> on <c>location</c> — see <see cref="RefuseInsideBoundControl"/>. A
+    /// small number of "should be impossible" structural invariants (e.g. a paragraph with no parent) still
+    /// throw a plain <see cref="InvalidOperationException"/> instead — see the throw sites' own comments.
     /// </summary>
     public static InsertionAnchor Resolve(Location location, WordprocessingDocument doc)
     {
@@ -173,7 +185,7 @@ public static class LocationResolver
         var (root, partName) = ResolvePartRoot(location, doc);
         var partDescription = DescribePart(partName);
 
-        return location.Type switch
+        var anchor = location.Type switch
         {
             LocationKind.DocumentEnd => ResolveDocumentEnd(root, partName),
             LocationKind.AfterControl => ResolveAfterControl(root, location.ControlId!.Value, partName, partDescription),
@@ -182,7 +194,84 @@ public static class LocationResolver
             LocationKind.AtText => ResolveAtText(root, location.SearchText!, partName, partDescription),
             _ => throw new ArgumentException($"Unsupported location kind '{location.Type}'.", nameof(location)),
         };
+
+        RefuseInsideBoundControl(anchor, location, partDescription);
+        return anchor;
     }
+
+    /// <summary>
+    /// Refuses (ADR-0003) an anchor that sits inside a DATA-BOUND content control's own <c>w:sdtContent</c>
+    /// — a field/label (<c>w:dataBinding</c>, with or without <c>&lt;w:text/&gt;</c>, or a
+    /// <c>w15:dataBinding</c>) or a picture control — by throwing an <see cref="ArgumentException"/> on
+    /// <c>location</c> (→ <c>invalid_argument</c>, the same code <c>set_cell_text</c> already uses for "that
+    /// cell holds a bound control").
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// WHY (GitHub issue #76): a bound control's content is not the layout's to write into — it is the
+    /// control's VALUE. Every shape that reaches it was reported <c>ok:true</c> and passed both validation
+    /// levels, yet: field codes or a table inside a <c>&lt;w:text/&gt;</c> control make Word refuse to open
+    /// the file; anything else (a field, static text, a page number, especially in the common
+    /// <c>w15:dataBinding</c>-only controls with no <c>w:text</c> — 24 in PaymentPracticeByPeriod alone) is
+    /// silently discarded by Word on its next save, and BC overwrites it with the bound value at render time.
+    /// No corpus layout carries anything but the bound text itself inside such a control. The three routes
+    /// in: <see cref="LocationKind.AfterControl"/> on a cell-level control (it wraps its whole <c>w:tc</c>, so
+    /// there is no "after it" inside that cell — the old <see cref="AnchorInsideCell"/> fallback put the new
+    /// content into the control), <see cref="LocationKind.TableCell"/> on a cell that IS such a control
+    /// (<see cref="FindTableCell"/> descends into its inner <c>w:tc</c>), and <see cref="LocationKind.AtText"/>
+    /// hitting text in a block- or cell-level one. An inline control's paragraph is OUTSIDE the control, so
+    /// <c>afterControl</c> on an inline field (the stock "label, two spaces, page number" chain) is
+    /// unaffected.
+    /// </para>
+    /// <para>
+    /// Only BOUND kinds count, by the <see cref="SdtInspector.Classify"/> ladder: a repeating section, its
+    /// item, a <c>w:group</c> wrapper and any other unbound sdt are CONTAINERS (filling a cell of a repeater
+    /// row is the bread-and-butter repeater edit) — even though a repeating section itself carries a
+    /// <c>w15:dataBinding</c>, which is exactly why the ladder checks its marker first. One check on
+    /// <see cref="InsertionAnchor.InnermostHost"/> covers every location kind and every insert kind
+    /// (field/label/text/page number/picture/table/repeater table), since both insert methods only ever write
+    /// into that element or next to it.
+    /// </para>
+    /// </remarks>
+    private static void RefuseInsideBoundControl(InsertionAnchor anchor, Location location, string partDescription)
+    {
+        var bound = anchor.InnermostHost.Ancestors<SdtElement>().FirstOrDefault(IsBoundContentControl);
+        if (bound is null)
+        {
+            return;
+        }
+
+        var alias = SdtInspector.ReadAlias(bound);
+        var id = SdtInspector.ReadControlId(bound);
+        var identity = (alias is null ? string.Empty : $"'{alias}' ")
+            + $"(id {id?.ToString(CultureInfo.InvariantCulture) ?? "?"})";
+        var route = location.Type switch
+        {
+            LocationKind.AfterControl => $"afterControl {location.ControlId} anchors",
+            LocationKind.TableCell => $"tableCell {location.TableIndex}/{location.Row}/{location.Col} resolves",
+            LocationKind.AtText => $"atText '{location.SearchText}' resolves",
+            _ => "resolves",
+        };
+
+        throw new ArgumentException(
+            $"The location {route} inside the content of data-bound content control {identity} in "
+            + $"{partDescription}. Word discards (or, for field codes/tables in a plain-text control, refuses to "
+            + "open) anything placed inside a bound control's content, so the edit was not made. A cell-level "
+            + "control wraps its whole cell, so there is no position after it within that cell: insert via "
+            + "tableCell into a plain cell (one that is not itself a control), or afterControl on an inline "
+            + "control, instead.",
+            nameof(location));
+    }
+
+    /// <summary>
+    /// True for a control whose content is its bound VALUE rather than layout: a field/label
+    /// (<see cref="SdtInspector.Classification.Bound"/>) or a picture control
+    /// (<see cref="SdtInspector.Classification.Picture"/>, whose content is the bound image) — see
+    /// <see cref="RefuseInsideBoundControl"/> for why containers are excluded.
+    /// </summary>
+    private static bool IsBoundContentControl(SdtElement sdt) =>
+        SdtInspector.Classify(sdt.GetFirstChild<SdtProperties>())
+            is SdtInspector.Classification.Bound or SdtInspector.Classification.Picture;
 
     /// <summary>
     /// Resolves the block-content root of the part named by <paramref name="part"/>/<paramref name="partName"/>
@@ -373,7 +462,9 @@ public static class LocationResolver
     //    wraps a whole <w:tc>): a <w:tr> only ever accepts <w:tc>/an sdtCell/customXml as direct children,
     //    so "same parent" would try to insert a paragraph/block sdt straight into the row — invalid
     //    OOXML. Anchor INSIDE that control's own cell content instead (same placement rule TableCell
-    //    addressing uses).
+    //    addressing uses). For a BOUND control (every real BC field/label is one) that inside IS the
+    //    control's value, so Resolve's RefuseInsideBoundControl then refuses it (GitHub issue #76); only an
+    //    unbound cell-level wrapper is actually anchored here.
     //  - Table (a row-level SdtRow — e.g. a repeatingSection/repeatingSectionItem): a <w:tbl> only ever
     //    accepts <w:tr>/an sdtRow/customXml as direct children, and there is no well-defined "inside"
     //    fallback for a row the way there is for a cell, so this is rejected outright.

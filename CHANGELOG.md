@@ -21,6 +21,24 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   items. No tool emits a block-level repeater, so this guards layouts written or edited outside the
   tools.
 
+### Fixed
+
+- **Inserts that would land inside a data-bound field, label or picture control are refused**
+  (GitHub issue #76). Three locations could resolve inside a bound control's content:
+  - `afterControl` on a cell-level field;
+  - `tableCell` on a cell that is itself a control;
+  - `atText` matching such a control's text.
+
+  The insert was written in there and reported as success. Word then either refused to open the
+  file (page numbers or a table inside a plain-text field) or silently dropped the inserted content
+  on its next save (notably in `w15:dataBinding` fields). Every insert tool now refuses these
+  locations with `invalid_argument`, and the hint points at `tableCell` on a plain cell or
+  `afterControl` on an inline control. Cells of repeater rows and inline controls are unaffected.
+  The write gate also rejects field codes, tables and drawings inside a plain-text control as
+  `edit_would_corrupt`. One existing refusal changes code: `afterControl` on a plain-text
+  cell-level label now fails as `invalid_argument`, before any edit, instead of
+  `edit_would_corrupt`.
+
 ### Security
 
 - **A crafted layout can no longer kill the server through the OpenXml SDK's own parse** (GitHub

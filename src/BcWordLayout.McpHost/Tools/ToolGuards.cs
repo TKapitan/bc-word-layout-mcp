@@ -180,7 +180,8 @@ internal static class ToolGuards
                             .Select(e => e.Description)
                             .ToList();
 
-                        // Second baseline: content controls nested inside a plain-text control. Word rejects
+                        // Second baseline: content controls - and field codes, tables, drawings - nested
+                        // inside a plain-text control. Word rejects
                         // these as a corrupt document, but OpenXmlValidator does NOT (it is a Word semantic
                         // rule, not a schema rule), so the OpenXmlValidator gate below cannot catch them - see
                         // PlainTextNestingGuard. Diffed BEFORE-vs-AFTER by description, exactly like the
@@ -204,17 +205,16 @@ internal static class ToolGuards
                         {
                             return ToolResponse.Failure(
                                 "edit_would_corrupt",
-                                $"This edit would place {newNesting.Count} content control(s) inside a "
-                                + "plain-text content control, which Word rejects as a corrupt document; the "
-                                + "file was NOT modified.",
+                                $"This edit would place {newNesting.Count} content control(s), field code(s), "
+                                + "table(s) or drawing(s) inside a plain-text content control, which Word rejects "
+                                + "as a corrupt document; the file was NOT modified.",
                                 $"Offending nesting: {string.Join(" | ", newNesting.Take(5))}. A plain-text "
                                 + "content control (the shape BC uses for most header fields, e.g. an address "
-                                + "or document-number cell) can only contain text, never another field/label "
-                                + "control. The location you targeted resolves to a spot INSIDE that control - "
-                                + "most often 'afterControl' targeting a cell-level field (which anchors inside "
-                                + "that field's own cell) or 'atText'/'tableCell' landing in such a cell. Insert "
-                                + "the new control into a DIFFERENT cell (its own column/cell via 'tableCell'), "
-                                + "or at a location that is not inside an existing field control, instead.");
+                                + "or document-number cell) can only contain runs of text - never another "
+                                + "field/label control, a page-number field, a table or a picture. The location "
+                                + "you targeted resolves to a spot INSIDE that control. Insert into a plain cell "
+                                + "via 'tableCell' (one that is not itself a control - see get_layout_info's "
+                                + "tables[]), or 'afterControl' on an inline control, instead.");
                         }
 
                         var newTableGrid = DiffTableGridViolations(baselineTableGrid, TableGridConsistencyGuard.Find(doc));
@@ -1120,7 +1120,12 @@ internal static class ToolGuards
             + "bound field/label control is rejected; use remove_control (the cell/column is preserved) or "
             + "insert_field/insert_label for those. For insert_repeater_table: only layoutPart='body' (the "
             + "default) is supported - a repeater TABLE in a header/footer is deferred (GitHub issue #10) "
-            + "(unlike insert_field/insert_label, which do support 'header'/'footer').",
+            + "(unlike insert_field/insert_label, which do support 'header'/'footer'). For the insert tools: a "
+            + "location that resolves INSIDE a data-bound field/label/picture control's own content (afterControl "
+            + "on a cell-level control, tableCell on a cell that IS such a control, atText matching its text) is "
+            + "refused, because Word discards or rejects anything placed there; use tableCell on a plain cell "
+            + "(get_layout_info's tables[] shows which cells are controls) or afterControl on an inline control "
+            + "instead.",
 
         "controlid" =>
             "afterControl requires controlId: the w:id of an existing control in this layout - see "
