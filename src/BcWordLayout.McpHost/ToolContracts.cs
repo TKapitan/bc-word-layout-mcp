@@ -197,9 +197,11 @@ public sealed record PreviewResultDto(
 /// record only tells the caller what to expect there (<see cref="PngByteCount"/> is the encoded PNG size,
 /// pre-base64). <see cref="Path"/> is the on-disk PNG when the call supplied an <c>outputDir</c>, and
 /// <c>null</c> otherwise — the one piece of this response a human (rather than the calling agent) can open.
+/// <see cref="Downscaled"/> is true when the page was too large to render at the effective DPI within the
+/// per-page pixel caps and came out smaller instead.
 /// </summary>
 public sealed record PreviewPageDto(
-    int PageNumber, int WidthPx, int HeightPx, int PngByteCount, string? Path = null);
+    int PageNumber, int WidthPx, int HeightPx, int PngByteCount, string? Path = null, bool Downscaled = false);
 
 /// <summary>
 /// JSON half of a successful <c>render_preview_pages</c> response. Unlike every other tool this one's

@@ -173,7 +173,7 @@ internal static class ToolGuards
                     TResult mutateResult;
                     ValidationResult quick;
 
-                    using (var doc = WordprocessingDocument.Open(workingCopy, isEditable: true, new OpenSettings { AutoSave = false }))
+                    using (var doc = LayoutPackage.Open(workingCopy, isEditable: true, autoSave: false))
                     {
                         // Baseline BEFORE the edit: see the "does NOT reject" remark above.
                         var baselineErrors = new OpenXmlValidator(FileFormatVersions.Office2021).Validate(doc)
@@ -995,8 +995,8 @@ internal static class ToolGuards
             return ToolResponse.Failure(
                 "invalid_layout",
                 ex.Message,
-                "This file exceeds one of this tool's supported size/nesting limits (a custom XML part or "
-                + "schema file too large, too many custom XML parts, or schema/document nesting too deep) - "
+                "This file exceeds one of this tool's supported size/nesting limits (a package part or "
+                + "schema file too large, too many parts, or schema/document nesting too deep) - "
                 + "it is likely malformed or a maliciously crafted file rather than a real Business Central "
                 + "layout/schema. This is not something to retry with the same file.");
         }

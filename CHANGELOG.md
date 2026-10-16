@@ -21,6 +21,38 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   items. No tool emits a block-level repeater, so this guards layouts written or edited outside the
   tools.
 
+### Security
+
+- **A crafted layout can no longer kill the server through the OpenXml SDK's own parse** (GitHub
+  issue #116). The SDK's part loads are recursive, so a ~1.4 KB `.docx` nested about 2,250
+  elements deep overflowed the stack inside the SDK. A chain of about 1,500 parts did the same
+  inside `OpenXmlValidator`. A stack overflow can't be caught, so the whole server process died.
+  Every `.docx` is now opened through one gate that scans each part before the SDK parses it, and
+  a package over a cap fails the call with `invalid_layout` instead. The caps are 512 levels of
+  XML nesting, 16 MB per XML part, 64 MB of XML in total, and 256 parts. The deepest real layout
+  nests 31 levels, the largest real part is 153 KB, and a real layout has about 30 parts.
+  `MaxCustomXmlParts` drops from 1024 to 64 so it stays the more specific check under the new
+  package-wide part cap.
+- **`preview_layout` now removes every way its render copy could reach outside itself, not only
+  external relationships** (GitHub issue #115). Before conversion it removes or unlinks:
+  - Every field that isn't computed from the document itself, such as `INCLUDEPICTURE`,
+    `INCLUDETEXT`, `LINK` or `DDE`. Each is unlinked to its cached result, so the preview looks
+    the same. Fields whose type is hidden behind a nested field are unlinked too.
+  - Mail-merge, update-fields-on-open and schema-library settings.
+  - `altChunk` imports.
+  - VML location attributes.
+
+  Each removal is reported as a `field-unlinked` or `external-reference-stripped` warning. Plain
+  hyperlinks and the self-contained fields layouts use (`PAGE`, `NUMPAGES`, `DATE`, `IF`, `REF`,
+  …) stay live. No corpus layout loses anything. Observed before the fix: a layout with
+  update-fields-on-open made Word show a "fields that may refer to other files" prompt on the
+  desktop during a hidden preview, and confirming it made Word fetch each field's URL.
+- **`render_preview_pages` caps each page image at 5000 px per side and 20 megapixels** (GitHub
+  issue #117). Page size comes from the PDF, so the DPI cap alone let a page with a huge MediaBox
+  request a multi-gigapixel bitmap. A page over the cap is now rendered smaller with its aspect
+  ratio kept, and flagged `downscaled: true` on `pages[]`. Pages within the cap render exactly as
+  before.
+
 ## [1.1.0] - 2026-08-23
 
 ### Added

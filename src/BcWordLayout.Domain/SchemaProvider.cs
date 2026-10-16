@@ -22,7 +22,7 @@ public static class SchemaProvider
             throw new FileNotFoundException("The layout file does not exist.", docxPath);
         }
 
-        using var doc = WordprocessingDocument.Open(docxPath, false);
+        using var doc = LayoutPackage.Open(docxPath, isEditable: false);
         return FromLayout(doc);
     }
 

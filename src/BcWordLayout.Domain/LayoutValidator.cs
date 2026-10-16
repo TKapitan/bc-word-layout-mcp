@@ -21,7 +21,7 @@ public static class LayoutValidator
             throw new FileNotFoundException("The layout file does not exist.", docxPath);
         }
 
-        using var doc = WordprocessingDocument.Open(docxPath, false);
+        using var doc = LayoutPackage.Open(docxPath, isEditable: false);
         return Quick(doc);
     }
 

@@ -1,5 +1,6 @@
 using System.Xml;
 using System.Xml.Linq;
+using DocumentFormat.OpenXml.Packaging;
 
 namespace BcWordLayout.Domain;
 
@@ -31,8 +32,15 @@ namespace BcWordLayout.Domain;
 /// <see cref="ResourceLimitExceededException"/>'s own remarks).
 /// </para>
 /// <para>
-/// Explicitly OUT OF SCOPE: the OpenXml SDK's own <c>MainDocumentPart.Document</c> (and header/footer) load
-/// — that parse is SDK-internal, not this repo's code, and is unaffected by anything here.
+/// The OpenXml SDK's OWN part loads (<c>MainDocumentPart.Document</c>, headers/footers, settings, and every
+/// part <c>OpenXmlValidator</c> walks) are recursive too, and are not this repo's code to bound from the
+/// inside: measured on SDK 3.5.1, its <c>OpenXmlCompositeElement.Populate</c> overflows a default stack at
+/// roughly 2,250 nested elements (a 1.4 KB <c>.docx</c>), and <c>OpenXmlValidator</c>'s package walk at
+/// roughly 1,500 chained parts. So <see cref="EnsurePackageWithinLimits"/> bounds them from the OUTSIDE:
+/// <see cref="LayoutPackage.Open"/> — the one way this codebase opens a <c>.docx</c> — scans every part's raw
+/// XML with a non-recursive reader before the SDK parses any of it, enforcing
+/// <see cref="MaxPackageXmlDepth"/>, <see cref="MaxPackageXmlPartBytes"/>, <see cref="MaxPackageXmlBytes"/>
+/// and <see cref="MaxPackageParts"/>.
 /// </para>
 /// </summary>
 internal static class ResourceLimits
@@ -68,10 +76,11 @@ internal static class ResourceLimits
     /// cheap-to-compress parts, making the per-part iteration/parse LOOP itself the unbounded cost - the byte
     /// cap alone does not bound it. A real BC layout carries a
     /// handful of custom XML parts (the BC dataset part, occasionally an unrelated Office bibliography part);
-    /// 1024 is generous headroom while still bounding the loop to a small, fast, always-survivable amount of
-    /// work.
+    /// 64 is generous headroom while still bounding the loop to a small, fast, always-survivable amount of
+    /// work. Kept below <see cref="MaxPackageParts"/> so a package stuffed with custom XML parts trips THIS,
+    /// more specific, check (whose message names custom XML parts) rather than the package-wide one.
     /// </summary>
-    internal const int MaxCustomXmlParts = 1024;
+    internal const int MaxCustomXmlParts = 64;
 
     /// <summary>
     /// <see cref="XmlReaderSettings.MaxCharactersInDocument"/> paired with <see cref="MaxCustomXmlPartBytes"/>
@@ -125,6 +134,48 @@ internal static class ResourceLimits
     internal const int MaxPartGraphDepth = 128;
 
     /// <summary>
+    /// Max element nesting depth of ANY XML part in a package, checked by
+    /// <see cref="EnsurePackageWithinLimits"/> before the OpenXml SDK parses the part into its (recursive)
+    /// DOM. The deepest part in the ten-layout corpus nests 31 levels; the SDK's own load overflows the
+    /// stack at roughly 2,250. 512 is 16x the corpus and about 4x under the crash, and stays above twice
+    /// <see cref="MaxElementNestingDepth"/> (a content-control level is two XML levels, <c>w:sdt</c> plus
+    /// <c>w:sdtContent</c>), so this repo's own walkers keep their own, more specific, depth error.
+    /// </summary>
+    internal const int MaxPackageXmlDepth = 512;
+
+    /// <summary>
+    /// Byte ceiling for any ONE XML part the OpenXml SDK may parse (<c>document.xml</c>, a header, styles,
+    /// ...) — the package-wide counterpart of <see cref="MaxCustomXmlPartBytes"/>, which covers only the parts
+    /// this repo loads itself. The largest part in the corpus is a 153 KB <c>document.xml</c>; 16 MB is a
+    /// hundred times that, while bounding what a few-KB compressed "bomb" part can make the SDK allocate.
+    /// </summary>
+    internal const long MaxPackageXmlPartBytes = 16L * 1024 * 1024;
+
+    /// <summary>
+    /// Ceiling on the SUM of all XML part sizes in a package. <c>OpenXmlValidator</c> parses every part, so the
+    /// per-part cap above alone would still let <see cref="MaxPackageParts"/> maximum-size parts add up to
+    /// gigabytes. A real layout's XML totals well under 1 MB.
+    /// </summary>
+    internal const long MaxPackageXmlBytes = 64L * 1024 * 1024;
+
+    /// <summary>
+    /// Max number of distinct parts reachable in a package. Bounds every recursive walk over the part graph
+    /// that this repo does NOT write — <c>OpenXmlValidator</c>'s package walk overflows the stack on a chain of
+    /// roughly 1,500 parts — because no walk can nest deeper than the number of parts there are. Corpus
+    /// layouts carry 18-31 zip entries; 256 is ample for a layout with many images while staying several
+    /// times under that crash.
+    /// </summary>
+    internal const int MaxPackageParts = 256;
+
+    /// <summary>
+    /// Max nesting of Word fields (<c>w:fldChar</c> begin inside another field) that
+    /// <c>BcWordLayout.Merge.ExternalReferenceNeutralizer</c> tracks while it reads a field code. Every
+    /// element of a field code is attributed to each enclosing field still reading its own code, so the cost
+    /// grows with nesting; real layouts nest two or three deep (an <c>IF</c> around <c>PAGE</c>/<c>NUMPAGES</c>).
+    /// </summary>
+    internal const int MaxFieldNestingDepth = 32;
+
+    /// <summary>
     /// Builds the <see cref="ResourceLimitExceededException"/> every depth-guarded walker throws once
     /// <paramref name="limit"/> is exceeded — one shared wording so every guard reads the same way regardless
     /// of which walker tripped it.
@@ -141,6 +192,110 @@ internal static class ResourceLimits
     internal static ResourceLimitExceededException PartCountExceeded(int actualCount, int limit) =>
         new($"Package has {actualCount} custom XML parts, exceeding the supported limit of {limit}; this "
             + "looks like a malformed or maliciously crafted file rather than a real Business Central layout.");
+
+    /// <summary>
+    /// Checks <paramref name="package"/> against the package-wide caps (<see cref="MaxPackageParts"/>,
+    /// <see cref="MaxPackageXmlPartBytes"/>, <see cref="MaxPackageXmlBytes"/>, <see cref="MaxPackageXmlDepth"/>)
+    /// BEFORE the OpenXml SDK parses any of its parts, throwing <see cref="ResourceLimitExceededException"/> on
+    /// the first one exceeded. Opening the package is safe to do first: measured, the SDK's open builds the
+    /// part graph iteratively and parses no part content.
+    /// <para>
+    /// Both walks here are non-recursive (an explicit stack over the part graph, a streaming
+    /// <see cref="XmlReader"/> over each part), so a crafted package cannot overflow THIS code's stack either.
+    /// Every part is scanned whatever its content type claims: a binary part (an image) fails the reader on
+    /// its first bytes and costs nothing.
+    /// </para>
+    /// <para>
+    /// A part that is not well-formed XML simply ends its own scan at the error. That is safe because the
+    /// scan's reader is never stricter than the SDK's (which prohibits DTDs, checks characters and requires a
+    /// single root — measured): the SDK hits the same error at or before the same byte, so it never parses
+    /// past the point this scan already cleared.
+    /// </para>
+    /// <para>
+    /// Call it on a READ-ONLY open: in a writable package, System.IO.Packaging decompresses a whole part into
+    /// memory the moment its stream is opened, before any cap here could apply. <see cref="LayoutPackage.Open"/>
+    /// does exactly that for its writable callers.
+    /// </para>
+    /// </summary>
+    internal static void EnsurePackageWithinLimits(OpenXmlPackage package)
+    {
+        var visited = new HashSet<OpenXmlPart>();
+        var pending = new Stack<OpenXmlPart>(package.Parts.Select(p => p.OpenXmlPart));
+        long totalXmlBytes = 0;
+
+        while (pending.TryPop(out var part))
+        {
+            if (!visited.Add(part))
+            {
+                continue;
+            }
+
+            if (visited.Count > MaxPackageParts)
+            {
+                throw new ResourceLimitExceededException(
+                    $"Package has more than {MaxPackageParts} parts, exceeding the supported limit; this looks "
+                    + "like a malformed or maliciously crafted file rather than a real Business Central layout.");
+            }
+
+            totalXmlBytes += ScanPartXml(part);
+            if (totalXmlBytes > MaxPackageXmlBytes)
+            {
+                throw new ResourceLimitExceededException(
+                    $"Package XML parts total more than the supported size limit of {MaxPackageXmlBytes / (1024 * 1024)} "
+                    + "MB; this looks like a malformed or maliciously crafted file rather than a real Business "
+                    + "Central layout.");
+            }
+
+            foreach (var child in part.Parts)
+            {
+                pending.Push(child.OpenXmlPart);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Streams <paramref name="part"/> through a non-recursive reader, enforcing
+    /// <see cref="MaxPackageXmlPartBytes"/> and <see cref="MaxPackageXmlDepth"/>, and returns the bytes read
+    /// (for the <see cref="MaxPackageXmlBytes"/> total). See <see cref="EnsurePackageWithinLimits"/> for why a
+    /// part that is not well-formed XML only ends its own scan.
+    /// </summary>
+    private static long ScanPartXml(OpenXmlPart part)
+    {
+        using var stream = part.GetStream(FileMode.Open, FileAccess.Read);
+        using var limited = new LengthLimitedStream(stream, MaxPackageXmlPartBytes, $"Package part '{part.Uri}'");
+        try
+        {
+            using var reader = XmlReader.Create(limited, CreateScanSettings());
+            while (reader.Read())
+            {
+                if (reader.NodeType == XmlNodeType.Element && reader.Depth > MaxPackageXmlDepth)
+                {
+                    throw DepthExceeded($"XML part '{part.Uri}'", MaxPackageXmlDepth);
+                }
+            }
+        }
+        catch (XmlException)
+        {
+            // Not XML (a binary part) or malformed from here on: the SDK fails at or before this byte too.
+        }
+
+        return limited.BytesRead;
+    }
+
+    /// <summary>
+    /// The scan's reader settings: deliberately MORE permissive than the SDK's own reader (DTDs ignored rather
+    /// than prohibited, characters unchecked) so this scan can never stop on an error the SDK would read past.
+    /// Nothing is resolved or expanded — an ignored DTD declares no entities.
+    /// </summary>
+    private static XmlReaderSettings CreateScanSettings() => new()
+    {
+        DtdProcessing = DtdProcessing.Ignore,
+        XmlResolver = null,
+        CheckCharacters = false,
+        IgnoreComments = true,
+        IgnoreWhitespace = true,
+        IgnoreProcessingInstructions = true,
+    };
 
     /// <summary>
     /// Loads <paramref name="stream"/> as an <see cref="XDocument"/> through a length-limiting wrapper
@@ -202,6 +357,9 @@ internal static class ResourceLimits
             _description = description;
         }
 
+        /// <summary>Bytes read through this wrapper so far.</summary>
+        internal long BytesRead => _totalRead;
+
         public override int Read(byte[] buffer, int offset, int count)
         {
             var read = _inner.Read(buffer, offset, count);
@@ -232,7 +390,7 @@ internal static class ResourceLimits
                 throw new ResourceLimitExceededException(
                     $"{_description} exceeds the supported size limit of {_maxBytes / (1024 * 1024)} MB "
                     + $"({_maxBytes} bytes); this looks like a malformed or maliciously crafted file rather "
-                    + "than a real Business Central dataset/schema part.");
+                    + "than a real Business Central layout, dataset or schema file.");
             }
         }
 

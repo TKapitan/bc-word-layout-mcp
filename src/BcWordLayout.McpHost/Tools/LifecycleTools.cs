@@ -215,11 +215,16 @@ public static class LifecycleTools
                  + "file_locked rather than racing. Always read MergedDocxPath/PdfPath back from the result "
                  + "rather than assuming fixed file names — see outputDir for how those names are derived. "
                  + "SECURITY: "
-                 + "before conversion, the merged copy has every external relationship (attachedTemplate, "
-                 + "externally-linked images, linked OLE objects, frame/subDocument references) stripped, so "
-                 + "opening a layout cloned from an untrusted source can never make the converter reach out "
-                 + "over the network/SMB; plain click-to-follow hyperlinks are unaffected. Each stripped "
-                 + "relationship is reported as an external-relationship-stripped warning. RETENTION: outputs "
+                 + "before conversion, the merged copy has every reference to a resource outside it removed, "
+                 + "so previewing a layout cloned from an untrusted source can never make the converter reach "
+                 + "out over the network/SMB: external relationships (attachedTemplate, externally-linked "
+                 + "images, linked OLE objects, frame/subDocument references) are stripped; fields other than "
+                 + "self-contained ones (PAGE, NUMPAGES, DATE, REF, IF, ...) - e.g. INCLUDEPICTURE, "
+                 + "INCLUDETEXT, LINK, DDE - are unlinked to their cached result; mail-merge and "
+                 + "schema-library settings, altChunk imports and VML location attributes are removed. Plain "
+                 + "click-to-follow hyperlinks are unaffected. Each removal is reported as an "
+                 + "external-relationship-stripped, field-unlinked or external-reference-stripped warning. "
+                 + "RETENTION: outputs "
                  + "are NOT deleted after the call returns - they persist at the returned MergedDocxPath/"
                  + "PdfPath until either (a) the SAME layout is previewed again (its default folder is reused "
                  + "and refreshed in place), or (b) a background age-sweep removes them, which only ever "
@@ -348,12 +353,15 @@ public static class LifecycleTools
                     // row, rather than the renderer re-syncing each control to the un-populated custom XML part.
                     FlattenBindingsForRender = true,
                     // Security hardening: this merged copy IS
-                    // about to be handed to a real converter (Word COM/LibreOffice) below, so strip any
-                    // external relationship (attachedTemplate, linked image, linked OLE object, frame/
-                    // subDocument ref) that Word would otherwise dereference the moment it opens the file -
-                    // an NTLM-hash-leak/SSRF vector unrelated to macros. See ExternalRelationshipStripper for
-                    // the full strip/keep rationale (plain hyperlinks are never touched).
-                    StripExternalRelationships = true,
+                    // about to be handed to a real converter (Word COM/LibreOffice) below, so strip every
+                    // reference to a resource outside it - external relationships (attachedTemplate, linked
+                    // image, linked OLE object, frame/subDocument ref) AND the references that are not
+                    // relationships (INCLUDEPICTURE/INCLUDETEXT/LINK/DDE fields, mail-merge settings,
+                    // altChunk imports) - that the converter would otherwise dereference when it opens or
+                    // exports the file: an NTLM-hash-leak/SSRF vector unrelated to macros. See
+                    // ExternalRelationshipStripper and ExternalReferenceNeutralizer for the full rationale
+                    // (plain hyperlinks are never touched).
+                    StripExternalReferences = true,
                 });
 
                 var pdfConverter = SelectConverter(kind);
@@ -725,7 +733,9 @@ public static class LifecycleTools
                      + "than were returned.")] int maxPages = 3,
         [Description("Render resolution in DPI, clamped to 36–300. Default 120 (an A4 page comes out "
                      + "roughly 992×1403 px — readable without wasting tokens on print-resolution "
-                     + "detail).")] int dpi = 120,
+                     + "detail). Each page is also capped at 5000 px per side and 20 megapixels: a page "
+                     + "larger than that at this DPI is rendered smaller, keeping its aspect ratio, and "
+                     + "flagged downscaled=true on pages[].")] int dpi = 120,
         [Description("Optional absolute directory to ALSO write each rendered page into, as "
                      + "'<pdf-basename>-pageNN.png' (the paths are returned on pages[].path). The directory "
                      + "is created if missing. Omit to return the images inline only. YOU own the "
@@ -809,7 +819,7 @@ public static class LifecycleTools
             Truncated: result.Truncated,
             Pages: result.Pages
                 .Select((p, i) => new PreviewPageDto(
-                    p.PageNumber, p.WidthPx, p.HeightPx, p.PngBytes.Length, writtenPaths?[i]))
+                    p.PageNumber, p.WidthPx, p.HeightPx, p.PngBytes.Length, writtenPaths?[i], p.Downscaled))
                 .ToList());
 
         var content = new List<ContentBlock>(1 + result.Pages.Count)

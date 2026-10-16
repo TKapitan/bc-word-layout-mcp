@@ -70,22 +70,26 @@ public sealed class MergeOptions
     public bool FlattenBindingsForRender { get; init; }
 
     /// <summary>
-    /// When true, removes every external relationship (<c>attachedTemplate</c>, externally-linked images,
-    /// linked OLE objects, frame/subDocument references — see <see cref="ExternalRelationshipStripper"/> for
-    /// the full strip/keep rationale) from the merged output before the merge returns, so a renderer that
-    /// opens the merged copy afterward can never dereference one: a poisoned layout's
-    /// <c>attachedTemplate</c> pointing at a UNC path or URL would otherwise make Word reach out when it
-    /// opens the file, leaking the developer's NTLM hash over SMB or acting as SSRF. Word's
-    /// <c>AutomationSecurity</c> does not help — it blocks macros, not template/linked-resource loading. Plain <c>hyperlink</c>
-    /// relationships are never affected either way - see the stripper's own remarks. Each relationship
-    /// removed raises an <c>external-relationship-stripped</c> <see cref="MergeWarning"/> so the caller knows
-    /// the preview differs from the source layout in this respect. Defaults to <c>false</c> so
+    /// When true, removes every reference to a resource outside the merged output before the merge returns,
+    /// so a renderer that opens the merged copy afterward can never dereference one: a poisoned layout's
+    /// <c>attachedTemplate</c> or <c>INCLUDEPICTURE</c> field pointing at a UNC path or URL would otherwise
+    /// make Word reach out when it opens or exports the file, leaking the developer's NTLM hash over SMB or
+    /// acting as SSRF. Word's <c>AutomationSecurity</c> does not help — it blocks macros, not template/linked-
+    /// resource loading. Two passes: <see cref="ExternalRelationshipStripper"/> removes external OPC
+    /// relationships (<c>attachedTemplate</c>, externally-linked images, linked OLE objects, frame/subDocument
+    /// references; plain <c>hyperlink</c> relationships are kept - see its remarks), then
+    /// <see cref="ExternalReferenceNeutralizer"/> removes the references that are NOT relationships (fields
+    /// that load a file/URL/data source are unlinked to their cached result, mail-merge and schema-library
+    /// settings, <c>w:altChunk</c> imports, VML location attributes). Each removal raises an
+    /// <c>external-relationship-stripped</c>, <c>field-unlinked</c> or <c>external-reference-stripped</c>
+    /// <see cref="MergeWarning"/> so the caller knows the preview differs from the source layout in this
+    /// respect. Defaults to <c>false</c> so
     /// <c>validate_layout level=full</c>'s dry-run merge (<c>BcWordLayout.Merge.FullValidator</c>) is
     /// unaffected - its throwaway output is deleted in a <c>finally</c> block and never opened by any
     /// converter, so stripping there would add cost with no security benefit; <c>preview_layout</c> sets this
     /// <c>true</c> because ITS merged copy IS opened by a real converter.
     /// </summary>
-    public bool StripExternalRelationships { get; init; }
+    public bool StripExternalReferences { get; init; }
 }
 
 /// <summary>A non-fatal finding raised while merging (e.g. a binding that did not resolve).</summary>
@@ -325,7 +329,7 @@ public static class MergeEngine
     /// </summary>
     private static MergeResult MergeIntoOpenCopy(string stagingPath, MergeOptions options)
     {
-        using var doc = WordprocessingDocument.Open(stagingPath, true);
+        using var doc = LayoutPackage.Open(stagingPath, isEditable: true);
         var schema = SchemaProvider.FromLayout(doc);
 
         // Pre-scan the (already-open) layout for every repeating section's own row binding
@@ -356,14 +360,17 @@ public static class MergeEngine
             footer.Footer?.Save();
         }
 
-        // Only reached (part is loaded) when StripExternalRelationships actually touched the MAIN document's
-        // settings.xml (e.g. to remove a dangling w:attachedTemplate element - the common real case, proven
+        // Only reached (part is loaded) when StripExternalReferences ran - the stripper loads the MAIN
+        // document's settings.xml to remove a dangling w:attachedTemplate element (the common real case, proven
         // end-to-end by McpHostToolTests' SalesInvoiceForSubscriptionBilling corpus test, whose attachedTemplate
-        // lives exactly here). Explicit Save mirrors the Document/header/footer saves above for this one
+        // lives exactly here), and the neutralizer reads every settings part for w:mailMerge. Explicit Save
+        // mirrors the Document/header/footer saves above for this one
         // named part; it is NOT the only thing making the strip's edits durable. This whole method runs
-        // inside the `using var doc = WordprocessingDocument.Open(stagingPath, true)` above, whose default
-        // AutoSave is true, so ANY OTHER part the stripper may have touched but this method has no named
-        // reference to (a glossary document's own settings part, or anything reached only via the package
+        // inside the `using var doc = LayoutPackage.Open(stagingPath, isEditable: true)` above, whose default
+        // AutoSave is true, so ANY OTHER part the hardening may have touched but this method has no named
+        // reference to (footnotes/endnotes/comments/glossary content whose fields the neutralizer unlinked -
+        // regression-tested for footnotes by ExternalReferenceNeutralizerTests - a glossary document's own
+        // settings part, or anything reached only via the package
         // root - see ExternalRelationshipStripper.Strip(OpenXmlPackage)) is still persisted by
         // AutoSave-on-Dispose even without an explicit .Save() call here. That combination - explicit Save
         // where a named reference already exists, AutoSave as the backstop everywhere else - is deliberate,
@@ -648,15 +655,18 @@ public static class MergeEngine
             FlattenLiveBindings(main);
         }
 
-        // Security hardening (opt-in - see MergeOptions.StripExternalRelationships): removes anything a
-        // renderer would dereference on open (attachedTemplate, linked images, linked OLE objects, mail-
-        // merge/subDocument/movie references) before this merge result is handed to a converter - covers the
-        // package root's own relationships too, not just the main document part's. Runs AFTER the walk/
-        // flatten steps above (order is immaterial - relationships are independent of bound-field/repeater
-        // content) so its warnings are simply appended alongside whatever the walk itself raised.
-        if (options.StripExternalRelationships)
+        // Security hardening (opt-in - see MergeOptions.StripExternalReferences): removes anything a
+        // renderer would dereference on open or export (attachedTemplate, linked images, linked OLE objects,
+        // mail-merge/subDocument/movie references, INCLUDEPICTURE/INCLUDETEXT/LINK/DDE fields, altChunk
+        // imports) before this merge result is handed to a converter - covers the package root's own
+        // relationships too, not just the main document part's. Runs AFTER the walk/flatten steps above, so
+        // the fields it judges are the ones the converter will actually see, and its warnings are simply
+        // appended alongside whatever the walk itself raised. Relationships go first so the neutralizer
+        // sees the altChunk/VML elements the stripper already cleared.
+        if (options.StripExternalReferences)
         {
             state.Warnings.AddRange(ExternalRelationshipStripper.Strip(doc));
+            state.Warnings.AddRange(ExternalReferenceNeutralizer.Neutralize(doc));
         }
 
         return new MergeResult

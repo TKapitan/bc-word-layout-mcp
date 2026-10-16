@@ -148,8 +148,8 @@ public class ResourceLimitsTests
     [Fact]
     public void GetLayoutInfo_with_document_nesting_beyond_depth_limit_returns_invalid_layout()
     {
-        // Comfortably past ResourceLimits.MaxElementNestingDepth (128), but shallow enough that the OpenXml
-        // SDK's own (out-of-scope) document load never comes close to its own limits.
+        // Comfortably past ResourceLimits.MaxElementNestingDepth (128), but under the package gate's
+        // MaxPackageXmlDepth (512 XML levels), so the walker's own cap is the one that trips.
         var depth = ResourceLimits.MaxElementNestingDepth + 20;
         var layoutPath = SyntheticLayout.Create(NestedSdtChain(depth));
 
@@ -325,7 +325,7 @@ public class ResourceLimitsTests
     [Fact]
     public void GetLayoutInfo_with_custom_xml_part_count_over_ceiling_returns_invalid_layout()
     {
-        // Comfortably past ResourceLimits.MaxCustomXmlParts (1024). None need to be BC-namespaced or even
+        // Just past ResourceLimits.MaxCustomXmlParts (64). None need to be BC-namespaced or even
         // well-formed XML - EnsurePartCountWithinLimit rejects up front, before any part is opened/parsed, so
         // the per-part iteration/parse LOOP itself stays bounded regardless of how cheap each individual part
         // is (the addendum's second requirement, distinct from the per-part byte cap above).

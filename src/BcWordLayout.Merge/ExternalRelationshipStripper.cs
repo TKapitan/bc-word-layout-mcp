@@ -15,7 +15,9 @@ namespace BcWordLayout.Merge;
 /// in <see cref="BcWordLayout.Render.WordComConverter"/> blocks VBA execution only, not relationship/template
 /// fetches. <c>preview_layout</c> merges into a separate working copy and only ever hands THAT COPY to a
 /// converter, so stripping here can never touch the layout the caller passed in (the never-open-the-
-/// original-writable invariant).
+/// original-writable invariant). Relationships are only half of it: the references that are NOT
+/// relationships (fields such as <c>INCLUDEPICTURE</c>, mail-merge settings, <c>w:altChunk</c>) are removed by
+/// <see cref="ExternalReferenceNeutralizer"/>, which runs right after this.
 /// <para>
 /// STRIP SET: every relationship surfaced by <see cref="OpenXmlPartContainer.ExternalRelationships"/> — on
 /// the PACKAGE ROOT itself (<see cref="OpenXmlPackage"/>, e.g. a relationship in <c>/_rels/.rels</c> not
