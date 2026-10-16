@@ -5,8 +5,10 @@ namespace BcWordLayout.Domain;
 /// schema file bigger than <see cref="ResourceLimits.MaxCustomXmlPartBytes"/>, a package with more than
 /// <see cref="ResourceLimits.MaxCustomXmlParts"/> custom XML parts, or a schema/document/part-graph nested
 /// deeper than <see cref="ResourceLimits.MaxSchemaDepth"/>/<see cref="ResourceLimits.MaxElementNestingDepth"/>/
-/// <see cref="ResourceLimits.MaxPartGraphDepth"/> — see <see cref="ResourceLimits"/> for the two crash
-/// classes those caps exist to convert into ordinary, catchable failures.
+/// <see cref="ResourceLimits.MaxPartGraphDepth"/>, or a package over one of the package-wide caps
+/// <see cref="ResourceLimits.EnsurePackageWithinLimits"/> checks before the OpenXml SDK parses it — see
+/// <see cref="ResourceLimits"/> for the two crash classes those caps exist to convert into ordinary,
+/// catchable failures.
 /// </summary>
 /// <remarks>
 /// <para>

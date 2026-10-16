@@ -20,7 +20,7 @@ public static class LayoutReader
             throw new FileNotFoundException("Layout file not found.", docxPath);
         }
 
-        using var doc = WordprocessingDocument.Open(docxPath, false);
+        using var doc = LayoutPackage.Open(docxPath, isEditable: false);
         return Read(doc);
     }
 

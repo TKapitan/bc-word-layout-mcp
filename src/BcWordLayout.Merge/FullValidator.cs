@@ -26,7 +26,7 @@ public static class FullValidator
     /// buried as an ordinary validation finding.
     /// <para>
     /// SECURITY: the dry-run merge below deliberately leaves
-    /// <see cref="MergeOptions.StripExternalRelationships"/> at its default <c>false</c>. Unlike
+    /// <see cref="MergeOptions.StripExternalReferences"/> at its default <c>false</c>. Unlike
     /// <c>preview_layout</c>, this merge's output (<c>tempOutput</c>) is never handed to a PDF converter and
     /// is always deleted in the <c>finally</c> block below regardless of outcome - so no renderer could ever
     /// dereference a poisoned layout's external relationship here, and stripping them would only add cost

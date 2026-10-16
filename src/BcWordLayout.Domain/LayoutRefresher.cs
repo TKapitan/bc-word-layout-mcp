@@ -183,7 +183,7 @@ public static class LayoutRefresher
 
         if (newSchemaSource.EndsWith(".docx", StringComparison.OrdinalIgnoreCase))
         {
-            using var sourceDoc = WordprocessingDocument.Open(newSchemaSource, false);
+            using var sourceDoc = LayoutPackage.Open(newSchemaSource, isEditable: false);
             var sourceMain = sourceDoc.MainDocumentPart
                 ?? throw new InvalidDataException($"'{newSchemaSource}' has no main document part.");
 

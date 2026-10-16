@@ -139,12 +139,14 @@ mock preview approximates that pipeline (§5), and can never be authoritative ab
 │  │ LayoutBuilder / LayoutRefresher — create / re-schema   │    │
 │  │ guards: TableGridConsistencyGuard, PlainTextNesting-   │    │
 │  │         Guard, ResourceLimits, LabelConvention         │    │
+│  │ LayoutPackage — the one way a .docx is opened          │    │
 │  └──────────────┬────────────────────────────────────────┘    │
 │  ┌ Merge ───────▼────────────────────────────────────────┐    │
 │  │ SampleDataGenerator — seeded, type-aware fakes         │    │
 │  │ MergeEngine    — binding fill, repeater expansion,     │    │
 │  │                  XPathReanchor per nesting level       │    │
-│  │ ExternalRelationshipStripper, FullValidator            │    │
+│  │ ExternalRelationshipStripper, ExternalReference-       │    │
+│  │   Neutralizer, FullValidator                           │    │
 │  └──────────────┬────────────────────────────────────────┘    │
 │  ┌ Render ──────▼────────────────────────────────────────┐    │
 │  │ IPdfConverter → WordComConverter (primary, Windows)    │    │
@@ -213,7 +215,7 @@ layout.docx ──► MergeEngine ◄───────────┘
                     │     inner bindings per nesting level (XPathReanchor)
                     │  3. regenerate cloned drawing/bookmark ids so clones stay unique
                     │  4. substitute placeholder images for picture controls
-                    │  5. strip external relationships (see §6, principle 5)
+                    │  5. strip external references (see §6, principle 5)
                     │  6. unresolved binding → warning + visible placeholder
                     ▼
              merged.docx ──► IPdfConverter ──► preview.pdf ──► render_preview_pages ──► PNGs
@@ -266,10 +268,29 @@ while sitting on the line-items table of the stock sales-invoice layout.
 
 **5. Treat the layout as untrusted input.** It comes from a repo the agent did not write.
 `ResourceLimits` caps part size, part count, and recursion depth so a zip-bomb or a deeply-nested file
-fails one call instead of killing the server on an uncatchable `StackOverflowException`.
-`ExternalRelationshipStripper` removes external relationships from the merged copy before any renderer
-opens it — a poisoned `attachedTemplate` pointing at a UNC path otherwise makes Word reach out on open,
-leaking an NTLM hash or acting as SSRF. (Word's `AutomationSecurity` blocks macros, not template loading.)
+fails one call instead of killing the server on an uncatchable `StackOverflowException`. That has to hold
+for the OpenXml SDK's own part loads too, which recurse once per nesting level: measured on SDK 3.5.1, a
+1.4 KB `document.xml` nested about 2,250 elements deep overflows a default stack during the load, and
+`OpenXmlValidator` overflows on a chain of about 1,500 parts. So every `.docx` is opened through
+`LayoutPackage.Open`, which streams each part through a non-recursive reader before the SDK parses
+anything. It caps XML depth (512, against 31 in the deepest corpus part), per-part size (16 MB) and total
+XML size (64 MB), and part count (256). A test fails the build if any source opens a package directly.
+
+The preview's render copy is the other half. `ExternalRelationshipStripper` removes external
+relationships from the merged copy before any renderer opens it: a poisoned `attachedTemplate` pointing
+at a UNC path otherwise makes Word reach out on open, leaking an NTLM hash or acting as SSRF. (Word's
+`AutomationSecurity` blocks macros, not template loading.) Relationships are not the only way out,
+though, so `ExternalReferenceNeutralizer` removes the rest:
+- Every field that is not computed from the document itself is unlinked to its cached result. That
+  covers `INCLUDEPICTURE`, `INCLUDETEXT`, `LINK`, `DDE` and the like. It is an allowlist rather than a
+  denylist, because the field type can be computed by a nested field.
+- Mail-merge, update-fields-on-open and schema-library settings are removed.
+- `altChunk` imports are removed.
+- VML location attributes are removed.
+
+`w:updateFields` was observed live with the Word COM converter: it puts Word's "fields that may refer to
+other files" prompt on the desktop despite the hidden, alerts-off session, and one "Yes" fetched every
+`INCLUDEPICTURE`/`INCLUDETEXT` target.
 
 **6. Structure over discipline.** Where correctness rested on remembering a convention, it was made
 mechanical: one `SdtInspector` classification ladder instead of four hand-synced copies; one

@@ -91,6 +91,7 @@ Ordered most → least severe; this order is the tie-breaker when picking what t
 
 | Label | Meaning |
 | --- | --- |
+| `impact: security` | A crafted input (a hostile layout, schema or PDF) defeats a documented mitigation: it crashes the server, exhausts its memory, or makes a converter contact a host the input chooses (e.g. [#115](https://github.com/TKapitan/bc-word-layout-mcp/issues/115)). A vulnerability report itself still goes through [private reporting](../SECURITY.md), and the label is applied once a fix is ready to land. |
 | `impact: corrupted-layout` | The produced layout is invalid — BC rejects the upload or Word cannot open the result. Drop-everything severity: emitting layouts BC accepts is the tool's one job. |
 | `impact: wrong-output` | BC accepts the layout but the rendered document is wrong — content, typography, pagination (e.g. [#3](https://github.com/TKapitan/bc-word-layout-mcp/issues/3)). |
 | `impact: tool-usability` | A documented workflow or tool contract misleads or fails; no bad artifact is produced, but callers lose real time — [#5](https://github.com/TKapitan/bc-word-layout-mcp/issues/5) cost a whole sandbox round to diagnose. |

@@ -8,9 +8,9 @@ public sealed class PdfRasterizeOptions
     /// <summary>
     /// Hard ceiling on how many pages one call may render, regardless of what the caller asks for —
     /// mirrors the row-cap philosophy in the merge layer: an oversized request is clamped and REPORTED
-    /// (<see cref="PdfRasterizeResult.Truncated"/>), never silently honored. Ten pages at
-    /// <see cref="MaxDpi"/>-bounded resolution keeps the worst-case response payload bounded; a preview
-    /// PDF an agent needs to LOOK at is nearly always its first page or two.
+    /// (<see cref="PdfRasterizeResult.Truncated"/>), never silently honored. Ten pages, each within
+    /// <see cref="MaxPixelsPerSide"/>/<see cref="MaxPixelsPerPage"/>, keeps the worst-case response payload
+    /// bounded; a preview PDF an agent needs to LOOK at is nearly always its first page or two.
     /// </summary>
     public const int MaxPageCap = 10;
 
@@ -19,6 +19,21 @@ public sealed class PdfRasterizeOptions
 
     /// <summary>Inclusive upper DPI bound — see <see cref="MinDpi"/>.</summary>
     public const int MaxDpi = 300;
+
+    /// <summary>
+    /// Pixel ceiling for either side of one rendered page. The DPI cap alone does not bound the image: the
+    /// PDF declares its own page size, and a page hundreds of inches wide at 300 DPI is a multi-gigapixel
+    /// bitmap. 5000 px fits A3 portrait at <see cref="MaxDpi"/> (3508×4961). A page over budget is rendered
+    /// at the largest size that fits instead, preserving its aspect ratio, and REPORTED
+    /// (<see cref="PdfRasterizedPage.Downscaled"/>) — never silently.
+    /// </summary>
+    public const int MaxPixelsPerSide = 5000;
+
+    /// <summary>
+    /// Pixel-count ceiling for one rendered page (20 MP, about 80 MB as the RGBA bitmap PDFium renders
+    /// into) — the area half of the budget <see cref="MaxPixelsPerSide"/> describes.
+    /// </summary>
+    public const int MaxPixelsPerPage = 20_000_000;
 
     /// <summary>
     /// Refuse input PDFs larger than this (50 MB). A preview PDF produced by this codebase's own
@@ -40,8 +55,13 @@ public sealed class PdfRasterizeOptions
     public int Dpi { get; init; } = 120;
 }
 
-/// <summary>One rendered page: PNG bytes plus the pixel dimensions they decode to.</summary>
-public sealed record PdfRasterizedPage(int PageNumber, byte[] PngBytes, int WidthPx, int HeightPx);
+/// <summary>
+/// One rendered page: PNG bytes plus the pixel dimensions they decode to. <see cref="Downscaled"/> is true
+/// when the page was too large to render at the effective DPI within
+/// <see cref="PdfRasterizeOptions.MaxPixelsPerSide"/>/<see cref="PdfRasterizeOptions.MaxPixelsPerPage"/> and
+/// was rendered smaller instead.
+/// </summary>
+public sealed record PdfRasterizedPage(int PageNumber, byte[] PngBytes, int WidthPx, int HeightPx, bool Downscaled = false);
 
 /// <summary>
 /// The outcome of one PDF → PNG-pages rasterization attempt. Mirrors <see cref="PdfConversionResult"/>'s
@@ -148,12 +168,25 @@ public static class PdfRasterizer
             var pages = new List<PdfRasterizedPage>(lastPage - firstPage + 1);
             for (var page = firstPage; page <= lastPage; page++)
             {
+                // PDFtoImage's Index parameter is 0-based. The size is read BEFORE rendering because the
+                // bitmap is allocated at render time: checking the PNG afterwards would be too late.
+                var pageSize = Conversion.GetPageSize(pdfBytes, page - 1);
+                if (!float.IsFinite(pageSize.Width) || !float.IsFinite(pageSize.Height)
+                    || pageSize.Width <= 0 || pageSize.Height <= 0)
+                {
+                    return Fail($"Page {page} of '{pdfPath}' declares an invalid size ({pageSize.Width}×{pageSize.Height} pt).");
+                }
+
+                var downscaledSize = FitWithinPixelBudget(pageSize.Width, pageSize.Height, dpi);
+                var pageOptions = downscaledSize is { } size
+                    ? new RenderOptions { Width = size.Width, Height = size.Height }
+                    : renderOptions;
+
                 using var pngStream = new MemoryStream();
-                // PDFtoImage's Index parameter is 0-based.
-                Conversion.SavePng(pngStream, pdfBytes, page - 1, options: renderOptions);
+                Conversion.SavePng(pngStream, pdfBytes, page - 1, options: pageOptions);
                 var pngBytes = pngStream.ToArray();
                 var (widthPx, heightPx) = ReadPngDimensions(pngBytes);
-                pages.Add(new PdfRasterizedPage(page, pngBytes, widthPx, heightPx));
+                pages.Add(new PdfRasterizedPage(page, pngBytes, widthPx, heightPx, Downscaled: downscaledSize is not null));
             }
 
             return new PdfRasterizeResult
@@ -179,6 +212,31 @@ public static class PdfRasterizer
 #pragma warning restore CA1416
 
         static PdfRasterizeResult Fail(string error) => new() { Ok = false, Error = error };
+    }
+
+    /// <summary>
+    /// Returns null when a page of <paramref name="widthPt"/>×<paramref name="heightPt"/> points fits
+    /// <see cref="PdfRasterizeOptions.MaxPixelsPerSide"/> and <see cref="PdfRasterizeOptions.MaxPixelsPerPage"/>
+    /// at <paramref name="dpi"/> (it renders by DPI exactly as before), otherwise the largest pixel size, with
+    /// the page's aspect ratio, that does fit — rendered by explicit size, so the bitmap PDFium allocates is
+    /// exactly that big. The fit test rounds UP, so a page passed through can never come out over budget by
+    /// PDFtoImage's own rounding.
+    /// </summary>
+    internal static (int Width, int Height)? FitWithinPixelBudget(double widthPt, double heightPt, int dpi)
+    {
+        var widthPx = widthPt * dpi / 72.0;
+        var heightPx = heightPt * dpi / 72.0;
+        if (Math.Ceiling(widthPx) <= PdfRasterizeOptions.MaxPixelsPerSide
+            && Math.Ceiling(heightPx) <= PdfRasterizeOptions.MaxPixelsPerSide
+            && Math.Ceiling(widthPx) * Math.Ceiling(heightPx) <= PdfRasterizeOptions.MaxPixelsPerPage)
+        {
+            return null;
+        }
+
+        var scale = Math.Min(
+            PdfRasterizeOptions.MaxPixelsPerSide / Math.Max(widthPx, heightPx),
+            Math.Sqrt(PdfRasterizeOptions.MaxPixelsPerPage / (widthPx * heightPx)));
+        return (Math.Max(1, (int)Math.Floor(widthPx * scale)), Math.Max(1, (int)Math.Floor(heightPx * scale)));
     }
 
     /// <summary>

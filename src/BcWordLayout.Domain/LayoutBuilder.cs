@@ -130,7 +130,7 @@ public static class LayoutBuilder
             {
                 TransientFileRetry.Run(() => File.Copy(templatePath!, tempPath, overwrite: true));
 
-                using var doc = WordprocessingDocument.Open(tempPath, true);
+                using var doc = LayoutPackage.Open(tempPath, isEditable: true);
                 _ = doc.MainDocumentPart
                     ?? throw new InvalidDataException($"Template '{templatePath}' has no main document part.");
 
@@ -279,7 +279,7 @@ public static class LayoutBuilder
     {
         if (schemaSource.EndsWith(".docx", StringComparison.OrdinalIgnoreCase))
         {
-            using var doc = WordprocessingDocument.Open(schemaSource, false);
+            using var doc = LayoutPackage.Open(schemaSource, isEditable: false);
             var main = doc.MainDocumentPart
                 ?? throw new InvalidDataException($"'{schemaSource}' has no main document part.");
 

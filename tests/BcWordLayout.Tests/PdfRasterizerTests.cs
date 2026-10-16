@@ -13,7 +13,9 @@ namespace BcWordLayout.Tests;
 /// </summary>
 internal static class MinimalPdf
 {
-    internal static byte[] Create(int pageCount)
+    /// <param name="pageCount">Number of pages.</param>
+    /// <param name="mediaBox">Each page's MediaBox in points; A4 by default.</param>
+    internal static byte[] Create(int pageCount, string mediaBox = "0 0 595 842")
     {
         var objects = new List<string>
         {
@@ -21,7 +23,7 @@ internal static class MinimalPdf
             $"<< /Type /Pages /Kids [{string.Join(" ", Enumerable.Range(0, pageCount).Select(i => $"{3 + i} 0 R"))}] /Count {pageCount} >>",
         };
         objects.AddRange(Enumerable.Range(0, pageCount)
-            .Select(_ => "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] >>"));
+            .Select(_ => $"<< /Type /Page /Parent 2 0 R /MediaBox [{mediaBox}] >>"));
 
         var body = new StringBuilder("%PDF-1.4\n");
         var offsets = new List<int>();
@@ -42,10 +44,10 @@ internal static class MinimalPdf
         return Encoding.ASCII.GetBytes(body.ToString());
     }
 
-    internal static string CreateFile(string directory, int pageCount)
+    internal static string CreateFile(string directory, int pageCount, string mediaBox = "0 0 595 842")
     {
         var path = Path.Combine(directory, $"minimal-{pageCount}p-{Guid.NewGuid():N}.pdf");
-        File.WriteAllBytes(path, Create(pageCount));
+        File.WriteAllBytes(path, Create(pageCount, mediaBox));
         return path;
     }
 }
@@ -169,6 +171,57 @@ public class PdfRasterizerTests : IDisposable
         Assert.True(result.Ok, result.Error);
         Assert.Equal(PdfRasterizeOptions.MaxDpi, result.EffectiveDpi);
     }
+
+    [Fact]
+    public void A_page_within_the_pixel_budget_renders_at_its_dpi_exactly_as_before()
+    {
+        var path = MinimalPdf.CreateFile(_dir, 1);
+
+        var result = PdfRasterizer.Rasterize(path, new PdfRasterizeOptions { Dpi = PdfRasterizeOptions.MaxDpi, MaxPages = 1 });
+
+        Assert.True(result.Ok, result.Error);
+        var page = Assert.Single(result.Pages);
+        Assert.False(page.Downscaled);
+        Assert.Equal((2479, 3508), (page.WidthPx, page.HeightPx)); // A4 at 300 DPI, PDFtoImage's own rounding
+    }
+
+    [Theory]
+    [InlineData("0 0 14400 14400", 300)] // 200 in square: 60,000 px a side at 300 DPI, 3.6 gigapixels
+    [InlineData("0 0 14400 14400", 120)]
+    [InlineData("0 0 14400 10", 300)]    // extreme aspect ratio: the per-side cap binds, not the area cap
+    [InlineData("0 0 4000 4000", 120)]   // under the per-side cap, over the area cap
+    public void An_oversized_page_is_rendered_within_the_pixel_budget_and_flagged(string mediaBox, int dpi)
+    {
+        // Before the cap, the first case asked PDFium for a ~14 GB bitmap: the DPI and page caps alone do not
+        // bound the image, because the PDF declares its own page size.
+        var path = MinimalPdf.CreateFile(_dir, 1, mediaBox);
+
+        var result = PdfRasterizer.Rasterize(path, new PdfRasterizeOptions { Dpi = dpi, MaxPages = 1 });
+
+        Assert.True(result.Ok, result.Error);
+        var page = Assert.Single(result.Pages);
+        Assert.True(page.Downscaled);
+        Assert.InRange(page.WidthPx, 1, PdfRasterizeOptions.MaxPixelsPerSide);
+        Assert.InRange(page.HeightPx, 1, PdfRasterizeOptions.MaxPixelsPerSide);
+        Assert.True((long)page.WidthPx * page.HeightPx <= PdfRasterizeOptions.MaxPixelsPerPage);
+        Assert.Equal(dpi, result.EffectiveDpi); // the requested DPI is still what was applied to in-budget pages
+    }
+
+    [Theory]
+    [InlineData(595, 842, 300)]
+    [InlineData(842, 1191, 300)] // A3 portrait: 3508×4961 at 300 DPI, the size the per-side cap was chosen to fit
+    public void FitWithinPixelBudget_passes_real_paper_sizes_through(double widthPt, double heightPt, int dpi) =>
+        Assert.Null(PdfRasterizer.FitWithinPixelBudget(widthPt, heightPt, dpi));
+
+    [Fact]
+    public void FitWithinPixelBudget_keeps_the_aspect_ratio_when_it_scales_down()
+    {
+        var size = PdfRasterizer.FitWithinPixelBudget(14400, 7200, 300);
+
+        Assert.NotNull(size);
+        Assert.Equal(PdfRasterizeOptions.MaxPixelsPerSide, size.Value.Width);
+        Assert.Equal(PdfRasterizeOptions.MaxPixelsPerSide / 2, size.Value.Height);
+    }
 }
 
 /// <summary>
@@ -247,6 +300,22 @@ public class RenderPreviewPagesToolTests : IDisposable
         Assert.StartsWith("{\"ok\":true,\"data\":{", envelope.Text);
         Assert.Contains("\"pdfPath\":", envelope.Text);
         Assert.Contains("\"effectiveDpi\":36", envelope.Text);
+        Assert.Contains("\"downscaled\":false", envelope.Text);
+    }
+
+    [Fact]
+    public void A_page_over_the_pixel_budget_is_flagged_downscaled_in_the_envelope()
+    {
+        var path = MinimalPdf.CreateFile(_dir, 1, "0 0 14400 14400");
+
+        var result = LifecycleTools.RenderPreviewPages(path, maxPages: 1, dpi: 300);
+
+        Assert.Equal(2, result.Content.Count);
+        var envelope = Assert.IsType<TextContentBlock>(result.Content[0]);
+        Assert.Contains("\"ok\":true", envelope.Text);
+        Assert.Contains("\"downscaled\":true", envelope.Text);
+        // A square page is bound by the area cap: sqrt(20 MP) ≈ 4472 px a side.
+        Assert.Contains($"\"widthPx\":{(int)Math.Sqrt(PdfRasterizeOptions.MaxPixelsPerPage)}", envelope.Text);
     }
 
     [Fact]

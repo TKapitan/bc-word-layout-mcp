@@ -52,7 +52,7 @@ public static class ReadTools
 
             // Open the package once and share the handle across all three passes (schema, inventory,
             // validation) instead of re-parsing the same .docx repeatedly.
-            using var doc = WordprocessingDocument.Open(layoutPath, false);
+            using var doc = LayoutPackage.Open(layoutPath, isEditable: false);
             var tree = SchemaProvider.FromLayout(doc);
             var inventory = LayoutReader.Read(doc);
             var validation = LayoutValidator.Quick(doc);
@@ -121,7 +121,7 @@ public static class ReadTools
             }
 
             // Share one open package across the schema parse and the inventory read.
-            using var doc = WordprocessingDocument.Open(source, false);
+            using var doc = LayoutPackage.Open(source, isEditable: false);
             var tree = SchemaProvider.FromLayout(doc);
             var boundPaths = BuildBoundPaths(LayoutReader.Read(doc));
 

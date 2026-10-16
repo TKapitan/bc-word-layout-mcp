@@ -24,20 +24,42 @@ This is a **local stdio tool**: no network listener, no credentials, no telemetr
 writes files **with the invoking user's own permissions** at whatever paths the calling agent passes
 — so point it only at repositories and layouts you trust, exactly as you would any local build tool.
 The primary adversarial input is a **hostile `.docx` layout or schema file** (e.g. from a cloned
-repo). The mitigations that exist for that today: `ResourceLimits` caps XML part size, part count
-and recursion depth (zip-bomb / deep-nesting protection); `ExternalRelationshipStripper` removes
-external relationships (`attachedTemplate`, linked images/OLE, mail-merge sources) from every merged
-copy before any converter opens it, so a poisoned layout cannot make Word reach out to a UNC path or
-URL; and every mutating tool writes to a staged copy, validates, and commits with an atomic rename —
-the original file is never opened writable. The design rationale lives in
-[`docs/SOLUTION-DESIGN.md`](docs/SOLUTION-DESIGN.md) §6 and [`docs/adr/`](docs/adr/).
+repo). The mitigations that exist for that today:
 
-Two residual surfaces are accepted deliberately and worth knowing about: the OpenXml SDK's own
-parse of `document.xml` and header/footer parts is SDK-internal (our byte/depth caps cover every
-part **this repo's code** loads — a pathologically large main part costs the invoking user their
-own memory, nothing more); and `render_preview_pages` hands the PDF at the supplied path to the
-bundled PDFium, so pointing it at a hostile PDF exercises PDFium's parser (output size is clamped
-via the DPI/page caps; the native libraries are kept current via Dependabot).
+- **Resource caps before any parse.** Every `.docx` is opened through one gate (`LayoutPackage`)
+  that streams each package part through a non-recursive reader *before* the OpenXml SDK parses
+  it, capping XML nesting depth, per-part and total XML size, and part count. The SDK's own part
+  loads are recursive, and a few-KB file nested deeply enough would otherwise overflow the stack,
+  which no code can catch. With the gate it fails one call instead. `ResourceLimits` also caps
+  the parts and recursive walks this repo's own code handles.
+- **A render copy with no way out.** `preview_layout` only ever hands a converter a merged
+  *copy*, and before it does, everything in that copy that could make Word or LibreOffice reach
+  out to a UNC path or URL is removed:
+  - external relationships (`attachedTemplate`, linked images/OLE, subDocument/frame references)
+  - every field that isn't computed from the document itself: `INCLUDEPICTURE`, `INCLUDETEXT`,
+    `LINK`, `DDE` and the like are unlinked to their cached result, including fields whose type
+    is hidden behind a nested field
+  - mail-merge, update-fields-on-open and schema-library settings
+  - `altChunk` imports
+  - VML location attributes
+
+  Plain click-to-follow hyperlinks are kept.
+- **No in-place writes.** Every mutating tool writes to a staged copy, validates it, and commits
+  with an atomic rename. The original file is never opened writable.
+
+The design rationale lives in [`docs/SOLUTION-DESIGN.md`](docs/SOLUTION-DESIGN.md) §6 and
+[`docs/adr/`](docs/adr/).
+
+Residual surfaces, accepted deliberately and worth knowing about:
+
+- **PDFium.** `render_preview_pages` hands the PDF at the supplied path to the bundled PDFium, so
+  pointing it at a hostile PDF exercises PDFium's parser. Output is bounded: at most 10 pages per
+  call, at most 300 DPI, and at most 5000 px per side and 20 MP per page, with a larger page
+  rendered smaller and flagged `downscaled`. The native libraries are kept current via Dependabot.
+- **The converter's own behaviour.** The hardening covers every reference *the package carries*.
+  It does not change what Word or LibreOffice do of their own accord, such as Office downloading
+  a Microsoft cloud font a layout names. That traffic goes to the vendor, not to a host the layout
+  chooses.
 
 Reports about these mitigations being insufficient against a crafted file are exactly the kind of
 report we want.

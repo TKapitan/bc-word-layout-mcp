@@ -12,7 +12,7 @@ namespace BcWordLayout.Tests;
 
 /// <summary>
 /// Covers <see cref="ExternalRelationshipStripper"/>: the
-/// opt-in <see cref="MergeOptions.StripExternalRelationships"/> step <c>preview_layout</c> enables before
+/// opt-in <see cref="MergeOptions.StripExternalReferences"/> step <c>preview_layout</c> enables before
 /// handing its merged copy to a PDF converter. Exercises the internal
 /// <see cref="MergeEngine.Merge(WordprocessingDocument, SampleDataset, MergeOptions?)"/> overload directly
 /// against hand-built documents (see <see cref="MergeEngineTests"/> for the same pattern) rather than the
@@ -51,7 +51,7 @@ public class ExternalRelationshipStripperTests
             settingsPart.Settings = new Settings(new AttachedTemplate { Id = rel.Id });
             settingsPart.Settings.Save();
 
-            var result = MergeEngine.Merge(doc, dataset, new MergeOptions { StripExternalRelationships = true });
+            var result = MergeEngine.Merge(doc, dataset, new MergeOptions { StripExternalReferences = true });
 
             var warning = Assert.Single(result.Warnings, w => w.Kind == "external-relationship-stripped");
             Assert.Contains("attachedTemplate", warning.Message);
@@ -104,7 +104,7 @@ public class ExternalRelationshipStripperTests
             main.Document!.Body!.InsertAt(new Paragraph(new SubDocumentReference { Id = rel.Id }), 0);
             main.Document.Save();
 
-            var result = MergeEngine.Merge(doc, dataset, new MergeOptions { StripExternalRelationships = true });
+            var result = MergeEngine.Merge(doc, dataset, new MergeOptions { StripExternalReferences = true });
 
             var warning = Assert.Single(
                 result.Warnings, w => w.Kind == "external-relationship-stripped" && w.Message.Contains("subDocument"));
@@ -130,7 +130,7 @@ public class ExternalRelationshipStripperTests
     }
 
     [Fact]
-    public void StripExternalRelationships_defaults_to_false_and_leaves_attachedTemplate_untouched()
+    public void StripExternalReferences_defaults_to_false_and_leaves_attachedTemplate_untouched()
     {
         var (layoutPath, dataset) = MinimalLayout();
 
@@ -144,7 +144,7 @@ public class ExternalRelationshipStripperTests
             settingsPart.Settings = new Settings(new AttachedTemplate { Id = rel.Id });
             settingsPart.Settings.Save();
 
-            // Options with StripExternalRelationships omitted (defaults false) - mirrors validate_layout
+            // Options with StripExternalReferences omitted (defaults false) - mirrors validate_layout
             // level=full's FullValidator dry-run merge, whose throwaway output is never opened by a
             // converter, so it deliberately never strips (see FullValidator.Full's own remarks).
             var result = MergeEngine.Merge(doc, dataset, new MergeOptions());
@@ -186,7 +186,7 @@ public class ExternalRelationshipStripperTests
             settingsPart.Settings = new Settings(new AttachedTemplate { Id = attachedRel.Id });
             settingsPart.Settings.Save();
 
-            var result = MergeEngine.Merge(doc, dataset, new MergeOptions { StripExternalRelationships = true });
+            var result = MergeEngine.Merge(doc, dataset, new MergeOptions { StripExternalReferences = true });
 
             // The unrelated attachedTemplate WAS stripped (selective, not "everything survived").
             Assert.Contains(result.Warnings, w => w.Kind == "external-relationship-stripped");
@@ -310,7 +310,7 @@ public class ExternalRelationshipStripperTests
             InsertContentParagraph(body, new Paragraph(new Run(PictureDrawing(2U, linkRelId: null, embedRelId: embedRelId))));
             main.Document!.Save();
 
-            var result = MergeEngine.Merge(doc, dataset, new MergeOptions { StripExternalRelationships = true });
+            var result = MergeEngine.Merge(doc, dataset, new MergeOptions { StripExternalReferences = true });
 
             var warning = Assert.Single(result.Warnings, w => w.Kind == "external-relationship-stripped");
             Assert.Contains("image", warning.Message);
