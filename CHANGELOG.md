@@ -131,6 +131,22 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     once they are a day old, like the other temporary files. This includes read-only leftovers
     from earlier versions.
 
+- **A file that is not a usable layout, schema or dataset is reported as the caller's input, by
+  name** (GitHub issue #95). These failed as `internal_error` ("likely a bug in the tool"), or with
+  a hint about the wrong file:
+  - **Not a `.docx` at all:** an empty file, a text file or schema `.xml` saved as `.docx`, or a
+    truncated copy, passed to any tool that opens a layout or template. This is now
+    `invalid_layout`, and the hint names the file and explains `.docx` versus schema `.xml`. The
+    edit and preview tools used to name their private temp copy; they now name your file.
+  - **XML that is not well-formed:** a truncated schema `.xml`, one with a DTD, or one whose
+    encoding declaration does not match its bytes, passed as `schemaSource`, `newSchemaSource` or
+    the `source` of `list_dataset_fields`. A `.docx` with a damaged XML part is covered too. This
+    is now `invalid_layout`, and the hint names the file plus the line and position.
+  - **`dataOverridesPath`:** any file that cannot be used now fails as `invalid_argument` for that
+    parameter. That covers malformed XML, a wrong root element or namespace, and an export from
+    another report. The hint lists the two accepted shapes. A wrong-shaped file used to be
+    `invalid_layout`, with a hint about the layout.
+
 ### Security
 
 - **A crafted layout can no longer kill the server through the OpenXml SDK's own parse** (GitHub

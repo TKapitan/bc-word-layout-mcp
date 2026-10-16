@@ -605,6 +605,41 @@ public class InvalidArgumentHintCoverageTests
         }
     }
 
+    // ---- "dataoverridespath" — SampleDataGenerator.LoadOverrides (an unusable data file, GitHub issue #95) ----
+
+    [Fact]
+    public void Merge_with_a_wrong_shaped_dataOverridesPath_hint_names_the_two_accepted_shapes()
+    {
+        // Driven through MergeEngine.Merge - the call preview_layout makes - inside the same Guard every tool
+        // uses, rather than through preview_layout itself, so this class need not join the
+        // preview-converter-seam collection; CallerFileErrorTests covers the tool end to end.
+        var overrides = Path.Combine(Path.GetTempPath(), $"bcwl-hintcov-overrides-{Guid.NewGuid():N}.xml");
+        var outputPath = NewOutputPath();
+        File.WriteAllText(overrides, "<?xml version=\"1.0\"?><SomethingElse/>");
+        try
+        {
+            var response = ToolGuards.Guard(() =>
+            {
+                BcWordLayout.Merge.MergeEngine.Merge(
+                    Corpus.Path(Corpus.SalesInvoice),
+                    outputPath,
+                    new BcWordLayout.Merge.MergeOptions { DataOverridesPath = overrides });
+                return ToolResponse.Success(true);
+            }, Corpus.Path(Corpus.SalesInvoice));
+
+            AssertActionableFailure(response, "invalid_argument", "preview_layout's dataOverridesPath must be");
+            Assert.False(File.Exists(outputPath));
+        }
+        finally
+        {
+            File.Delete(overrides);
+            if (File.Exists(outputPath))
+            {
+                File.Delete(outputPath);
+            }
+        }
+    }
+
     // ---- default fallback ("_") — TableStructureEditor.RejectUnsupportedShape throws with NO ParamName at
     // all (single-arg ArgumentException constructor); InvalidArgumentHint(null) must land on the generic
     // fallback rather than any specific case. ----

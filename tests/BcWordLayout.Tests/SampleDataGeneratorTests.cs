@@ -587,10 +587,14 @@ public class SampleDataGeneratorTests
         try
         {
             var schema = MinimalSchema();
-            var ex = Assert.Throws<InvalidDataException>(() =>
+            var ex = Assert.Throws<ArgumentException>(() =>
                 SampleDataGenerator.Generate(schema, new SampleDataOptions { DataOverridesPath = path }));
 
-            // The caller holding the wrong file must learn BOTH encodings that would have worked.
+            // The caller holding the wrong file must learn BOTH encodings that would have worked. Reported
+            // against the parameter that supplied the file (GitHub issue #95), not as a broken layout.
+            Assert.Equal("dataOverridesPath", ex.ParamName);
+            Assert.IsType<InvalidDataException>(ex.InnerException);
+            Assert.Contains(path, ex.Message);
             Assert.Contains("NavWordReportXmlPart", ex.Message);
             Assert.Contains("ReportDataSet", ex.Message);
         }
@@ -601,7 +605,7 @@ public class SampleDataGeneratorTests
     }
 
     [Fact]
-    public void DataOverrides_wrong_namespace_throws_InvalidDataException()
+    public void DataOverrides_wrong_namespace_throws_an_ArgumentException_for_dataOverridesPath()
     {
         var xml =
             "<?xml version=\"1.0\" encoding=\"utf-8\"?>"
@@ -612,8 +616,10 @@ public class SampleDataGeneratorTests
         try
         {
             var schema = MinimalSchema();
-            Assert.Throws<InvalidDataException>(() =>
+            var ex = Assert.Throws<ArgumentException>(() =>
                 SampleDataGenerator.Generate(schema, new SampleDataOptions { DataOverridesPath = path }));
+            Assert.Equal("dataOverridesPath", ex.ParamName);
+            Assert.Contains("urn:some-other-namespace/", ex.Message);
         }
         finally
         {
@@ -748,12 +754,13 @@ public class SampleDataGeneratorTests
     {
         // Feeding report 1304's export to a report-1 layout would otherwise produce a preview where every
         // binding is silently unresolved — the id cross-check turns that into an actionable error.
-        var ex = Assert.Throws<InvalidDataException>(() => LoadExportOverrides(
+        var ex = Assert.Throws<ArgumentException>(() => LoadExportOverrides(
             "<?xml version=\"1.0\" encoding=\"utf-8\"?>"
             + "<ReportDataSet name=\"Standard Sales - Quote\" id=\"1304\" language=\"en-US\" formatRegion=\"en-US\">"
             + "<DataItems><DataItem name=\"Header\"><Columns><Column name=\"No\">X</Column></Columns></DataItem></DataItems>"
             + "</ReportDataSet>"));
 
+        Assert.Equal("dataOverridesPath", ex.ParamName);
         Assert.Contains("1304", ex.Message);
         Assert.Contains("'Test'", ex.Message);
     }
@@ -778,12 +785,13 @@ public class SampleDataGeneratorTests
     {
         // Export attribute values become ELEMENT names in the converted shape, so a name no XML element
         // can carry must fail with the offender named — not a bare XmlException from deep inside XLinq.
-        var ex = Assert.Throws<InvalidDataException>(() => LoadExportOverrides(
+        var ex = Assert.Throws<ArgumentException>(() => LoadExportOverrides(
             "<?xml version=\"1.0\" encoding=\"utf-8\"?>"
             + "<ReportDataSet name=\"Test\" id=\"1\">"
             + "<DataItems><DataItem name=\"Header\"><Columns><Column name=\"Bad Name\">X</Column></Columns></DataItem></DataItems>"
             + "</ReportDataSet>"));
 
+        Assert.Equal("dataOverridesPath", ex.ParamName);
         Assert.Contains("Bad Name", ex.Message);
     }
 

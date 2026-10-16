@@ -222,7 +222,7 @@ public static class MergeEngine
             // checked out) would otherwise yield a read-only staging copy that can be neither opened for
             // write below nor deleted afterwards - see ScratchFiles' own remarks (GitHub issue #94).
             ScratchFiles.CopyWritable(layoutPath, stagingPath);
-            result = MergeIntoOpenCopy(stagingPath, options);
+            result = MergeIntoOpenCopy(stagingPath, layoutPath, options);
 
             // Only reached once every mutation/save above completed without throwing: the staged file is a
             // fully-merged, self-consistent document. Replace outputPath with it as the last step — a plain
@@ -289,11 +289,12 @@ public static class MergeEngine
     /// Opens <paramref name="stagingPath"/> (already a fresh copy of the source layout — see
     /// <see cref="Merge(string, string, MergeOptions?)"/>), fills it in place, and saves every part the
     /// merge is known to touch by name. Split out purely so the staging/atomic-replace plumbing above stays
-    /// readable; this method owns the actual merge work and all of its saves.
+    /// readable; this method owns the actual merge work and all of its saves. <paramref name="layoutPath"/>
+    /// is the caller's file the staging copy was made from, named instead of the copy if the open fails.
     /// </summary>
-    private static MergeResult MergeIntoOpenCopy(string stagingPath, MergeOptions options)
+    private static MergeResult MergeIntoOpenCopy(string stagingPath, string layoutPath, MergeOptions options)
     {
-        using var doc = LayoutPackage.Open(stagingPath, isEditable: true);
+        using var doc = LayoutPackage.Open(stagingPath, isEditable: true, callerPath: layoutPath);
         var schema = SchemaProvider.FromLayout(doc);
 
         // Pre-scan the (already-open) layout for every repeating section's own row binding

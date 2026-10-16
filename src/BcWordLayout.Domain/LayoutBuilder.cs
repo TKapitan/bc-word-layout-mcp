@@ -76,7 +76,12 @@ public static class LayoutBuilder
     /// — see that type's own remarks for why this refuses rather than reports a warning.
     /// <paramref name="outputPath"/> is never touched when this is thrown.
     /// </exception>
-    /// <exception cref="FileFormatException">
+    /// <exception cref="InvalidInputFileException">
+    /// <paramref name="schemaSource"/> or <paramref name="templatePath"/> is not a <c>.docx</c> package, is a
+    /// schema <c>.xml</c> that is not well-formed XML, or (a template) has a damaged XML part.
+    /// <paramref name="outputPath"/> is never touched when this is thrown.
+    /// </exception>
+    /// <exception cref="BuildSelfCheckFailedException">
     /// The assembled layout failed <see cref="OpenXmlValidator"/> — an internal bug, not expected to be
     /// reachable in practice (see <see cref="AttachEverything"/>'s remarks). <paramref name="outputPath"/> is
     /// never touched when this is thrown.
@@ -150,13 +155,30 @@ public static class LayoutBuilder
                 // for write below nor deleted afterwards - see ScratchFiles' own remarks (GitHub issue #94).
                 TransientFileRetry.Run(() => ScratchFiles.CopyWritable(templatePath!, tempPath));
 
-                using var doc = LayoutPackage.Open(tempPath, isEditable: true);
-                _ = doc.MainDocumentPart
-                    ?? throw new InvalidDataException($"Template '{templatePath}' has no main document part.");
-                EnsureDocumentPackage(doc, templatePath!);
+                try
+                {
+                    // callerPath: a templatePath that is not a .docx package must be reported by ITS name,
+                    // not the private build file's.
+                    using var doc = LayoutPackage.Open(tempPath, isEditable: true, callerPath: templatePath);
+                    _ = doc.MainDocumentPart
+                        ?? throw new InvalidDataException($"Template '{templatePath}' has no main document part.");
+                    EnsureDocumentPackage(doc, templatePath!);
 
-                (storeItemId, replacedExistingBcPart, quick) =
-                    AttachEverything(doc, datasetBytes, identity, headingText, scaffoldBlankDefaults: false);
+                    (storeItemId, replacedExistingBcPart, quick) =
+                        AttachEverything(doc, datasetBytes, identity, headingText, scaffoldBlankDefaults: false);
+                }
+                catch (System.Xml.XmlException ex)
+                {
+                    // The SDK parses the template's parts lazily, inside the attach sequence above; every XML
+                    // read there is the template's own (the dataset bytes already parsed cleanly when loaded),
+                    // so a malformed one is the template's damage, reported by templatePath - not by
+                    // create_layout's Guard path, which is schemaSource (GitHub issue #95).
+                    throw new InvalidInputFileException(
+                        templatePath!,
+                        InputFileProblem.MalformedPackagePart,
+                        $"templatePath '{templatePath}' contains an XML part that is not well-formed: {ex.Message}",
+                        ex);
+                }
             }
             else
             {
@@ -288,7 +310,7 @@ public static class LayoutBuilder
     /// to the caller's real output path), then runs <see cref="OpenXmlValidator"/> against it as a hard gate
     /// — <see cref="SdtFactory"/> and this type are both engineered to only ever emit/leave valid OOXML, so a
     /// structural error here would mean an internal bug; rather than write a broken file,
-    /// <see cref="LayoutBuilder.Create"/> throws <see cref="FileFormatException"/> and leaves the caller's
+    /// <see cref="LayoutBuilder.Create"/> throws <see cref="BuildSelfCheckFailedException"/> and leaves the caller's
     /// output path untouched (this path is not expected to be reachable in practice and is deliberately not
     /// force-tested — there is no honest way to trigger it from the public surface without fabricating an
     /// internal bug to order, mirroring <c>BcWordLayout.McpHost.Tools.ToolGuards.GuardEdit</c>'s own
@@ -336,7 +358,7 @@ public static class LayoutBuilder
         if (openXmlErrors.Count > 0)
         {
             var preview = string.Join(" | ", openXmlErrors.Take(5).Select(e => $"{e.Path?.XPath}: {e.Description}"));
-            throw new FileFormatException(
+            throw new BuildSelfCheckFailedException(
                 $"The layout LayoutBuilder.Create just built failed OpenXmlValidator with {openXmlErrors.Count} "
                 + "structural error(s); this indicates an internal bug (SdtFactory/LayoutBuilder are engineered "
                 + $"to only ever emit valid OOXML), so nothing was written. First error(s): {preview}");

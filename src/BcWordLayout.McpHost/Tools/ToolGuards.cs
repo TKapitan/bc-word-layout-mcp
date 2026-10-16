@@ -1,4 +1,5 @@
-﻿using BcWordLayout.Domain;
+﻿using System.Xml;
+using BcWordLayout.Domain;
 using BcWordLayout.Domain.Models;
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
@@ -178,7 +179,9 @@ internal static class ToolGuards
                     TResult mutateResult;
                     ValidationResult quick;
 
-                    using (var doc = LayoutPackage.Open(workingCopy, isEditable: true, autoSave: false))
+                    // callerPath: a layoutPath that is not a .docx package at all must be reported by ITS name,
+                    // not the private working copy's.
+                    using (var doc = LayoutPackage.Open(workingCopy, isEditable: true, autoSave: false, callerPath: layoutPath))
                     {
                         // Baseline BEFORE the edit: see the "does NOT reject" remark above.
                         var baselineErrors = new OpenXmlValidator(FileFormatVersions.Office2021).Validate(doc)
@@ -972,6 +975,18 @@ internal static class ToolGuards
     /// dataset part/wrong namespace" one, again keyed off the TYPE rather than any <c>ex.Message</c> text.
     /// </para>
     /// <para>
+    /// A caller file that is not the kind of file its parameter takes - not a <c>.docx</c> package at all, or
+    /// not well-formed XML (GitHub issue #95) - reaches <c>invalid_layout</c> through
+    /// <see cref="InvalidInputFileException"/>, which the throw site that knows the file wraps around the BCL's
+    /// <see cref="FileFormatException"/>/<see cref="XmlException"/>, so the hint can name that file and the
+    /// line/position. A bare <see cref="XmlException"/> is caught too, as the fallback for a damaged part the
+    /// SDK parses lazily (see that branch). <see cref="FileFormatException"/> itself is deliberately NOT
+    /// mapped: <see cref="LayoutBuilder"/>'s internal-bug gate has its own type now
+    /// (<see cref="BuildSelfCheckFailedException"/>), but a stray one from anywhere else is still not
+    /// evidence the caller's input was wrong. A <c>dataOverridesPath</c> file that cannot be used is an
+    /// <see cref="ArgumentException"/> for that parameter instead, so it reports <c>invalid_argument</c>.
+    /// </para>
+    /// <para>
     /// <c>file_locked</c> is produced three ways: (1) below, by catching
     /// <see cref="IOException"/> and checking <see cref="Exception.HResult"/> for a Windows sharing/lock
     /// violation (<c>ERROR_SHARING_VIOLATION</c> 0x80070020 / <c>ERROR_LOCK_VIOLATION</c> 0x80070021) - the
@@ -1072,6 +1087,33 @@ internal static class ToolGuards
                 + "it is likely malformed or a maliciously crafted file rather than a real Business Central "
                 + "layout/schema. This is not something to retry with the same file.");
         }
+        catch (InvalidInputFileException ex)
+        {
+            // A caller's layout/template/schema file that is not a .docx package or not well-formed XML
+            // (GitHub issue #95) - wrapped at the throw site that knows WHICH file it was reading, so the hint
+            // can name it (see the exception type's own remarks for why the BCL types are not mapped wholesale).
+            return ToolResponse.Failure(
+                "invalid_layout",
+                ex.Message,
+                InvalidInputFileHint(ex.Problem, ex.FilePath, ex.LineNumber, ex.LinePosition));
+        }
+        catch (XmlException ex)
+        {
+            // Fallback for the one XmlException source no throw site can wrap: the OpenXML SDK parses a
+            // package's parts LAZILY, at first access anywhere in a tool body, so a damaged part inside an
+            // otherwise valid .docx surfaces here. Every XML this codebase reads comes from a caller's file
+            // (dataset paths are evaluated as XPath, which throws XPathException, not this type), and every
+            // tool's lazily-parsed package is the file `path` names - an edit's or preview's private copy is
+            // a copy OF it, and create_layout's template is wrapped at its own source.
+            return ToolResponse.Failure(
+                "invalid_layout",
+                $"'{path}' contains an XML part that is not well-formed: {ex.Message}",
+                InvalidInputFileHint(
+                    InputFileProblem.MalformedPackagePart,
+                    path,
+                    ex.LineNumber > 0 ? ex.LineNumber : null,
+                    ex.LineNumber > 0 ? ex.LinePosition : null));
+        }
         catch (InvalidDataException ex)
         {
             return ToolResponse.Failure(
@@ -1143,11 +1185,53 @@ internal static class ToolGuards
     }
 
     /// <summary>
+    /// Builds the <c>invalid_layout</c> hint for a caller file that could not be read as what its parameter
+    /// takes (see <see cref="InputFileProblem"/>), naming <paramref name="filePath"/> and, for XML, the line
+    /// and position the reader stopped at. Keyed off the typed problem, never the exception's message text.
+    /// </summary>
+    /// <remarks>
+    /// The <see cref="InputFileProblem.NotAWordPackage"/> hint explains the <c>.docx</c>-versus-schema-<c>.xml</c>
+    /// split because that is the usual mistake behind it: every tool that takes either kind of file decides by
+    /// EXTENSION (a path ending in <c>.docx</c> is opened as a package, anything else is read as a schema
+    /// <c>.xml</c>), so a schema saved under a <c>.docx</c> name, or a layout under any other name, lands on
+    /// the wrong reader. The <see cref="InputFileProblem.MalformedXmlFile"/> hint states the reverse case.
+    /// </remarks>
+    private static string InvalidInputFileHint(InputFileProblem problem, string filePath, int? line, int? position)
+    {
+        var where = line is > 0 ? $" (line {line}, position {position})" : "";
+        return problem switch
+        {
+            InputFileProblem.NotAWordPackage =>
+                $"'{filePath}' is not a Word .docx package, or is too damaged to open. A .docx (or .dotx) is a "
+                + "zip container, so a schema .xml or a text file renamed to .docx, an empty (0-byte) file, or a "
+                + "truncated copy or download cannot be opened as one. Pass the real BC Word layout (saved by Word "
+                + "or exported from Business Central); if Word offers to repair this file, save the repaired copy "
+                + "and pass that. A standalone exported schema .xml is accepted only as create_layout's "
+                + "schemaSource, refresh_xml_part's newSchemaSource or list_dataset_fields' source, and only "
+                + "under its .xml extension: a path ending in .docx is always opened as a layout package.",
+
+            InputFileProblem.MalformedXmlFile =>
+                $"'{filePath}' is not well-formed XML{where}, so it cannot be read as a report dataset schema. "
+                + "Typical causes: a truncated copy, an encoding declaration that does not match the bytes (e.g. "
+                + "encoding=\"utf-16\" on a file saved as UTF-8), or a DOCTYPE/DTD, which is refused for "
+                + "security. Re-export the schema .xml from Business Central rather than editing it by hand. A "
+                + "path that does not end in .docx is always read as a schema .xml, so if this file is really a "
+                + ".docx layout, give it its .docx extension.",
+
+            _ =>
+                $"'{filePath}' opened as a Word package, but an XML part inside it is not well-formed{where}: the "
+                + "package is damaged (e.g. a part was hand-edited or truncated). Open it in Word - if Word "
+                + "repairs it, save the repaired copy and retry with that; otherwise restore the file from "
+                + "source control.",
+        };
+    }
+
+    /// <summary>
     /// Builds an <c>invalid_argument</c> hint tailored to the specific argument that failed, keyed off
     /// <see cref="ArgumentException.ParamName"/> (populated via <c>nameof(...)</c> at every throw site across
     /// this tool surface - <c>ToolGuards</c>/the tool-family classes themselves, <c>SdtFactory</c>,
     /// <c>LayoutEditor</c>, <c>Location.Validate</c>, <c>LocationResolver</c>, <c>TableStructureEditor</c>,
-    /// <c>CellTextEditor</c>, <c>LayoutBuilder</c>, and <c>LayoutRefresher</c>): names that argument's valid
+    /// <c>CellTextEditor</c>, <c>LayoutBuilder</c>, <c>LayoutRefresher</c>, and <c>SampleDataGenerator</c>): names that argument's valid
     /// values/shape and, where useful, the inspection tool that reports them, rather than one generic
     /// sentence for every <c>invalid_argument</c> failure regardless of which argument actually caused it.
     /// Falls back to a hint covering every possibility when <paramref name="paramName"/> is null (not every
@@ -1339,6 +1423,14 @@ internal static class ToolGuards
         "outputpath" =>
             "The output path must be a non-empty absolute path (create_layout's outputPath is where the new "
             + "layout .docx is written); see the message above for exactly what was rejected about it.",
+
+        "dataoverridespath" =>
+            "preview_layout's dataOverridesPath must be a well-formed XML file in one of the two shapes Business "
+            + "Central produces for THIS layout's report: the layout's own data-store part (root "
+            + "'NavWordReportXmlPart' in the 'urn:microsoft-dynamics-nav/reports/<ReportName>/<id>/' namespace "
+            + "get_layout_info reports), or the report's Send to > XML export (root 'ReportDataSet', whose id "
+            + "must be this layout's report id). See the message above for the file and what was rejected; "
+            + "omit dataOverridesPath to preview with generated sample data instead.",
 
         _ =>
             "Check the argument named in the message above against this tool's own parameter descriptions: "

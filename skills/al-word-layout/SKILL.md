@@ -85,7 +85,7 @@ never throws.
 
 | Tool | Key params (defaults) | Returns | Reach for it when… |
 |---|---|---|---|
-| `preview_layout` | `layoutPath`, `rows`=`3`, `seed`=`12345`, `converter`=`"auto"` (prefers Word, falls back to LibreOffice; or force `"word"`/`"libreoffice"`), `dataOverridesPath`=`null`, `outputDir`=`null` | `mergedDocxPath`, `pdfPath` (`null` if conversion failed), `converterUsed`, `converterAvailable`, `conversionOk`, `conversionError`, `stats` (`fieldsFilled`, `repeatersExpanded`, `rowsGenerated`, `unresolved`, `picturesFilled`), `warnings[]`, `quickValidation`, and a fixed mock-render `disclaimer` string. | Visual/structural sanity check after an edit. Pass `dataOverridesPath` (a real exported BC dataset — the report UI's *Send to → XML* export works as-is, `decimalformatter` columns included) instead of generated sample data for a realistic look. `rows` is capped per repeater by an internal safeguard (default cap 100) — a larger value is reported via a row-cap warning, never silently dropped or blown out. |
+| `preview_layout` | `layoutPath`, `rows`=`3`, `seed`=`12345`, `converter`=`"auto"` (prefers Word, falls back to LibreOffice; or force `"word"`/`"libreoffice"`), `dataOverridesPath`=`null`, `outputDir`=`null` | `mergedDocxPath`, `pdfPath` (`null` if conversion failed), `converterUsed`, `converterAvailable`, `conversionOk`, `conversionError`, `stats` (`fieldsFilled`, `repeatersExpanded`, `rowsGenerated`, `unresolved`, `picturesFilled`), `warnings[]`, `quickValidation`, and a fixed mock-render `disclaimer` string. | Visual/structural sanity check after an edit. Pass `dataOverridesPath` (a real exported BC dataset — the report UI's *Send to → XML* export works as-is, `decimalformatter` columns included) instead of generated sample data for a realistic look; a file that is not well-formed XML, not one of the two shapes, or exported from a different report is refused with `invalid_argument`. `rows` is capped per repeater by an internal safeguard (default cap 100) — a larger value is reported via a row-cap warning, never silently dropped or blown out. |
 | `render_preview_pages` | `pdfPath` (the `pdfPath` a `preview_layout` call returned), `firstPage`=`1` (1-based), `maxPages`=`3` (hard cap 10 per call), `dpi`=`120` (clamped 36–300; each page is also capped at 5000 px a side and 20 MP — a larger page comes out smaller, flagged `pages[].downscaled`), `outputDir`=`null` (also WRITE each page as `<pdf-basename>-pageNN.png` there; paths returned on `pages[].path`, directory created if missing, its lifetime is yours), `inlineImages`=`true` (`false` + `outputDir` writes the files without spending tokens on the images; `false` without `outputDir` is refused) | The uniform JSON envelope as the result's FIRST text content block (including a `truncated` flag when the PDF has more pages than were returned), followed by one MCP **image content block** (PNG) per rendered page. | Looking at your own work: render the preview PDF's pages inline so you can visually inspect layout/structure without any external viewer. Page onward through a long document via `firstPage`. **When a human asks to see the render**, pass `outputDir` — the inline blocks are visible to you only, so a file on disk is the only thing they can open. |
 
 ### Edit (mutating — body by default; write is validated before save, atomic, all-or-nothing)
@@ -269,8 +269,13 @@ Every tool returns the same envelope and never throws across the MCP boundary:
 ```
 
 - `ok:false` always comes with a populated `error`. `code` is one of `file_not_found`,
-  `invalid_layout`, `invalid_argument`, `not_found`, `edit_would_corrupt` (a mutating-tool
-  structural-safety rejection — the file is left untouched), `edit_would_break_table` (the
+  `invalid_layout` (a layout, template or schema file you passed is not usable as one: not a `.docx`
+  package at all — e.g. a schema `.xml` saved under a `.docx` name, or an empty or truncated file —
+  not well-formed XML, a damaged package part, or no BC dataset part; the hint names the file and,
+  for XML, the line and position), `invalid_argument` (including a `dataOverridesPath` file that is
+  not one of the two dataset shapes BC produces for this report), `not_found`,
+  `edit_would_corrupt` (a mutating-tool structural-safety rejection — the file is left untouched),
+  `edit_would_break_table` (the
   table-structure tools' grid-consistency rejection — a corruption class the OpenXML validator
   accepts silently; file untouched), `file_locked` (the file the call reads or must replace is busy
   or not writable: open in Word or another program, read-only — e.g. a TFVC/Perforce file that is

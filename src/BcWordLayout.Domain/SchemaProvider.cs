@@ -47,6 +47,12 @@ public static class SchemaProvider
     }
 
     /// <summary>Parses the dataset from a standalone exported schema XML file (no OPC package).</summary>
+    /// <exception cref="InvalidInputFileException">
+    /// The file is not well-formed XML (truncated, an encoding declaration that does not match its bytes, a
+    /// DTD, or not XML at all, e.g. a <c>.docx</c> under another extension). The reader's own
+    /// <see cref="System.Xml.XmlException"/> names neither the file nor that it is the caller's input, and
+    /// used to reach the caller as <c>internal_error</c> (GitHub issue #95).
+    /// </exception>
     public static DatasetTree FromSchemaXml(string xmlPath)
     {
         if (!File.Exists(xmlPath))
@@ -57,8 +63,23 @@ public static class SchemaProvider
         // ResourceLimits.LoadXDocumentCapped reads the encoding declaration (incl. UTF-16 LE + BOM) from the
         // stream itself, same as a bare XDocument.Load(stream) would - it just also enforces the size
         // cap via a length-limiting wrapper before handing the stream to the XmlReader.
-        using var stream = File.OpenRead(xmlPath);
-        var xdoc = ResourceLimits.LoadXDocumentCapped(stream, $"Schema XML file '{xmlPath}'");
+        XDocument xdoc;
+        using (var stream = File.OpenRead(xmlPath))
+        {
+            try
+            {
+                xdoc = ResourceLimits.LoadXDocumentCapped(stream, $"Schema XML file '{xmlPath}'");
+            }
+            catch (System.Xml.XmlException ex)
+            {
+                throw new InvalidInputFileException(
+                    xmlPath,
+                    InputFileProblem.MalformedXmlFile,
+                    $"Schema XML file '{xmlPath}' is not well-formed XML: {ex.Message}",
+                    ex);
+            }
+        }
+
         var root = xdoc.Root
             ?? throw new InvalidDataException("Schema XML has no root element.");
 
