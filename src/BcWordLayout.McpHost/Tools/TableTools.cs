@@ -412,10 +412,18 @@ public static class TableTools
                  + "'label' bind the data cell via dataPath (a full dataset path exactly like insert_field/"
                  + "insert_label, e.g. '/Header/Line/Discount_Line' - it may bind a column of the repeater's "
                  + "data item OR a parent/Header field); 'plainText' adds an unbound column (headerText plus "
-                 + "empty cells). The bound control is placed in the repeater's DATA row (or, in a table with "
-                 + "no repeater, in every non-header row); header rows (w:tblHeader) get a header cell (bind "
-                 + "headerLabelPath, else headerText, else a humanized column name); all other rows get an "
-                 + "empty cell. One w:gridCol is added; width defaults to the mean of the existing columns. "
+                 + "empty cells). In a line-items table the bound control goes ONLY into the rows of the "
+                 + "repeater whose data item contains dataPath (a /Header/Line field into the Line row, never "
+                 + "into a ReportTotalsLine row of the same table, which is treated like any other non-content "
+                 + "row); a parent/Header field is accepted only when the table has a single repeater, and a "
+                 + "dataPath matching none of the table's repeaters is refused. In a table with no repeater it "
+                 + "goes into every non-header row. Header rows get a header cell (bind headerLabelPath, else "
+                 + "headerText, else a humanized column name): rows marked w:tblHeader, else the first row of "
+                 + "a line-items table, else - in a plain table - its caption rows (rows whose bound controls "
+                 + "are all labels, the BC caption-over-value shape). headerText/headerLabelPath on a table "
+                 + "with no header row are refused rather than dropped, and headerLabelPath is checked against "
+                 + "the dataset in every mode. All other rows get an empty cell. One w:gridCol is added; "
+                 + "width defaults to the mean of the existing columns. "
                  + "REJECTED for tables using w:vMerge (w:gridBefore/w:gridAfter rows are supported). Same write/validate/"
                  + "save-or-reject safety as insert_field, plus the grid-consistency backstop.")]
     public static ToolResponse InsertColumn(
@@ -427,7 +435,8 @@ public static class TableTools
                      + "'/Header/Line/Discount_Line'), exactly as insert_field/insert_label take. Ignored for "
                      + "'plainText'.")] string? dataPath = null,
         [Description("Optional header-cell text (used as the header in header rows; the only text for "
-                     + "'plainText'). Omit to humanize the dataPath leaf name.")] string? headerText = null,
+                     + "'plainText'). Omit to humanize the dataPath leaf name. Refused for a table with no "
+                     + "header row (see this tool's description).")] string? headerText = null,
         [Description("Optional: bind the header cell to this label-column dataset path (by default a "
                      + "'*Lbl'/'*_Lbl' path - see list_dataset_fields's isLabel flag) instead of static text.")]
         string? headerLabelPath = null,

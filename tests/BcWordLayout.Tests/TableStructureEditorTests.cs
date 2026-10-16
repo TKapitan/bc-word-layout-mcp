@@ -39,6 +39,16 @@ public class TableStructureEditorTests
     private static List<string> GridWidths(Table t) =>
         t.GetFirstChild<TableGrid>()!.Elements<GridColumn>().Select(g => g.Width!.Value!).ToList();
 
+    /// <summary>The binding xpaths of every control inside <paramref name="table"/>'s repeater(s) over the data item named <paramref name="dataItem"/>.</summary>
+    internal static List<string> BoundXPathsInRepeater(Table table, string dataItem) =>
+        table.Elements<SdtRow>()
+            .Where(r => SdtInspector.IsRepeater(r)
+                && BindingXPath.LeafName(SdtInspector.Attr(SdtInspector.FindRepeaterBinding(r.SdtProperties!)!, "xpath", OoxmlNames.W)) == dataItem)
+            .SelectMany(r => r.Descendants<SdtElement>())
+            .Select(SdtInspector.ReadXPath)
+            .OfType<string>()
+            .ToList();
+
     // ---- the guard does not false-flag real tables ----
 
     [Theory]
@@ -193,13 +203,12 @@ public class TableStructureEditorTests
     // ---- insert_column ----
 
     [Fact]
-    public void InsertColumn_append_field_on_corpus_line_table_adds_grid_column_and_bound_fields_to_every_repeater_row()
+    public void InsertColumn_append_field_on_corpus_line_table_binds_the_field_only_into_its_own_repeaters_row()
     {
         // The real SalesInvoice Line table (index 2) carries TWO row-level repeaters sharing the same
-        // physical w:tbl - the Line item row itself AND the ReportTotalsLine row a few rows below it (both
-        // are "control rows" per TableGridNavigator). insert_column's per-row rule binds the new field to
-        // EVERY control row, not just one, so the grid stays consistent across both repeaters: 2 new bound
-        // cells, not 1.
+        // physical w:tbl - the Line item row itself AND the ReportTotalsLine row a few rows below it. A
+        // /Header/Line field belongs in the Line row only (GitHub issue #82): the ReportTotalsLine row is a
+        // filler row like any other, so exactly ONE new bound cell, and none inside the totals repeater.
         var path = CopyOfCorpus(Corpus.SalesInvoice);
         try
         {
@@ -224,7 +233,8 @@ public class TableStructureEditorTests
 
             using var reopened = WordprocessingDocument.Open(path, false);
             Assert.Equal(LineGridColumns + 1, BodyTable(reopened, LineTableIndex).GetFirstChild<TableGrid>()!.Elements<GridColumn>().Count());
-            Assert.Equal(fieldsBefore + 2, LayoutReader.Read(reopened).Controls.Count(c => c.XPath == TaxAmountXPath));
+            Assert.Equal(fieldsBefore + 1, LayoutReader.Read(reopened).Controls.Count(c => c.XPath == TaxAmountXPath));
+            Assert.DoesNotContain(TaxAmountXPath, BoundXPathsInRepeater(BodyTable(reopened, LineTableIndex), "ReportTotalsLine"));
             Assert.Empty(TableGridConsistencyGuard.Find(reopened));
             Assert.Empty(OpenXmlErrors(reopened));
         }
@@ -240,8 +250,8 @@ public class TableStructureEditorTests
     public void InsertColumn_at_an_interior_boundary_inserts_the_new_cell_in_position_in_every_row()
     {
         // Grid column 3 is a cell boundary in every row of the corpus Line table (its spanned cells all sit
-        // further right), so the new column slots straight in — the bound field lands in the repeater data
-        // rows, and every row's coverage still matches the grid.
+        // further right), so the new column slots straight in — the bound field lands in the Line repeater's
+        // row, and every row's coverage still matches the grid.
         var path = CopyOfCorpus(Corpus.SalesInvoice);
         try
         {
@@ -280,7 +290,7 @@ public class TableStructureEditorTests
             Assert.Equal(widthsBefore.Take(3), widthsAfter.Take(3));
             Assert.Equal(widthsBefore.Skip(3), widthsAfter.Skip(4));
 
-            Assert.Equal(fieldsBefore + 2, LayoutReader.Read(reopened).Controls.Count(c => c.XPath == TaxAmountXPath));
+            Assert.Equal(fieldsBefore + 1, LayoutReader.Read(reopened).Controls.Count(c => c.XPath == TaxAmountXPath));
             Assert.Empty(TableGridConsistencyGuard.Find(reopened));
             Assert.Empty(OpenXmlErrors(reopened));
         }
@@ -418,7 +428,7 @@ public class TableStructureEditorTests
             {
                 var result = TableStructureEditor.InsertColumn(
                     doc, LayoutPart.Body, null, 0, atColumn: null,
-                    new InsertColumnOptions { Mode = InsertColumnMode.PlainText, HeaderText = "Notes" });
+                    new InsertColumnOptions { Mode = InsertColumnMode.PlainText });
                 Assert.Equal(4, result.ColumnCountAfter);
                 doc.MainDocumentPart!.Document!.Save();
             }
@@ -427,8 +437,9 @@ public class TableStructureEditorTests
             var table = BodyTable(reopened, 0);
             Assert.Equal(4, table.GetFirstChild<TableGrid>()!.Elements<GridColumn>().Count());
             Assert.All(table.Elements<TableRow>(), r => Assert.Equal(4, r.Elements<TableCell>().Count()));
-            // Row 0 (no tblHeader, no repeater) is treated as the header only for repeater tables; for a plain
-            // table the header text lands only where a header row exists — here none, so "Notes" is not forced.
+            // No tblHeader, no repeater and no caption (label-bound) row: this table has no header row, which
+            // is why a headerText for it is refused (InsertColumn_header_text_on_a_table_with_no_header_row_
+            // is_refused) rather than silently dropped.
             Assert.Empty(TableGridConsistencyGuard.Find(reopened));
             Assert.Empty(OpenXmlErrors(reopened));
         }
@@ -1005,12 +1016,13 @@ public class TableStructureEditorTests
         {
             using (var doc = WordprocessingDocument.Open(path, true))
             {
-                // This table has no repeater and no w:tblHeader, so in plainText mode NO row is classified as
-                // receiving content (see InsertColumn's per-row plan) - every row here is a filler, which is
-                // exactly the case this test wants: the skipped-run rule applies unconditionally.
+                // This table has no repeater, no w:tblHeader and no caption row, so in plainText mode NO row is
+                // classified as receiving content (see InsertColumn's per-row plan) - every row here is a
+                // filler, which is exactly the case this test wants: the skipped-run rule applies
+                // unconditionally.
                 TableStructureEditor.InsertColumn(
                     doc, LayoutPart.Body, null, 0, null,
-                    new InsertColumnOptions { Mode = InsertColumnMode.PlainText, HeaderText = "New" });
+                    new InsertColumnOptions { Mode = InsertColumnMode.PlainText });
                 doc.MainDocumentPart!.Document!.Save();
             }
 

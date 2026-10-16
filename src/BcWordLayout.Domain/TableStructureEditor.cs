@@ -285,9 +285,10 @@ public static class TableStructureEditor
     /// <summary>
     /// Inserts ONE new grid column into the <paramref name="tableIndex"/>-th table at grid position
     /// <paramref name="atColumn"/> (the far-right edge when omitted): one new <c>w:gridCol</c> plus one new
-    /// cell per row — a header cell in a header row (<c>w:tblHeader</c>), the bound control cell in the
-    /// repeater data row (or, in a table with no repeater, in every non-header row), and an empty cell
-    /// everywhere else.
+    /// cell per row — a header cell in a header row, the bound control cell in the data rows (the rows of the
+    /// repeater <see cref="InsertColumnOptions.DataPath"/> belongs to, or, in a table with no repeater, every
+    /// non-header row), and an empty cell everywhere else. See <see cref="PlanInsertColumnRows"/> for which
+    /// rows are which.
     /// </summary>
     /// <remarks>
     /// SPANNED CELLS AT AN INTERIOR POSITION. Real BC tables are pervasively <c>gridSpan</c>-spanned, so an
@@ -306,9 +307,10 @@ public static class TableStructureEditor
     /// <exception cref="ArgumentException">
     /// <paramref name="atColumn"/> is out of range; an interior <paramref name="atColumn"/> falls inside a
     /// spanned cell of a row that must receive content (see remarks); <paramref name="options"/> is
-    /// inconsistent (e.g. Field/Label without a DataPath); the table uses vMerge; or
-    /// (propagated from <see cref="SdtFactory"/>) DataPath does not resolve to a leaf column of the right
-    /// label-shape.
+    /// inconsistent (e.g. Field/Label without a DataPath); DataPath belongs to none of the table's repeaters,
+    /// or the table has no row to bind it into; a header argument is passed for a table with no header row;
+    /// the table uses vMerge; or (propagated from <see cref="SdtFactory"/>) DataPath or HeaderLabelPath does
+    /// not resolve to a leaf column of the right label-shape.
     /// </exception>
     public static TableEditResult InsertColumn(
         WordprocessingDocument doc, LayoutPart part, string? partName, int tableIndex, int? atColumn, InsertColumnOptions options)
@@ -340,32 +342,17 @@ public static class TableStructureEditor
         }
 
         var width = options.Width ?? MeanGridWidth(table);
-        var schema = mode == InsertColumnMode.PlainText ? null : SchemaProvider.FromLayout(doc);
+
+        // The schema is needed for a bound data cell AND for a bound header label - plainText mode with a
+        // headerLabelPath used to skip loading it, which silently turned the label into static text and
+        // never checked the path at all (GitHub issue #82).
+        var schema = mode != InsertColumnMode.PlainText || options.HeaderLabelPath is not null
+            ? SchemaProvider.FromLayout(doc)
+            : null;
+        ValidateInsertColumnPaths(schema, options);
+
         var nextId = LayoutEditor.MakeIdGenerator(doc);
-        var rowSlots = TableGridNavigator.Rows(table);
-        var hasRepeater = rowSlots.Any(r => r.IsControlRow && r.InnerRow is not null);
-        var anyTblHeader = rowSlots.Any(r => HasTblHeader(r.InnerRow));
-
-        // Per-row target (see the class remarks / plan §3.2). Header cell → header rows; the bound data cell
-        // → the repeater's data row (in a repeater table) or every non-header row (in a plain table); empty
-        // cell → everything else. Real BC line tables carry no w:tblHeader (corpus-verified), so when none is
-        // marked, the first non-control row of a repeater table is treated as the header.
-        var plans = new List<RowInsertPlan>(rowSlots.Count);
-        for (var idx = 0; idx < rowSlots.Count; idx++)
-        {
-            var row = rowSlots[idx];
-            if (row.InnerRow is null)
-            {
-                continue;
-            }
-
-            var isHeaderRow = HasTblHeader(row.InnerRow)
-                || (hasRepeater && !anyTblHeader && idx == 0 && !row.IsControlRow);
-            var isDataRow = row.IsControlRow || (!hasRepeater && !isHeaderRow);
-            var receivesContent = isHeaderRow || (isDataRow && mode != InsertColumnMode.PlainText);
-
-            plans.Add(new RowInsertPlan(idx, row.InnerRow, isHeaderRow, isDataRow, receivesContent));
-        }
+        var plans = PlanInsertColumnRows(table, tableIndex, options);
 
         // Refuse BEFORE mutating anything: an interior position that falls inside a spanned cell of a row
         // that must carry the new column's content has no honest answer (see this method's remarks).
@@ -502,6 +489,228 @@ public static class TableStructureEditor
     /// <summary>One row's role in an <see cref="InsertColumn"/> call, decided once and reused by the pre-flight check and the edit itself.</summary>
     private readonly record struct RowInsertPlan(
         int RowIndex, TableRow Row, bool IsHeaderRow, bool IsDataRow, bool ReceivesContent);
+
+    /// <summary>
+    /// Checks every dataset path an <see cref="InsertColumn"/> call will bind BEFORE any row is touched:
+    /// <see cref="InsertColumnOptions.DataPath"/> in field/label mode, and
+    /// <see cref="InsertColumnOptions.HeaderLabelPath"/> in EVERY mode. Building the control is the
+    /// validation (<see cref="SdtFactory"/> owns the leaf-column and label-shape rules); the throwaway id
+    /// keeps the document's id generator untouched.
+    /// </summary>
+    /// <remarks>
+    /// Up front rather than where the controls are built so that a bad path is reported as itself, not as a
+    /// side effect of row planning (a misspelled dataPath would otherwise surface as "no repeater of this
+    /// table contains it"), and so that a headerLabelPath is checked even on a table that turns out to have
+    /// no header row. A headerLabelPath failure is re-raised under its own argument name: the caller has two
+    /// paths in one call and must be told which one to fix.
+    /// </remarks>
+    private static void ValidateInsertColumnPaths(DatasetTree? schema, InsertColumnOptions options)
+    {
+        if (schema is null)
+        {
+            return;
+        }
+
+        switch (options.Mode)
+        {
+            case InsertColumnMode.Field:
+                _ = SdtFactory.BuildField(schema, options.DataPath!, id: 0);
+                break;
+            case InsertColumnMode.Label:
+                _ = SdtFactory.BuildLabel(schema, options.DataPath!, id: 0);
+                break;
+        }
+
+        if (options.HeaderLabelPath is { } headerLabelPath)
+        {
+            try
+            {
+                _ = SdtFactory.BuildLabel(schema, headerLabelPath, id: 0);
+            }
+            catch (ArgumentException ex) when (ex.ParamName == "datasetPath")
+            {
+                throw new ArgumentException($"headerLabelPath: {ex.Message}", "headerLabelPath", ex);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Decides each row's role for <see cref="InsertColumn"/>: header cell, bound data cell, or filler (an
+    /// empty cell, or no cell at all where the totals-block / straddle / skipped-run rules apply).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// HEADER ROWS. Rows marked <c>w:tblHeader</c> when the table has any; otherwise, in a table with a
+    /// repeater, its first row when that row is not a repeater row (BC line tables mostly carry no
+    /// <c>w:tblHeader</c> — StandardSalesQuote's is the exception — and always start with the caption row).
+    /// A PLAIN table has no such convention to lean on: its header rows are its CAPTION rows — rows whose
+    /// bound controls are all labels — which is how every caption-over-value block in the corpus is built
+    /// (StandardSalesQuote's "Your Reference / Valid To / ..." table, the purchase order's two stacked
+    /// blocks, the footers' bank-detail pairs). "Row 0 is the header" was the alternative, and the corpus
+    /// rules it out: row 0 of the address blocks and the caption-beside-value tables is a FIELD row, so it
+    /// would have put a caption above a customer address. A stacked second caption row gets the header too,
+    /// so each block keeps a caption over its value.
+    /// </para>
+    /// <para>
+    /// DATA ROWS. In a repeater table, ONLY the rows of the repeater the data path belongs to (see
+    /// <see cref="ResolveDataRepeater"/>): the stock 1304/1306 lines tables also hold the
+    /// <c>/Header/ReportTotalsLine</c> repeater, which used to receive the <c>/Header/Line</c> field as
+    /// well — rendering Line 1's value beside every totals line, and skipping the totals-block widening that
+    /// keeps those amounts on the right edge (issue #82). Every other repeater's rows are filler now, so
+    /// that rule applies to them. In a plain table, every row that is not a header row, as before.
+    /// </para>
+    /// <para>
+    /// UNUSABLE ARGUMENTS ARE REFUSED, not dropped: an explicit headerText/headerLabelPath on a table with no
+    /// header row (it used to vanish, returning <c>ok:true</c>), and field/label mode on a table with no row
+    /// to hold the field.
+    /// </para>
+    /// <para>
+    /// Only the FIRST <c>w:tr</c> of a repeater's item is visible here (<see cref="TableGridNavigator"/>
+    /// resolves a row-level control to one inner row; GitHub issue #80), so a multi-row item's later rows are
+    /// not planned at all — unchanged by this method.
+    /// </para>
+    /// </remarks>
+    private static List<RowInsertPlan> PlanInsertColumnRows(Table table, int tableIndex, InsertColumnOptions options)
+    {
+        var mode = options.Mode;
+        var rowSlots = TableGridNavigator.Rows(table);
+        var repeaterPaths = rowSlots.Select(r => r.InnerRow is null ? null : RepeaterDataItemPath(r)).ToList();
+        var hasRepeater = repeaterPaths.Any(p => p is not null);
+        var anyTblHeader = rowSlots.Any(r => HasTblHeader(r.InnerRow));
+        var dataRepeater = hasRepeater && mode != InsertColumnMode.PlainText
+            ? ResolveDataRepeater(repeaterPaths, options.DataPath!, tableIndex)
+            : null;
+
+        var plans = new List<RowInsertPlan>(rowSlots.Count);
+        for (var idx = 0; idx < rowSlots.Count; idx++)
+        {
+            if (rowSlots[idx].InnerRow is not { } innerRow)
+            {
+                continue;
+            }
+
+            var isHeaderRow = anyTblHeader
+                ? HasTblHeader(innerRow)
+                : hasRepeater
+                    ? idx == 0 && repeaterPaths[idx] is null
+                    : IsCaptionRow(innerRow);
+            var isDataRow = !isHeaderRow
+                && (hasRepeater
+                    ? dataRepeater is not null && string.Equals(repeaterPaths[idx], dataRepeater, StringComparison.Ordinal)
+                    : mode != InsertColumnMode.PlainText);
+            var receivesContent = isHeaderRow || (isDataRow && mode != InsertColumnMode.PlainText);
+
+            plans.Add(new RowInsertPlan(idx, innerRow, isHeaderRow, isDataRow, receivesContent));
+        }
+
+        if ((options.HeaderText is not null || options.HeaderLabelPath is not null) && !plans.Any(p => p.IsHeaderRow))
+        {
+            var argument = options.HeaderLabelPath is not null ? "headerLabelPath" : "headerText";
+            throw new ArgumentException(
+                $"Table {tableIndex} has no header row to put {argument} in: no row is marked w:tblHeader, "
+                + (hasRepeater
+                    ? "and its first row is a repeater row"
+                    : "and no row is a caption row (one whose bound controls are all labels)")
+                + $". Omit {argument}, or add the caption after the insert with set_cell_text/insert_label at "
+                + "the cell you mean.",
+                argument);
+        }
+
+        if (mode != InsertColumnMode.PlainText && !plans.Any(p => p.IsDataRow))
+        {
+            throw new ArgumentException(
+                $"Table {tableIndex} has no row to bind '{options.DataPath}' into: every row is a header "
+                + "(caption) row. Add the column in plainText mode and bind the cell you want with "
+                + "insert_field/insert_label.",
+                "dataPath");
+        }
+
+        return plans;
+    }
+
+    /// <summary>
+    /// The repeater whose rows receive a field/label column bound to <paramref name="dataPath"/>: the
+    /// table repeater whose data item is the NEAREST ancestor of the path's own data item (for
+    /// <c>/Header/Line/ItemReferenceNo_Line</c> in a table repeating <c>/Header/Line</c> and
+    /// <c>/Header/ReportTotalsLine</c>, that is <c>/Header/Line</c>; with nested repeaters, the deepest one
+    /// that still contains the path).
+    /// </summary>
+    /// <remarks>
+    /// A path OUTSIDE every repeater of the table (a parent/Header field shown on each line, which the tool
+    /// contract allows) has no nearest repeater. It is placed only when the table repeats a single data
+    /// item nested under the path's own — then there is one candidate row and no choice to make. With two
+    /// or more (the stock lines tables' Line + ReportTotalsLine), or when the path is unrelated to every
+    /// repeater, the call is refused naming the table's repeaters rather than guessing (ADR-0003).
+    /// </remarks>
+    private static string ResolveDataRepeater(IReadOnlyList<string?> repeaterPaths, string dataPath, int tableIndex)
+    {
+        var pathSegments = dataPath.Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var dataItem = "/" + string.Join("/", pathSegments.Take(pathSegments.Length - 1));
+        var repeaters = repeaterPaths.OfType<string>().Distinct(StringComparer.Ordinal).ToList();
+
+        var enclosing = repeaters
+            .Where(r => IsSameOrDescendant(dataItem, r))
+            .OrderByDescending(r => r.Length)
+            .FirstOrDefault();
+        if (enclosing is not null)
+        {
+            return enclosing;
+        }
+
+        if (repeaters.Count == 1 && IsSameOrDescendant(repeaters[0], dataItem))
+        {
+            return repeaters[0];
+        }
+
+        throw new ArgumentException(
+            $"dataPath '{dataPath}' does not belong to a repeater of table {tableIndex}, which repeats "
+            + string.Join(", ", repeaters.Select(r => $"'{r}'"))
+            + ". insert_column binds the field only into the rows of the repeater whose data item contains "
+            + "dataPath (a parent data item's field only when the table has a single repeater under it, so "
+            + "the target row is unambiguous). Pick a column of one of those data items, or bind a specific "
+            + "cell with insert_field (locationType 'tableCell').",
+            nameof(dataPath));
+
+        static bool IsSameOrDescendant(string path, string ancestor) =>
+            string.Equals(path, ancestor, StringComparison.Ordinal)
+            || path.StartsWith(ancestor + "/", StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The dataset path (<c>/Header/Line</c>) of the data item a row repeats over: the binding of the
+    /// INNERMOST repeating section in the row's wrapper chain (the one closest to the <c>w:tr</c>, i.e. the
+    /// item the row is cloned for). Null for a bare row, and for a row-level control that is not a
+    /// repeater (or carries no binding) — such a row is planned like any other plain row.
+    /// </summary>
+    private static string? RepeaterDataItemPath(TableGridNavigator.RowSlot row)
+    {
+        for (var i = row.Wrappers.Count - 1; i >= 0; i--)
+        {
+            var wrapper = row.Wrappers[i];
+            if (!SdtInspector.IsRepeater(wrapper))
+            {
+                continue;
+            }
+
+            var binding = wrapper.GetFirstChild<SdtProperties>() is { } pr ? SdtInspector.FindRepeaterBinding(pr) : null;
+            var segments = BindingXPath.Segments(binding is null ? null : SdtInspector.Attr(binding, "xpath", OoxmlNames.W));
+            return segments.Count <= 1 ? null : "/" + string.Join("/", segments.Skip(1));
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// True for a plain table's CAPTION row: it holds at least one bound label control and no other bound
+    /// control (field, picture, repeater). Literal text does not count — a hand-typed row is
+    /// indistinguishable from a row of values, and BC's own captions are label-bound.
+    /// </summary>
+    private static bool IsCaptionRow(TableRow innerRow)
+    {
+        var kinds = innerRow.Descendants<SdtElement>().Select(SdtInspector.ClassifyControlKind).ToList();
+        return kinds.Contains(ControlKind.Label)
+            && !kinds.Any(k => k is ControlKind.Field or ControlKind.Picture or ControlKind.Repeater);
+    }
 
     /// <summary>
     /// Where a new cell covering grid column <paramref name="target"/> goes in one row:

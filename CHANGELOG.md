@@ -89,6 +89,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   table none of whose rows matches its `w:tblGrid`; it used to drop a grid column there and report
   "updating 0 row(s)".
 
+- **`insert_column` binds the new field only into the rows it belongs to** (GitHub issue #82).
+  - **Repeater tables:** on the stock quote/invoice lines tables, a `/Header/Line/...` field was
+    also bound into the same table's `/Header/ReportTotalsLine` rows. Line 1's value showed beside
+    every totals line, and the right-anchored totals shifted. The field now goes only into the rows
+    of the repeater whose data item contains `dataPath`, and the other repeaters' rows keep their
+    totals layout. A `dataPath` that belongs to none of the table's repeaters is refused.
+  - **Plain tables:** the header cell now goes into the caption rows (rows of label controls, the
+    BC caption-over-value shape), and the field only into the value rows. `headerText` or
+    `headerLabelPath` on a table with no header row is refused instead of silently dropped.
+  - **Validation:** `headerLabelPath` is now checked against the dataset in every mode, including
+    `plainText`.
+
 ### Security
 
 - **A crafted layout can no longer kill the server through the OpenXml SDK's own parse** (GitHub

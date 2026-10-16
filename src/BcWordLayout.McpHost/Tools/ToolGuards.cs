@@ -1216,7 +1216,18 @@ internal static class ToolGuards
             "insert_column's dataPath must be a full dataset path exactly as list_dataset_fields reports (e.g. "
             + "'/Header/Line/Discount_Line'); mode='label' additionally requires a label-shaped leaf name per "
             + $"the active label convention ({LabelConvention.Current.Describe()}), mode='field' requires the "
-            + "reverse.",
+            + "reverse. In a line-items table the field is bound only into the rows of the repeater whose data "
+            + "item contains dataPath (get_layout_info's controls[] show each repeater's xpath), so it must be "
+            + "a column of one of the table's repeated data items - or of a parent item when the table has a "
+            + "single repeater.",
+
+        "headertext" or "headerlabelpath" =>
+            "insert_column's headerText/headerLabelPath fill the new column's cell in the table's HEADER "
+            + "row(s): rows marked w:tblHeader, else the first (non-repeater) row of a line-items table, else - "
+            + "in a plain table - its caption rows (rows whose bound controls are all labels). A table with "
+            + "none has nowhere to put them: omit them and add the caption afterwards with set_cell_text or "
+            + "insert_label at the cell you mean. headerLabelPath must also be a label-shaped column exactly as "
+            + "list_dataset_fields reports it (isLabel=true).",
 
         "keeptext" =>
             "remove_control's keepText=true cannot target a repeating-section control (it would orphan its "
