@@ -601,7 +601,7 @@ public static class TableTools
     // repeater-table author tool above) ----
 
     /// <summary>Splits a comma-separated, agent-supplied list, trimming whitespace and dropping empty entries.</summary>
-    private static string[] SplitCommaList(string value) =>
+    private static string[] SplitCommaList(string? value) =>
         (value ?? string.Empty).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
     /// <summary>
@@ -648,9 +648,10 @@ public static class TableTools
     /// Parses a <see cref="LayoutPart"/> from a tool's flat string parameter, throwing <see cref="ArgumentException"/>
     /// on an unknown value. Delegates to <see cref="ToolGuards.TryParseLayoutPart"/> (shared with
     /// <see cref="ToolGuards.BuildLocation"/>) since these five tools address a table directly by
-    /// <see cref="LayoutPart"/> rather than building a full <see cref="Location"/>.
+    /// <see cref="LayoutPart"/> rather than building a full <see cref="Location"/>. Null is the default
+    /// (<c>body</c>) — see <see cref="ToolGuards.TryParseLayoutPart"/>.
     /// </summary>
-    private static LayoutPart ParseLayoutPartOrThrow(string layoutPart)
+    private static LayoutPart ParseLayoutPartOrThrow(string? layoutPart)
     {
         if (!TryParseLayoutPart(layoutPart, out var part))
         {
@@ -661,8 +662,12 @@ public static class TableTools
         return part;
     }
 
-    /// <summary>Parses a <see cref="TableBorderLook"/> from <c>insert_repeater_table</c>'s <c>look</c> parameter (case-insensitive).</summary>
-    private static TableBorderLook ParseTableBorderLookOrThrow(string look) => look.Trim().ToLowerInvariant() switch
+    /// <summary>
+    /// Parses a <see cref="TableBorderLook"/> from <c>insert_repeater_table</c>'s <c>look</c> parameter
+    /// (case-insensitive). An explicit JSON <c>null</c> (bound straight through by the SDK) is the documented
+    /// default, <c>bc</c>, as if the argument had been omitted.
+    /// </summary>
+    private static TableBorderLook ParseTableBorderLookOrThrow(string? look) => (look ?? "bc").Trim().ToLowerInvariant() switch
     {
         "bc" => TableBorderLook.Bc,
         "grid" => TableBorderLook.Grid,
@@ -676,11 +681,12 @@ public static class TableTools
     /// <see cref="CellBorderOptions"/>. The "no edge selected"/"size out of range" rejections belong to
     /// <see cref="TableStructureEditor.SetCellBorders"/> (they are domain rules, checked there for every
     /// caller); this only rejects what the flat string form itself can get wrong — an unknown edge name or
-    /// style.
+    /// style. A null <paramref name="style"/> (an explicit JSON <c>null</c>) is the documented default,
+    /// <c>single</c>; a null <paramref name="edges"/> selects no edge and is refused by the domain rule.
     /// </summary>
-    private static CellBorderOptions ParseCellBorderOptionsOrThrow(string edges, string style, int size)
+    private static CellBorderOptions ParseCellBorderOptionsOrThrow(string? edges, string? style, int size)
     {
-        var remove = style.Trim().ToLowerInvariant() switch
+        var remove = (style ?? "single").Trim().ToLowerInvariant() switch
         {
             "single" or "" => false,
             "none" or "nil" => true,
@@ -708,13 +714,18 @@ public static class TableTools
         return options;
     }
 
-    /// <summary>Parses an <see cref="InsertColumnMode"/> from <c>insert_column</c>'s <c>mode</c> parameter (case-insensitive).</summary>
-    private static InsertColumnMode ParseInsertColumnModeOrThrow(string mode) => mode.Trim().ToLowerInvariant() switch
+    /// <summary>
+    /// Parses an <see cref="InsertColumnMode"/> from <c>insert_column</c>'s <c>mode</c> parameter
+    /// (case-insensitive). <c>mode</c> is required with no default, so an explicit JSON <c>null</c> is
+    /// refused as <c>invalid_argument</c> rather than guessed.
+    /// </summary>
+    private static InsertColumnMode ParseInsertColumnModeOrThrow(string? mode) => mode?.Trim().ToLowerInvariant() switch
     {
         "field" => InsertColumnMode.Field,
         "label" => InsertColumnMode.Label,
         "plaintext" or "plain_text" or "text" => InsertColumnMode.PlainText,
         _ => throw new ArgumentException(
-            $"Unknown mode '{mode}'. Use 'field', 'label', or 'plainText'.", nameof(mode)),
+            (mode is null ? "mode is required (got null)." : $"Unknown mode '{mode}'.")
+            + " Use 'field', 'label', or 'plainText'.", nameof(mode)),
     };
 }

@@ -189,9 +189,10 @@ Conventions that hold across the surface:
 - **Absolute paths only.** Every tool takes absolute file paths; mutating tools write in place.
 - **One uniform envelope**: `{ok, data, error}`, where `error` carries `code`, `message` and a **`hint`
   that is never empty** — it names the argument to fix and its valid values, or the inspection tool to call
-  first. Nothing throws across the MCP boundary. The one uncovered edge is the SDK's own
-  argument-binding step, which runs before any tool body: a wrong-typed argument returns an SDK-shaped
-  error rather than this envelope.
+  first. Nothing throws across the MCP boundary, including for calls that never reach a tool body: the
+  host's call-tool filter wraps the SDK's tool lookup and argument binding, so an unknown tool name, a
+  missing required argument or a wrong-typed one returns `invalid_argument` naming the tool or
+  parameter.
 - **Shared location addressing**: `{type: documentEnd | afterControl | tableCell | atText, controlId?,
   tableIndex?, row?, col?, searchText?, layoutPart?, partName?}`. Edits stay deterministic without the
   agent knowing OOXML positions. `layoutPart: header|footer` with no `partName` resolves the **first

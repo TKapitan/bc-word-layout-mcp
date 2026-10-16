@@ -623,9 +623,14 @@ public static class LifecycleTools
         }
     }
 
-    private static bool TryParseConverterKind(string converter, out PdfConverterKind kind)
+    /// <summary>
+    /// Parses <c>preview_layout</c>'s <c>converter</c> (case-insensitive). An explicit JSON <c>null</c>, which
+    /// the SDK binds straight through, is the documented default <c>auto</c>, as if it had been omitted.
+    /// Internal so a test can pin that without running a conversion.
+    /// </summary>
+    internal static bool TryParseConverterKind(string? converter, out PdfConverterKind kind)
     {
-        switch (converter.Trim().ToLowerInvariant())
+        switch ((converter ?? "auto").Trim().ToLowerInvariant())
         {
             case "auto":
                 kind = PdfConverterKind.Auto;

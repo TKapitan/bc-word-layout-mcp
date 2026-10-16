@@ -222,19 +222,23 @@ untouched) any edit leaving a row's cells inconsistent with its `w:tblGrid` — 
 `OpenXmlValidator` accepts silently. Every successful mutating response also carries a fresh post-edit
 `quickValidation` summary.
 
-**Envelope boundary: argument binding happens before a tool body runs.** The guarantee above is "every
-tool body that executes returns the envelope" — it does not (and, per the MCP C# SDK's own design,
-cannot) extend to the SDK's own argument-binding step, which runs *before* any of this server's code is
-invoked. A call with a malformed/wrong-typed argument (a string where `tableIndex` expects an integer,
-a required parameter omitted, malformed JSON-RPC params, …) never reaches the tool's C# method: the SDK
-itself converts the binding failure into an MCP `isError: true` tool result whose content is a generic,
-non-enveloped message (verified against `ModelContextProtocol` 1.4.1: e.g. `"An error occurred invoking
-'insert_field'."`, with no `code`/`hint`) — not this server's `{ok:false,error:{code,message,hint}}`
-shape. A completely unknown tool NAME behaves differently again (a client-visible protocol-level error),
-since it never matches an entry in the SDK's tool collection at all. Calling agents should treat an
-`isError: true` result whose content is **not** parseable as the `{ok,data,error}` envelope as exactly
-this boundary case — a malformed call, not a tool-level failure — and correct the argument's type/
-presence rather than looking for a `code`/`hint` that will not be there.
+**Envelope boundary: malformed calls get the envelope too.** The SDK looks the tool up and binds the
+JSON arguments onto its typed parameters before any tool body runs. The server's call-tool filter wraps
+that step, so a call that never reaches a body still returns `isError: true` with the same
+`{ok:false,error:{code,message,hint}}` shape:
+
+- **Unknown tool name:** `invalid_argument` naming the tool; the hint points at `tools/list`.
+- **Missing required argument:** `invalid_argument` naming it; the hint lists the tool's required
+  parameters.
+- **Wrong JSON type** (`"abc"` or `1.5` for an integer, `"true"` for a boolean, `null` for a number or
+  boolean): `invalid_argument` naming the parameter, the type it needs, and what the call sent.
+- **Explicit `null` for a string:** an optional enum-like string (`layoutPart`, `look`, `style`,
+  `converter`, `level`) takes its documented default, exactly as if it were omitted; a required one
+  (`locationType`, `mode`) is refused with `invalid_argument`.
+
+Only a request too malformed for the SDK to parse as a tool call at all (no tool `name`, or `arguments`
+that is not a JSON object) fails earlier, as a JSON-RPC error with no tool result; MCP client libraries
+do not produce that shape.
 
 ## Mock preview: not a substitute for a sandbox render
 
@@ -270,10 +274,10 @@ Error `message`/`hint` texts are not part of the contract — never parse them.
   a long-stable BC format, so the tools are *expected* to work with any BC version that supports
   Word layouts — reports of issues on other versions are welcome — but the compatibility commitment
   extends only to versions a validation has actually covered.
-- **MCP SDK cadence:** the server pins the official `ModelContextProtocol` C# SDK (currently 1.4.1)
+- **MCP SDK cadence:** the server pins the official `ModelContextProtocol` C# SDK (currently 2.2.0)
   and upgrades it in **minor** releases, with any behavioral consequence called out in the
-  changelog. The documented SDK argument-binding boundary (above) is re-verified on every such
-  upgrade.
+  changelog. The envelope boundary above is pinned by a host-level test that runs the real server
+  pipeline over the SDK's own transport, so an upgrade that changes it fails the suite.
 
 ## Not in v1 / deferred
 

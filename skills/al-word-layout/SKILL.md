@@ -285,6 +285,11 @@ Every tool returns the same envelope and never throws across the MCP boundary:
   layout, not an unbound shell — see §"Lifecycle" above; nothing is written), or `internal_error`.
   `hint` is always non-empty and actionable: which argument to fix and its valid values, or which
   inspection tool to call. Act on it before retrying blindly.
+- A malformed call gets the same envelope (with `isError: true`), never bare SDK text: an unknown
+  tool name, a missing required argument, or a wrong JSON type (a quoted number, `"true"` for a
+  boolean, `1.5` for an integer) is `invalid_argument` naming the tool or parameter. To use an
+  optional argument's default, omit it: `null` is accepted only where the schema type allows it, and
+  for an optional string, which then takes its default.
 - `ok:true` doesn't mean "nothing to look at" — check the tool's own payload for its validation
   signal:
   - Mutating tools (`insert_field` / `insert_label` / `insert_repeater_table` / `remove_control` /

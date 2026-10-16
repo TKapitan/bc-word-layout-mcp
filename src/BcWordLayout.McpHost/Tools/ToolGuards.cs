@@ -765,16 +765,22 @@ internal static class ToolGuards
     /// actually names a part present in THIS layout is a "does it resolve against this document" question,
     /// left to <see cref="LocationResolver.Resolve"/> too (surfaced as <c>not_found</c>, not
     /// <c>invalid_argument</c> — see <see cref="NotFoundHintFor"/>).
+    /// <para>
+    /// Both string parameters are nullable here even though the tools declare them non-null: the SDK binds an
+    /// explicit JSON <c>null</c> straight through. A null <paramref name="layoutPart"/> means its documented
+    /// default (<c>body</c>), like omitting it; a null <paramref name="locationType"/> (required, no default)
+    /// is refused as <c>invalid_argument</c> rather than crashing as a <see cref="NullReferenceException"/>.
+    /// </para>
     /// </summary>
     internal static Location BuildLocation(
-        string locationType, int? controlId, int? tableIndex, int? row, int? col, string? searchText,
-        string layoutPart = "body", string? partName = null)
+        string? locationType, int? controlId, int? tableIndex, int? row, int? col, string? searchText,
+        string? layoutPart = "body", string? partName = null)
     {
         if (!TryParseLocationKind(locationType, out var kind))
         {
             throw new ArgumentException(
-                $"Unknown locationType '{locationType}'. Use 'documentEnd', 'afterControl', 'tableCell', or "
-                + "'atText'.",
+                (locationType is null ? "locationType is required (got null)." : $"Unknown locationType '{locationType}'.")
+                + " Use 'documentEnd', 'afterControl', 'tableCell', or 'atText'.",
                 nameof(locationType));
         }
 
@@ -798,9 +804,9 @@ internal static class ToolGuards
         };
     }
 
-    private static bool TryParseLocationKind(string locationType, out LocationKind kind)
+    private static bool TryParseLocationKind(string? locationType, out LocationKind kind)
     {
-        switch (locationType.Trim().ToLowerInvariant())
+        switch (locationType?.Trim().ToLowerInvariant())
         {
             case "documentend":
                 kind = LocationKind.DocumentEnd;
@@ -824,11 +830,13 @@ internal static class ToolGuards
     /// Parses a <see cref="LayoutPart"/> from a tool's flat string parameter (case-insensitive). Internal
     /// rather than private: shared by <see cref="BuildLocation"/> here and by <see cref="TableTools"/>'s own
     /// <c>ParseLayoutPartOrThrow</c> (the table-structure tools address a table directly by
-    /// <see cref="LayoutPart"/> rather than building a full <see cref="Location"/>).
+    /// <see cref="LayoutPart"/> rather than building a full <see cref="Location"/>). A null
+    /// <paramref name="layoutPart"/> — an explicit JSON <c>null</c>, which the SDK binds straight through — is
+    /// the documented default, <c>body</c>, exactly as if the argument had been omitted.
     /// </summary>
-    internal static bool TryParseLayoutPart(string layoutPart, out LayoutPart part)
+    internal static bool TryParseLayoutPart(string? layoutPart, out LayoutPart part)
     {
-        switch (layoutPart.Trim().ToLowerInvariant())
+        switch ((layoutPart ?? "body").Trim().ToLowerInvariant())
         {
             case "body":
                 part = LayoutPart.Body;

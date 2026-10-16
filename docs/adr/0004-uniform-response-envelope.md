@@ -11,9 +11,12 @@ exception *types* (never message text) into codes and hints. One tool extends (n
 shape: `render_preview_pages` returns the envelope as its first text content block, followed by MCP
 image blocks.
 
-The one documented boundary: the MCP SDK's own **argument-binding step** runs before any tool body,
-so a malformed/wrong-typed argument produces the SDK's generic error, not this envelope. Calling
-agents should treat a non-parseable `isError` result as exactly that case.
+The envelope also covers calls that never reach a tool body. The MCP SDK's tool lookup and
+**argument-binding step** run before any body, and the host's call-tool filter wraps them: an unknown
+tool name, a missing required argument, or a wrong-typed one returns `invalid_argument` naming the
+tool or parameter, keyed on the SDK's exception type like everything else. A host-level test pins this
+against the SDK version in use. Only a JSON-RPC request too malformed to parse as a tool call (no
+`name`, `arguments` not an object) stays a protocol-level error.
 
 ## Why
 

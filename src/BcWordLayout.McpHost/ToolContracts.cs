@@ -7,31 +7,15 @@
 /// This keeps failures deterministic and machine-actionable for the calling agent.
 /// </summary>
 /// <remarks>
-/// <para>
-/// ENVELOPE BOUNDARY. "Tools never throw" describes every tool BODY that actually
-/// runs — it is a guarantee about <c>Tools.ToolGuards.Guard</c>/<c>GuardMutate</c>'s exception mapping,
-/// which only executes once the MCP C# SDK has already bound the incoming JSON-RPC arguments onto the
-/// tool method's typed parameters. That binding step happens INSIDE the SDK, before any of this
-/// assembly's code runs, and is NOT covered: a caller passing a wrong-typed argument (e.g. a string where
-/// an <c>int</c> parameter is expected), omitting a required parameter, or sending malformed params never
-/// reaches a <see cref="ToolResponse"/> at all. Verified empirically against `ModelContextProtocol`
-/// 1.4.1: such a call returns an MCP <c>CallToolResult</c> with <c>IsError = true</c> whose content is a
-/// generic SDK-generated message (e.g. <c>"An error occurred invoking 'insert_field'."</c>) with no
-/// <c>code</c>/<c>hint</c> — never this type's JSON shape. This is distinct from calling an entirely
-/// unregistered tool NAME, which the SDK instead surfaces as a client-visible protocol-level error.
-/// </para>
-/// <para>
-/// No proportionate code fix exists for this SDK version: <c>McpServerOptions.Filters.Request.CallToolFilters</c>
-/// only wraps calls to a tool name that is NOT in the server's <c>ToolCollection</c> (i.e. never fires for
-/// any of this server's registered tools, which are always found there first); the message-level
-/// <c>Filters.Message.IncomingFilters</c>/<c>OutgoingFilters</c> only ever see the already-formed,
-/// non-exceptional <c>isError:true</c> result — nothing throws through them either, so there is no
-/// exception to catch-and-rewrap, only a generic response body that would have to be pattern-matched by
-/// its (undocumented, SDK-internal, version-fragile) message text to be reshaped into this envelope. That
-/// trade — hand-parsing an internal SDK string to recover a `code`/`hint` we have no real information for
-/// — was judged worse than documenting the boundary plainly here and in README.md's "Response envelope"
-/// section. Revisit if a future SDK version exposes a binding-failure hook.
-/// </para>
+/// ENVELOPE BOUNDARY. "Tools never throw" has two halves. Every tool BODY that runs returns this envelope
+/// through <c>Tools.ToolGuards.Guard</c>/<c>GuardMutate</c>'s exception mapping. A call that never reaches
+/// a body — an unknown tool name, or arguments the MCP SDK cannot bind onto the method's typed parameters
+/// (a missing required one, a wrong JSON type) — fails inside the SDK first, and <see cref="ToolCallBoundary"/>'s
+/// call-tool filter, which wraps the SDK's tool lookup and binding, turns that failure into the same envelope
+/// (<c>invalid_argument</c> naming the tool or parameter), keyed on the exception TYPE the SDK throws, never
+/// its message text. The filter's own remarks list each case as measured against the pinned SDK, and
+/// <c>McpHostPipelineTests</c> pins them through the real pipeline. Only a JSON-RPC request too malformed to
+/// parse as a tool call (no <c>name</c>, <c>arguments</c> not an object) stays a protocol-level error.
 /// </remarks>
 /// <remarks>
 /// Structural guarantee: <see cref="Hint"/> is a non-nullable <see cref="string"/>, and

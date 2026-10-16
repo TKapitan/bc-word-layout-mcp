@@ -155,6 +155,26 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `refresh_xml_part` to re-bind a layout in place, or at a different `outputPath`. Running
   `create_layout` in place on a just-compiled layout, which has no controls yet, still works.
 
+- **Malformed calls get an accurate error code, and an explicit `null` no longer crashes a tool**
+  (GitHub issue #97).
+  - **Wrong JSON type:** `"abc"` or `1.5` for an integer, `"true"` for a boolean, or `null` for a
+    number or boolean came back as `internal_error` ("The JSON value could not be converted to
+    System.Int32…") with no parameter named. It is now `invalid_argument` naming the parameter, the
+    type it needs, and what the call sent.
+  - **Unknown tool name:** was an `internal_error` envelope; now `invalid_argument` naming the
+    tool, with a hint pointing at `tools/list`.
+  - **Missing required argument:** still `invalid_argument`; the message now names just the
+    missing parameters, and the hint lists every required one.
+  - **Explicit `null` for an enum-like string:** crashed the tool body (`internal_error`, "Object
+    reference not set to an instance of an object."). An optional one (`layoutPart`, `look`,
+    `style`, `converter`, `level`) now takes its documented default, as if omitted; a required one
+    (`locationType`, `mode`) is `invalid_argument`.
+  - **No more `invalid_request`:** the one path that emitted this undocumented code (a binding
+    failure the SDK swallowed into its own text) now reports `invalid_argument`.
+  - **Docs:** README, ADR-0004 and SOLUTION-DESIGN §4 said a binding failure returns the SDK's bare,
+    non-enveloped text. They now describe what the server actually returns, and a host-level test
+    that runs the real server pipeline pins every case above.
+
 ### Security
 
 - **A crafted layout can no longer kill the server through the OpenXml SDK's own parse** (GitHub
@@ -289,6 +309,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Tool descriptions and error hints no longer claim a missing `partName` targets "the FIRST
   header/footer part": resolution has always preferred the first section's DEFAULT part, and the
   wording now says so and points at `partDetails`.
+- **`ModelContextProtocol` SDK 1.4.1 → 2.2.0** (#48, #67; added after release, the note was
+  missing). No observable change: tool lookup, argument binding and the call-tool filter behave the
+  same on both versions, measured on the 1.0.0 and 1.1.0 packages. A host-level test now pins that
+  boundary (GitHub issue #97), so a future SDK upgrade that changes it fails the suite.
 
 ### Fixed
 
