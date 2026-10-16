@@ -72,6 +72,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   columns ran past the margin. The columns now split the document's content width evenly, as
   `insert_table` does; a table placed inside a cell splits that cell's width instead.
 
+- **`set_cell_text` and `clear_cell_text` no longer delete a nested table, picture or field in the
+  target cell** (GitHub issue #86). Deleting a nested table also shifted every later `tableIndex`
+  in that part. Only the cell's text runs are now replaced. Other content stays in place and the
+  summary names it, and `previousText` reports only the text actually replaced.
+
 ### Security
 
 - **A crafted layout can no longer kill the server through the OpenXml SDK's own parse** (GitHub
