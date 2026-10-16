@@ -41,7 +41,9 @@ public static class LayoutBuilder
     /// </param>
     /// <param name="outputPath">
     /// Absolute path to write the new layout to. Overwritten if it already exists; its parent directory is
-    /// created if missing.
+    /// created if missing. It may name <paramref name="schemaSource"/> itself only while that file carries no
+    /// bound controls (scaffolding a compiler-generated layout in place); over an authored one it is refused,
+    /// since the build would keep nothing but the dataset part.
     /// </param>
     /// <param name="templatePath">
     /// Optional absolute path to a <c>.docx</c> to start from instead of a blank document. This should be an
@@ -59,8 +61,11 @@ public static class LayoutBuilder
     /// macro-enabled one is refused (see <see cref="EnsureDocumentPackage"/>).
     /// </param>
     /// <exception cref="ArgumentException">
-    /// A path argument is empty, or <paramref name="templatePath"/> is a macro-enabled Word package
-    /// (<c>.dotm</c>/<c>.docm</c>). <paramref name="outputPath"/> is never touched when this is thrown.
+    /// A path argument is empty; <paramref name="templatePath"/> is a macro-enabled Word package
+    /// (<c>.dotm</c>/<c>.docm</c>); or <paramref name="outputPath"/> resolves to <paramref name="schemaSource"/>
+    /// (and not also to <paramref name="templatePath"/>) while that file carries bound content controls
+    /// (<see cref="ArgumentException.ParamName"/> <c>outputPath</c>). <paramref name="outputPath"/> is never
+    /// touched when this is thrown.
     /// </exception>
     /// <exception cref="FileNotFoundException">
     /// <paramref name="schemaSource"/> or <paramref name="templatePath"/> does not exist.
@@ -115,14 +120,40 @@ public static class LayoutBuilder
 
         // Read schemaSource to completion into memory BEFORE outputPath (or the temp file below) is ever
         // touched - this, combined with never opening outputPath itself until the final atomic move, is what
-        // makes schemaSource/templatePath/outputPath all safely aliasable (e.g. outputPath == templatePath,
-        // "refresh this layout from itself").
+        // makes schemaSource/templatePath/outputPath all safely aliasable without a torn or half-read file
+        // (e.g. outputPath == templatePath, "rebuild this shell in place"). Safe to alias is not the same as
+        // sensible to alias, though: see the refusal right below.
         var (datasetBytes, identity) = LoadDatasetSource(schemaSource);
+
+        var fullOutputPath = Path.GetFullPath(outputPath);
+
+        // REFUSE rather than destroy (ADR-0003, GitHub issue #89): the new layout keeps only schemaSource's
+        // dataset part, so building it over schemaSource itself replaces whatever was authored there - and an
+        // agent "re-creating" the compiler-generated .docx it has been authoring into is a realistic mistake
+        // that used to return ok:true with every control gone. Keyed on bound controls, so the one aliasing
+        // this method supports on purpose still works: scaffolding a compiler-generated layout that carries
+        // the dataset part but no controls yet. When templatePath is that same file too, its body IS the
+        // output's body (nothing authored is dropped) and the template rules below decide instead
+        // (TemplateNotUnboundException refuses a template whose own controls would go stale).
+        if (SamePath(fullOutputPath, schemaSource)
+            && !(templatePath is not null && SamePath(fullOutputPath, templatePath)))
+        {
+            var boundControls = CountBoundControls(schemaSource);
+            if (boundControls > 0)
+            {
+                throw new ArgumentException(
+                    $"outputPath names the same file as schemaSource ('{fullOutputPath}'), which is an authored "
+                    + $"layout with {boundControls} bound content control(s). create_layout builds a NEW layout "
+                    + "that keeps only schemaSource's dataset part, so writing it over its own source would "
+                    + "replace that layout with one that has none of its controls or content. Nothing was "
+                    + "written.",
+                    nameof(outputPath));
+            }
+        }
 
         // Path.GetDirectoryName returns null only for a bare root (e.g. "C:\") - an edge case in path
         // shape, not "this path does not exist in the layout"; left as a plain InvalidOperationException
         // (→ internal_error), not NotFoundException.
-        var fullOutputPath = Path.GetFullPath(outputPath);
         var targetDir = Path.GetDirectoryName(fullOutputPath)
             ?? throw new InvalidOperationException($"Could not determine the directory of '{outputPath}'.");
         Directory.CreateDirectory(targetDir);
@@ -248,6 +279,39 @@ public static class LayoutBuilder
             // this call's real outcome.
             ScratchFiles.Delete(tempPath);
         }
+    }
+
+    // ---- outputPath aliasing schemaSource (GitHub issue #89) ----
+
+    /// <summary>
+    /// True when <paramref name="fullPath"/> (already full) and <paramref name="otherPath"/> resolve to the
+    /// same full path, compared case-insensitively.
+    /// </summary>
+    /// <remarks>
+    /// Case-insensitive on every OS, matching <c>MergeEngine.Merge</c>'s own outputPath-vs-layoutPath check
+    /// and the per-path edit lock's key: Windows (the supported platform) and macOS file systems ignore case,
+    /// and on a case-sensitive one this can only over-refuse, which costs a different outputPath, never a
+    /// destroyed layout. Spellings that <see cref="Path.GetFullPath(string)"/> does not normalize (an 8.3 short
+    /// name, a junction or symlink) are not recognized as the same file.
+    /// </remarks>
+    private static bool SamePath(string fullPath, string otherPath) =>
+        string.Equals(fullPath, Path.GetFullPath(otherPath), StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Counts the data-bound content controls (any kind with a binding XPath: field, label, repeater, picture -
+    /// the same notion <see cref="RefreshResult.RemappedCount"/> uses) in <paramref name="schemaSource"/>,
+    /// across its body, headers and footers. A standalone schema <c>.xml</c> has none. Only called when
+    /// outputPath aliases schemaSource, so the extra read-only open costs nothing on the common path.
+    /// </summary>
+    private static int CountBoundControls(string schemaSource)
+    {
+        if (!schemaSource.EndsWith(".docx", StringComparison.OrdinalIgnoreCase))
+        {
+            return 0;
+        }
+
+        using var doc = LayoutPackage.Open(schemaSource, isEditable: false);
+        return LayoutReader.Read(doc).Controls.Count(c => c.XPath is not null);
     }
 
     // ---- template package type: a .dotx shell becomes a document, a macro-enabled one is refused ----

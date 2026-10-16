@@ -147,6 +147,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     another report. The hint lists the two accepted shapes. A wrong-shaped file used to be
     `invalid_layout`, with a hint about the layout.
 
+- **`create_layout` refuses to overwrite its own `schemaSource` when that file is an authored
+  layout** (GitHub issue #89). The new layout keeps only the dataset part of `schemaSource`. So an
+  `outputPath` equal to `schemaSource` replaced the authored layout with a blank one, and the call
+  returned `ok:true`: on the stock sales quote, 68 controls became 0. This is now refused with
+  `invalid_argument` and nothing is written, however the path is spelled. The hint points at
+  `refresh_xml_part` to re-bind a layout in place, or at a different `outputPath`. Running
+  `create_layout` in place on a just-compiled layout, which has no controls yet, still works.
+
 ### Security
 
 - **A crafted layout can no longer kill the server through the OpenXml SDK's own parse** (GitHub

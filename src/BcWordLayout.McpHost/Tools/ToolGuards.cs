@@ -1422,7 +1422,11 @@ internal static class ToolGuards
 
         "outputpath" =>
             "The output path must be a non-empty absolute path (create_layout's outputPath is where the new "
-            + "layout .docx is written); see the message above for exactly what was rejected about it.",
+            + "layout .docx is written); see the message above for exactly what was rejected about it. It "
+            + "must not be schemaSource itself while that file is an authored layout with bound controls: "
+            + "create_layout keeps only the dataset part. To bind an existing layout to a new or changed "
+            + "schema in place, call refresh_xml_part on it instead (layoutPath = that layout, newSchemaSource "
+            + "= the new schema); to start a new layout from its schema, pass a different outputPath.",
 
         "dataoverridespath" =>
             "preview_layout's dataOverridesPath must be a well-formed XML file in one of the two shapes Business "
