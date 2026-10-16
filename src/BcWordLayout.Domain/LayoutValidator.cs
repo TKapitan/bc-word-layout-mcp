@@ -34,8 +34,9 @@ public static class LayoutValidator
 
         CheckOpenXmlStructure(doc, findings);
         CheckDocumentContentType(main, findings);
-        var bcPartItemId = CheckSingleBcPart(main, findings);
-        DatasetTree? schema = TryBuildSchema(main, findings);
+        var scan = SchemaProvider.Scan(main);
+        var bcPartItemId = CheckSingleBcPart(scan, findings);
+        DatasetTree? schema = TryBuildSchema(main, scan, findings);
 
         var inventory = LayoutReader.Read(doc);
         CheckStoreItemIds(inventory, bcPartItemId, findings);
@@ -133,12 +134,22 @@ public static class LayoutValidator
 
     // 2. Exactly one custom XML part in the BC namespace, and that part carries a DataStoreItem for its
     //    bindings to name. Returns the BC part's item ID (or null when there is none to return).
-    private static string? CheckSingleBcPart(MainDocumentPart main, List<ValidationFinding> findings)
+    //
+    //    A BC part that is there but does not parse is NOT "no BC part": it draws no finding here, because
+    //    schema-parse (TryBuildSchema) reports it with the part's name, the parser's error and the repair
+    //    (GitHub issue #96). Before, the swallowed parse error made this check say "No BC dataset custom XML
+    //    part found" beside a schema-parse finding that said the same - two findings, neither naming the cause.
+    private static string? CheckSingleBcPart(BcPartScan scan, List<ValidationFinding> findings)
     {
-        var bcParts = SchemaProvider.FindBcParts(main);
+        var bcParts = scan.Parts;
 
         if (bcParts.Count == 0)
         {
+            if (scan.Unreadable.Count > 0)
+            {
+                return null; // Reported, with its cause, by TryBuildSchema's schema-parse finding.
+            }
+
             findings.Add(new ValidationFinding
             {
                 Check = "single-bc-part",
@@ -159,7 +170,7 @@ public static class LayoutValidator
             });
         }
 
-        var itemId = bcParts[0].CustomXmlPropertiesPart?.DataStoreItem?.ItemId?.Value;
+        var itemId = bcParts[0].ItemId;
         if (itemId is null)
         {
             // The BC part exists but has no CustomXmlPropertiesPart/DataStoreItem, so there is no item ID for
@@ -182,7 +193,7 @@ public static class LayoutValidator
         return itemId;
     }
 
-    private static DatasetTree? TryBuildSchema(MainDocumentPart main, List<ValidationFinding> findings)
+    private static DatasetTree? TryBuildSchema(MainDocumentPart main, BcPartScan scan, List<ValidationFinding> findings)
     {
         try
         {
@@ -194,11 +205,26 @@ public static class LayoutValidator
             {
                 Check = "schema-parse",
                 Severity = FindingSeverity.Error,
-                Message = $"Could not parse the BC dataset schema: {ex.Message}",
+                Message = $"Could not parse the BC dataset schema: {ex.Message}"
+                          + (ex is LayoutDefectException { Defect: LayoutDefect.UnreadableDatasetPart }
+                              ? " " + UnreadablePartRepair
+                              : string.Empty),
+                Location = scan.Parts.Count == 0 && scan.Unreadable.Count > 0
+                    ? string.Join(", ", scan.Unreadable.Select(u => u.Name))
+                    : null,
             });
             return null;
         }
     }
+
+    /// <summary>
+    /// How to repair a BC dataset part that is there but cannot be parsed. refresh_xml_part is the one tool
+    /// that can: it replaces the part's content in place and keeps its storeItemID, so no binding is lost.
+    /// </summary>
+    private const string UnreadablePartRepair =
+        "To repair it, run refresh_xml_part with this layout as layoutPath and an intact copy of the same "
+        + "report's layout (or its exported schema .xml) as newSchemaSource: it replaces the part's content in "
+        + "place and keeps its storeItemID, so every existing binding stays linked to it.";
 
     // 3. Every binding's storeItemID matches the BC part's actual item ID.
     private static void CheckStoreItemIds(LayoutInventory inventory, string? bcPartItemId, List<ValidationFinding> findings)

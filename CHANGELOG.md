@@ -249,6 +249,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - **`insert_table_row`** refuses an `atRow` between two rows of the same repeater
     (`invalid_argument`) and names the positions just before and after it.
 
+- **A BC dataset part that no longer parses is reported as such, and `refresh_xml_part` repairs it**
+  (GitHub issue #96).
+  - **Diagnosis:** a part recognisable by its itemProps schemaRef, or by the BC namespace in its raw
+    bytes, used to be reported as "no BC part" by every tool, with the parser's error discarded.
+    `validate_layout` now reports one `schema-parse` error naming the part, the parser's message and
+    any encoding declaration that contradicts the bytes or DOCTYPE it carries; `get_layout_info`,
+    the insert tools and `create_layout`'s `schemaSource` fail `invalid_layout` with a repair hint.
+  - **Repair:** `refresh_xml_part` replaces such a part's content, keeping its `storeItemID`, and
+    reports it as `repairedUnreadablePart` (`newUnboundFields` is then empty).
+
 ### Security
 
 - **A crafted layout can no longer kill the server through the OpenXml SDK's own parse** (GitHub

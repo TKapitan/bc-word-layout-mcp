@@ -669,7 +669,8 @@ internal static class ToolGuards
                     result.QuickValidation.Level,
                     result.QuickValidation.Passed,
                     result.QuickValidation.ErrorCount,
-                    result.QuickValidation.WarningCount));
+                    result.QuickValidation.WarningCount),
+                result.RepairedUnreadablePart);
 
             return ToolResponse.Success(dto);
         });
@@ -1032,6 +1033,12 @@ internal static class ToolGuards
     /// <see cref="InvalidDataException"/>/<c>catch (Exception)</c> branches, exactly like
     /// <see cref="ResourceLimitExceededException"/> above - keyed off the TYPE, never <c>ex.Message</c> text.
     /// </para>
+    /// <para>
+    /// A <see cref="LayoutDefectException"/> - the package carries a defect no argument can get past, e.g. a
+    /// BC dataset part that is there but does not parse - is <c>invalid_layout</c> too, with a hint chosen by
+    /// its typed <see cref="LayoutDefectException.Defect"/> (<see cref="LayoutDefectHintFor"/>) that names the
+    /// repair, rather than the generic "confirm the file contains a dataset part" one.
+    /// </para>
     /// </remarks>
     internal static ToolResponse Guard(Func<ToolResponse> body, string path, string? tool = null)
     {
@@ -1158,6 +1165,13 @@ internal static class ToolGuards
                 + "specifically want to reuse it as a branded shell for create_layout, first strip its bound "
                 + "controls with remove_control (repeat for every control get_layout_info lists) or supply a "
                 + "genuinely unbound template, then retry.");
+        }
+        catch (LayoutDefectException ex)
+        {
+            // The package itself carries a defect this call cannot work around (see LayoutDefectException's
+            // own remarks for why that is not just InvalidDataException's generic invalid_layout hint):
+            // keyed off the typed Defect, never ex.Message, exactly like NotFoundException's TargetKind.
+            return ToolResponse.Failure("invalid_layout", ex.Message, LayoutDefectHintFor(ex.Defect));
         }
         catch (ArgumentException ex)
         {
@@ -1556,5 +1570,26 @@ internal static class ToolGuards
             "The referenced control id, table location, or search text does not exist in this layout; "
             + "call get_layout_info to inspect the current control inventory and document structure before "
             + "retrying.",
+    };
+
+    /// <summary>
+    /// Builds the <c>invalid_layout</c> hint for a <see cref="LayoutDefectException"/>, keyed off its typed
+    /// <see cref="LayoutDefectException.Defect"/> (the <see cref="NotFoundHintFor"/> pattern): each names the
+    /// repair the PACKAGE needs, since no change to the call's own arguments can get past these.
+    /// </summary>
+    private static string LayoutDefectHintFor(LayoutDefect defect) => defect switch
+    {
+        LayoutDefect.UnreadableDatasetPart =>
+            "The layout's BC dataset part is present but is not well-formed XML (the message names the part and "
+            + "the parser's error) - typically an encoding declaration that no longer matches its bytes after a "
+            + "re-save in a text editor, an unescaped '&', or a truncated file. refresh_xml_part repairs it in "
+            + "place: pass this layout as layoutPath and an intact copy of the same report's layout (or its "
+            + "exported schema .xml) as newSchemaSource; the part keeps its storeItemID, so every binding stays "
+            + "linked. If the broken file was passed as a schema SOURCE (schemaSource/newSchemaSource), pass an "
+            + "intact copy instead.",
+
+        _ =>
+            "The layout package carries a defect this call cannot work around (see the message above); run "
+            + "validate_layout on it for the full list of findings and their repairs.",
     };
 }

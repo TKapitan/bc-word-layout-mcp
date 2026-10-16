@@ -342,7 +342,9 @@ public sealed record RepointedBindingDto(
 /// <see cref="QuickValidation"/> summary. A non-zero <see cref="ValidationSummaryDto.ErrorCount"/> here is
 /// EXPECTED when there are orphaned bindings (they surface there too, as <c>xpath-resolves</c> findings) —
 /// that is the orphan report corroborated by an independent check, not a failed refresh; <c>Ok=true</c>
-/// stands regardless.
+/// stands regardless. <see cref="RepairedUnreadablePart"/> is set only when the layout's BC dataset part could
+/// not be parsed and this refresh replaced its content (GitHub issue #96) — <see cref="NewUnboundFields"/> is
+/// then empty, there being no readable old schema to diff against.
 /// </summary>
 public sealed record RefreshResultDto(
     string OldReportName,
@@ -357,4 +359,5 @@ public sealed record RefreshResultDto(
     IReadOnlyList<OrphanedBindingDto> OrphanedBindings,
     IReadOnlyList<RepointedBindingDto> RepointedForeignBindings,
     IReadOnlyList<string> NewUnboundFields,
-    ValidationSummaryDto QuickValidation);
+    ValidationSummaryDto QuickValidation,
+    string? RepairedUnreadablePart);

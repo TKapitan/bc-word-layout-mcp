@@ -1,6 +1,9 @@
+using System.Text;
+using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using BcWordLayout.Domain.Models;
 using DocumentFormat.OpenXml.Packaging;
+using Ds = DocumentFormat.OpenXml.CustomXmlDataProperties;
 
 namespace BcWordLayout.Domain;
 
@@ -36,6 +39,10 @@ public static class SchemaProvider
     }
 
     /// <summary>Builds the dataset tree from an already-open main document part.</summary>
+    /// <exception cref="InvalidDataException">The package has no BC dataset custom XML part at all.</exception>
+    /// <exception cref="LayoutDefectException">
+    /// Its BC dataset part is there but cannot be parsed (see <see cref="FindBcPart"/>).
+    /// </exception>
     internal static DatasetTree FromMainPart(MainDocumentPart main)
     {
         var (part, root) = FindBcPart(main)
@@ -105,74 +112,120 @@ public static class SchemaProvider
     }
 
     /// <summary>
-    /// Locates the first custom XML part whose root namespace starts with the BC prefix, returning the part
-    /// together with its loaded root element. Returns null when none is present.
+    /// Locates the BC dataset custom XML part — the first readable part whose root namespace starts with the
+    /// BC prefix, in relationship order — returning the part together with its loaded root element. Returns
+    /// null when the package has no BC dataset part at all.
     /// </summary>
     /// <remarks>
-    /// SECURITY. Parts are parsed ONE AT A TIME, stopping the
-    /// moment a match is found — this method never retains more than one part's parsed <see cref="XElement"/>
-    /// tree simultaneously, and (for the common case where the BC part is found early) may not even attempt
-    /// to parse every part in the package. This is deliberately a SEPARATE walk from <see cref="FindBcParts"/>
-    /// rather than <c>FindBcParts(main).FirstOrDefault()</c>: the latter would force <see cref="FindBcParts"/>
-    /// to finish enumerating (and therefore transiently parsing) every part in the package before this method
-    /// could return, for no benefit — this method only ever needs the FIRST match.
+    /// A part that IS recognisably the BC dataset part but does not parse is not "no BC part": that used to
+    /// be the answer (the parse exception was swallowed), so every tool misdiagnosed a broken part as a
+    /// missing one and never showed the parser's error (GitHub issue #96). When no part parses as BC but
+    /// <see cref="Scan"/> recognised an unreadable candidate, this throws a
+    /// <see cref="LayoutDefectException"/> naming the part and the parse error instead of returning null.
+    /// <para>
+    /// SECURITY: the classification walk is <see cref="Scan"/>'s, which parses each part transiently and keeps
+    /// none of the trees; the chosen part's root is parsed again here, so no more than one parsed tree is ever
+    /// alive at a time however many parts the package carries.
+    /// </para>
     /// </remarks>
+    /// <exception cref="LayoutDefectException">
+    /// No part parses as a BC dataset part, but at least one is recognisably one
+    /// (<see cref="LayoutDefect.UnreadableDatasetPart"/>).
+    /// </exception>
     /// <exception cref="ResourceLimitExceededException">
     /// The package has more than <see cref="ResourceLimits.MaxCustomXmlParts"/> custom XML parts, or one
     /// exceeds <see cref="ResourceLimits.MaxCustomXmlPartBytes"/>.
     /// </exception>
     internal static (CustomXmlPart Part, XElement Root)? FindBcPart(MainDocumentPart main)
     {
-        EnsurePartCountWithinLimit(main);
-
-        foreach (var part in main.CustomXmlParts)
+        var scan = Scan(main);
+        if (scan.Parts.Count == 0)
         {
-            if (TryLoadBcNamespacedRoot(part, out var root))
-            {
-                return (part, root!);
-            }
+            return scan.Unreadable.Count == 0 ? null : throw UnreadableDefect(scan.Unreadable);
         }
 
-        return null;
+        var part = scan.Parts[0].Part;
+        return (part, LoadRoot(part));
     }
 
     /// <summary>
-    /// Enumerates every custom XML part whose root namespace starts with the BC prefix — the PART REFERENCE
-    /// only, NOT its parsed root. Malformed / non-XML parts are skipped. This is the single shared
-    /// implementation used both by <see cref="LayoutValidator"/> (to count/report duplicate BC parts) and by
-    /// <see cref="LayoutBuilder"/> (to remove every existing BC part before attaching a new one) — neither
-    /// caller needs a parsed root for any part beyond the first (see <see cref="FindBcPart"/> for that one).
+    /// Enumerates every custom XML part whose root parses and whose namespace starts with the BC prefix — the
+    /// PART REFERENCE only, NOT its parsed root (see <see cref="Scan"/>). Used by <see cref="LayoutBuilder"/>
+    /// to remove every existing BC part before attaching a new one.
+    /// </summary>
+    /// <exception cref="ResourceLimitExceededException">See <see cref="Scan"/>.</exception>
+    internal static IReadOnlyList<CustomXmlPart> FindBcParts(MainDocumentPart main) =>
+        Scan(main).Parts.Select(p => p.Part).ToList();
+
+    /// <summary>
+    /// Classifies every custom XML part of <paramref name="main"/>, in relationship order, as a readable BC
+    /// dataset part, a recognisable-but-unreadable BC dataset part, or unrelated (the Office bibliography part,
+    /// MSIP metadata, ...). The ONE walk every lookup above derives from, so the validator, the read tools and
+    /// refresh_xml_part cannot disagree about what the package contains.
     /// </summary>
     /// <remarks>
-    /// SECURITY. The
-    /// PREVIOUS version of this method returned <c>(CustomXmlPart, XElement)</c> pairs for every matching
-    /// part, retaining every one's fully parsed root SIMULTANEOUSLY in the returned list — the per-part
-    /// <see cref="ResourceLimits.MaxCustomXmlPartBytes"/> cap bounds any ONE part's cost, but not the SUM: a
-    /// package with many large BC-namespaced parts (each individually under the cap) could still exhaust
-    /// memory in aggregate. This method now parses each part's root TRANSIENTLY just to check its namespace
-    /// (via <see cref="TryLoadBcNamespacedRoot"/>) and discards it immediately either way — only the
-    /// <see cref="CustomXmlPart"/> reference itself is retained in the returned list, so at most one part's
-    /// parsed tree is ever alive at a time regardless of how many parts match or how large they are.
+    /// SECURITY. Each part's root is parsed TRANSIENTLY — just long enough to read its namespace — and dropped
+    /// before the next part is opened; the result keeps only part references and a few strings, never a tree.
+    /// The per-part <see cref="ResourceLimits.MaxCustomXmlPartBytes"/> cap bounds any ONE part's cost, and
+    /// keeping no tree is what bounds the SUM: an earlier version of <see cref="FindBcParts"/> returned every
+    /// matching part's parsed root at once, so a package of many large BC-namespaced parts (each under the
+    /// cap) could exhaust memory in aggregate. A part that fails to parse costs one further bounded read of
+    /// its first <see cref="SniffWindowBytes"/> bytes (see <see cref="RecogniseUnreadableBcPart"/>).
     /// </remarks>
     /// <exception cref="ResourceLimitExceededException">
     /// The package has more than <see cref="ResourceLimits.MaxCustomXmlParts"/> custom XML parts, or one
-    /// exceeds <see cref="ResourceLimits.MaxCustomXmlPartBytes"/> .
+    /// exceeds <see cref="ResourceLimits.MaxCustomXmlPartBytes"/> — deliberately NOT treated as "unreadable":
+    /// an oversized part is reported as the crafted-file problem it is.
     /// </exception>
-    internal static IReadOnlyList<CustomXmlPart> FindBcParts(MainDocumentPart main)
+    internal static BcPartScan Scan(MainDocumentPart main)
     {
         EnsurePartCountWithinLimit(main);
 
-        var result = new List<CustomXmlPart>();
+        var parts = new List<BcPartInfo>();
+        var unreadable = new List<UnreadableBcPart>();
         foreach (var part in main.CustomXmlParts)
         {
-            if (TryLoadBcNamespacedRoot(part, out _))
+            if (TryReadRootNamespace(part, out var ns, out var parseFailure))
             {
-                result.Add(part);
+                if (ns.StartsWith(OoxmlNames.BcNamespacePrefix, StringComparison.Ordinal))
+                {
+                    parts.Add(new BcPartInfo(part, PartPath(part), ns, ReadItemId(part)));
+                }
+            }
+            else if (RecogniseUnreadableBcPart(part, parseFailure!) is { } candidate)
+            {
+                unreadable.Add(candidate);
             }
         }
 
-        return result;
+        return new BcPartScan { Parts = parts, Unreadable = unreadable };
     }
+
+    /// <summary>
+    /// Parses <paramref name="part"/>'s root again and returns it — for a part <see cref="Scan"/> has already
+    /// classified as a readable BC dataset part, so the parse is expected to succeed.
+    /// </summary>
+    internal static XElement LoadRoot(CustomXmlPart part)
+    {
+        using var stream = part.GetStream(FileMode.Open, FileAccess.Read);
+        return ResourceLimits.LoadXDocumentCapped(stream, $"Custom XML part '{PartWalker.PartFileName(part)}'").Root
+            ?? throw new InvalidDataException($"Custom XML part '{PartPath(part)}' has no root element.");
+    }
+
+    /// <summary>The part's own <c>ds:itemID</c> (its itemProps <c>DataStoreItem</c>), or null when it carries none.</summary>
+    internal static string? ReadItemId(CustomXmlPart part) =>
+        part.CustomXmlPropertiesPart?.DataStoreItem?.ItemId?.Value;
+
+    /// <summary>The part's path inside the package, e.g. <c>customXml/item1.xml</c> — what a person repairing the zip sees.</summary>
+    internal static string PartPath(CustomXmlPart part) => part.Uri.OriginalString.TrimStart('/');
+
+    /// <summary>
+    /// The <see cref="LayoutDefectException"/> every caller throws for a package whose only BC dataset part(s)
+    /// cannot be read — one wording, so get_layout_info, the insert tools and create_layout's schemaSource
+    /// all report the same part, the same parser error and the same recognition evidence.
+    /// </summary>
+    internal static LayoutDefectException UnreadableDefect(IReadOnlyList<UnreadableBcPart> unreadable) =>
+        new(string.Join(" ", unreadable.Select(u => u.Describe())), LayoutDefect.UnreadableDatasetPart);
 
     /// <summary>
     /// Rejects up front (before any part is even opened) a package carrying more than
@@ -190,48 +243,209 @@ public static class SchemaProvider
 
     /// <summary>
     /// Parses <paramref name="part"/>'s root through the same size-capped loader <see cref="FromSchemaXml"/>
-    /// uses. Returns true with <paramref name="root"/> set when it parses cleanly AND its namespace starts
-    /// with the BC prefix; false (<paramref name="root"/> null) for a malformed/non-XML part, or a
-    /// well-formed part in some other namespace (e.g. the Office bibliography part some corpus layouts
-    /// carry) — either way, the parsed tree is not retained by this method once it returns.
+    /// uses and returns its namespace (empty for a part with no root), discarding the tree. False with
+    /// <paramref name="parseFailure"/> set when the part does not parse — whose BC-ness
+    /// <see cref="RecogniseUnreadableBcPart"/> then decides without the parser.
     /// </summary>
     /// <exception cref="ResourceLimitExceededException">
     /// <paramref name="part"/> exceeds <see cref="ResourceLimits.MaxCustomXmlPartBytes"/> (a decompression
-    /// "zip bomb" part) — deliberately NOT swallowed by the generic catch below that skips an ordinary
-    /// malformed/non-XML part: an oversized part is reported as the crafted-file problem it is, rather than
-    /// silently treated as "not the BC part" (which would otherwise mislead the caller with a plain "no BC
-    /// part found" once the real cause was a bomb).
+    /// "zip bomb" part) — deliberately NOT caught with an ordinary parse failure: an oversized part is reported
+    /// as the crafted-file problem it is, rather than as "unreadable" or "not the BC part".
     /// </exception>
-    private static bool TryLoadBcNamespacedRoot(CustomXmlPart part, out XElement? root)
+    private static bool TryReadRootNamespace(CustomXmlPart part, out string ns, out Exception? parseFailure)
     {
-        XElement? parsed;
         try
         {
             using var stream = part.GetStream(FileMode.Open, FileAccess.Read);
-            parsed = ResourceLimits.LoadXDocumentCapped(stream, $"Custom XML part '{PartWalker.PartFileName(part)}'").Root;
+            ns = ResourceLimits.LoadXDocumentCapped(stream, $"Custom XML part '{PartWalker.PartFileName(part)}'")
+                .Root?.Name.NamespaceName ?? string.Empty;
+            parseFailure = null;
+            return true;
         }
         catch (ResourceLimitExceededException)
         {
-            // Propagate distinctly rather than falling into the generic catch below, which exists only for
-            // a genuinely malformed/non-XML part - see this method's own exception doc.
             throw;
         }
-        catch
+        catch (Exception ex)
         {
-            // A malformed / non-XML custom part is simply not the BC part.
-            root = null;
+            ns = string.Empty;
+            parseFailure = ex;
             return false;
         }
+    }
 
-        if (parsed is not null &&
-            parsed.Name.NamespaceName.StartsWith(OoxmlNames.BcNamespacePrefix, StringComparison.Ordinal))
+    /// <summary>
+    /// How much of an unparsable part <see cref="RecogniseUnreadableBcPart"/> reads to look for the BC
+    /// namespace. The namespace is declared on the root element, which follows nothing longer than an XML
+    /// declaration (and, in a broken part, perhaps a DOCTYPE) — a few hundred bytes in every corpus part — so
+    /// 64 KB is generous while keeping the read bounded whatever the part's size.
+    /// </summary>
+    private const int SniffWindowBytes = 64 * 1024;
+
+    /// <summary>
+    /// Decides whether a custom XML part that failed to parse is the BC dataset part, WITHOUT the parser:
+    /// first from its itemProps <c>ds:schemaRef</c> (every corpus layout that has an itemProps names the BC
+    /// namespace there), else from the BC namespace prefix appearing in its first <see cref="SniffWindowBytes"/>
+    /// bytes, decoded as UTF-8, UTF-16 LE and UTF-16 BE in turn (the part's own encoding declaration may be
+    /// the very thing that is wrong, so it cannot be trusted to say which). Null for a broken part that is
+    /// neither — an unrelated part stays "not the BC part", as before GitHub issue #96.
+    /// </summary>
+    private static UnreadableBcPart? RecogniseUnreadableBcPart(CustomXmlPart part, Exception parseFailure)
+    {
+        var head = ReadHead(part);
+
+        string? ns;
+        string recognisedBy;
+        if (SchemaRefBcNamespace(part) is { } fromSchemaRef)
         {
-            root = parsed;
-            return true;
+            ns = fromSchemaRef;
+            recognisedBy = "its itemProps schemaRef";
+        }
+        else if (SniffBcNamespace(head) is { } fromBytes)
+        {
+            ns = fromBytes;
+            recognisedBy = "the BC report namespace in its raw content";
+        }
+        else
+        {
+            return null;
         }
 
-        root = null;
-        return false;
+        return new UnreadableBcPart
+        {
+            Part = part,
+            Name = PartPath(part),
+            Namespace = ns,
+            ItemId = ReadItemId(part),
+            RecognisedBy = recognisedBy,
+            Error = parseFailure.Message + DescribeEncodingContradiction(head) + DescribeDoctype(head),
+        };
+    }
+
+    /// <summary>
+    /// A sentence saying the part carries a DOCTYPE, when its head does (in any of the three encodings
+    /// <see cref="SniffBcNamespace"/> tries); empty otherwise. The parser's own message for that case tells the
+    /// reader to enable DTD processing in its settings - advice no tool caller can act on, and the wrong
+    /// repair besides: a BC dataset part never carries a DTD, and DTDs stay prohibited because they can expand
+    /// entities.
+    /// </summary>
+    private static string DescribeDoctype(byte[] head) =>
+        new[] { Encoding.UTF8, Encoding.Unicode, Encoding.BigEndianUnicode }
+            .Any(e => e.GetString(head).Contains("<!DOCTYPE", StringComparison.Ordinal))
+            ? " The part carries a DOCTYPE declaration, which Business Central never writes into a dataset part "
+              + "and which is refused here because a DTD can expand entities."
+            : string.Empty;
+
+    /// <summary>The first <see cref="SniffWindowBytes"/> bytes of <paramref name="part"/>; empty when even its stream cannot be read.</summary>
+    private static byte[] ReadHead(CustomXmlPart part)
+    {
+        try
+        {
+            using var stream = part.GetStream(FileMode.Open, FileAccess.Read);
+            var buffer = new byte[SniffWindowBytes];
+            var read = stream.ReadAtLeast(buffer, buffer.Length, throwOnEndOfStream: false);
+            return buffer[..read];
+        }
+        catch (Exception)
+        {
+            // Best effort only: a part whose stream cannot even be opened (a corrupt zip entry) can still be
+            // recognised by its schemaRef, and otherwise stays "not the BC part".
+            return [];
+        }
+    }
+
+    /// <summary>The first BC namespace among <paramref name="part"/>'s itemProps <c>ds:schemaRef</c> URIs, or null.</summary>
+    private static string? SchemaRefBcNamespace(CustomXmlPart part)
+    {
+        try
+        {
+            return part.CustomXmlPropertiesPart?.DataStoreItem?.SchemaReferences?
+                .Elements<Ds.SchemaReference>()
+                .Select(r => r.Uri?.Value)
+                .FirstOrDefault(uri => uri?.StartsWith(OoxmlNames.BcNamespacePrefix, StringComparison.Ordinal) == true);
+        }
+        catch (Exception)
+        {
+            // A malformed itemProps is no evidence either way; the raw-content sniff still runs.
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// The BC namespace URI found in <paramref name="head"/> — decoded as UTF-8, then UTF-16 LE, then UTF-16
+    /// BE, since a wrong decoding cannot produce the ASCII prefix by accident — read up to the first character
+    /// that cannot be part of it (a quote, whitespace or markup); null when none of the three contains it.
+    /// </summary>
+    private static string? SniffBcNamespace(byte[] head)
+    {
+        foreach (var encoding in new[] { Encoding.UTF8, Encoding.Unicode, Encoding.BigEndianUnicode })
+        {
+            var text = encoding.GetString(head);
+            var start = text.IndexOf(OoxmlNames.BcNamespacePrefix, StringComparison.Ordinal);
+            if (start < 0)
+            {
+                continue;
+            }
+
+            var end = start;
+            while (end < text.Length && text[end] is not ('"' or '\'' or '<' or '>') && !char.IsWhiteSpace(text[end]))
+            {
+                end++;
+            }
+
+            return text[start..end];
+        }
+
+        return null;
+    }
+
+    /// <summary>Matches the <c>encoding</c> pseudo-attribute of an XML declaration at the very start of a part.</summary>
+    private static readonly Regex EncodingDeclaration =
+        new(@"^﻿?\s*<\?xml[^>]*?\bencoding\s*=\s*[""'](?<name>[^""']+)[""']", RegexOptions.Compiled);
+
+    /// <summary>
+    /// A sentence naming the contradiction when <paramref name="head"/>'s XML declaration names one encoding
+    /// family (UTF-8 or UTF-16) while its bytes — by byte order mark, or by the zero bytes UTF-16 puts around
+    /// an ASCII <c>&lt;</c> — are the other; empty otherwise. Three of the six broken shapes GitHub issue #96
+    /// reproduced are exactly this, and two of them fail with the parser's least helpful message ("There is
+    /// no Unicode byte order mark. Cannot switch to Unicode.", which carries no line or position), so naming
+    /// the two encodings is what makes the error actionable.
+    /// </summary>
+    private static string DescribeEncodingContradiction(byte[] head)
+    {
+        (Encoding Encoding, bool IsUtf16, string Description)? actual = head switch
+        {
+            [0xEF, 0xBB, 0xBF, ..] => (Encoding.UTF8, false, "UTF-8 (with a UTF-8 byte order mark)"),
+            [0xFF, 0xFE, ..] => (Encoding.Unicode, true, "UTF-16 (with a UTF-16 byte order mark)"),
+            [0xFE, 0xFF, ..] => (Encoding.BigEndianUnicode, true, "UTF-16 big-endian (with a byte order mark)"),
+            [(byte)'<', 0, ..] => (Encoding.Unicode, true, "UTF-16"),
+            [0, (byte)'<', ..] => (Encoding.BigEndianUnicode, true, "UTF-16 big-endian"),
+            [(byte)'<', ..] => (Encoding.UTF8, false, "UTF-8"),
+            _ => null,
+        };
+
+        if (actual is not { } bytes)
+        {
+            return string.Empty;
+        }
+
+        var match = EncodingDeclaration.Match(bytes.Encoding.GetString(head));
+        if (!match.Success)
+        {
+            return string.Empty;
+        }
+
+        var declared = match.Groups["name"].Value;
+        var declaresUtf16 = declared.StartsWith("utf-16", StringComparison.OrdinalIgnoreCase)
+                            || declared.Equals("unicode", StringComparison.OrdinalIgnoreCase);
+        var declaresUtf8 = declared.Equals("utf-8", StringComparison.OrdinalIgnoreCase);
+        if ((declaresUtf16 && !bytes.IsUtf16) || (declaresUtf8 && bytes.IsUtf16))
+        {
+            return $" Its XML declaration says encoding=\"{declared}\" but its bytes are {bytes.Description} - what "
+                   + "re-saving the part in a text editor typically leaves behind.";
+        }
+
+        return string.Empty;
     }
 
     /// <summary>Builds the dataset tree from the loaded <c>NavWordReportXmlPart</c> root element.</summary>

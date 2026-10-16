@@ -137,8 +137,21 @@ public sealed class RefreshResult
     /// still is remains fully discoverable via <c>list_dataset_fields</c>'s own bound/unbound flag; this
     /// list's whole value is the DELTA the AL report just introduced, not a standing inventory of every gap.
     /// </para>
+    /// <para>
+    /// ALWAYS EMPTY when this refresh repaired an unreadable part (<see cref="RepairedUnreadablePart"/> is
+    /// set): there was no readable old schema to diff against, and listing every unbound column instead would
+    /// report the fields the layout simply never used as new ones.
+    /// </para>
     /// </summary>
     public required IReadOnlyList<string> NewUnboundFields { get; init; }
+
+    /// <summary>
+    /// Set only when the layout's BC dataset part was there but could NOT be parsed, and this refresh
+    /// replaced its content - the repair <c>validate_layout</c>'s <c>schema-parse</c> finding points at
+    /// (GitHub issue #96). Describes the part that was replaced and the parse error it had; null for an
+    /// ordinary refresh of a readable part. The part keeps its <c>ds:itemID</c> either way.
+    /// </summary>
+    public string? RepairedUnreadablePart { get; init; }
 
     /// <summary>
     /// A fresh <see cref="BcWordLayout.Domain.LayoutValidator.Quick"/> summary of the layout AFTER the
