@@ -44,6 +44,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   earlier sections, page 1 included, rendered without it. The first insert into such a new header
   or footer also no longer leaves an empty line above its content.
 
+- **`create_layout` with a Word template (`.dotx`) as `templatePath` now produces a `.docx` Word
+  can open** (GitHub issue #77). The template was copied as-is, so the output kept the template's
+  main-part content type under a `.docx` name. Word refused it ("Word was unable to read this
+  document"), while `create_layout`'s own quick validation and `validate_layout` reported it clean.
+  - A template is now converted to a document before the BC part is attached.
+  - A macro-enabled `templatePath` (`.dotm`/`.docm`) is refused with `invalid_argument` instead
+    of having its macros silently dropped.
+  - A new `validate_layout` check, `document-content-type` (error), flags any layout whose main
+    part is not typed as a plain Word document, such as a template renamed to `.docx`.
+
 ### Security
 
 - **A crafted layout can no longer kill the server through the OpenXml SDK's own parse** (GitHub

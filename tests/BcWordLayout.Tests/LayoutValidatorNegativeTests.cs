@@ -251,6 +251,37 @@ public class LayoutValidatorNegativeTests
         }
     }
 
+    // ---- document-content-type: a .docx whose main part is typed as something Word will not open as one (#77) ----
+
+    [Theory]
+    [InlineData(DocumentFormat.OpenXml.WordprocessingDocumentType.Template, "template.main+xml")]
+    [InlineData(DocumentFormat.OpenXml.WordprocessingDocumentType.MacroEnabledTemplate, "template.macroEnabledTemplate.main+xml")]
+    [InlineData(DocumentFormat.OpenXml.WordprocessingDocumentType.MacroEnabledDocument, "document.macroEnabled.main+xml")]
+    public void Main_part_not_typed_as_a_document_is_flagged_but_a_document_typed_sibling_is_not(
+        DocumentFormat.OpenXml.WordprocessingDocumentType documentType, string contentTypeFragment)
+    {
+        // A template (or macro-enabled package) renamed to .docx: OpenXmlValidator and every binding check
+        // pass it, and Word refuses to open it. The fixtures carry no BC part (single-bc-part fires on both
+        // alike), so the pairing isolates the content type as the only difference between them.
+        var renamed = SyntheticLayout.CreateWordPackage(documentType, ".docx");
+        var sibling = SyntheticLayout.CreateWordPackage(DocumentFormat.OpenXml.WordprocessingDocumentType.Document, ".docx");
+
+        try
+        {
+            var findings = LayoutValidator.Quick(renamed).Findings.Where(f => f.Check == "document-content-type").ToList();
+            var finding = Assert.Single(findings);
+            Assert.Equal(FindingSeverity.Error, finding.Severity);
+            Assert.Contains(contentTypeFragment, finding.Message, StringComparison.OrdinalIgnoreCase);
+
+            Assert.DoesNotContain(LayoutValidator.Quick(sibling).Findings, f => f.Check == "document-content-type");
+        }
+        finally
+        {
+            File.Delete(renamed);
+            File.Delete(sibling);
+        }
+    }
+
     // ---- table-style-resolves: a w:tblStyle naming a style the layout does not define (issue #3) ----
 
     [Fact]

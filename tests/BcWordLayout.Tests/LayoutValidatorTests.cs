@@ -93,6 +93,26 @@ public class LayoutValidatorTests
         Assert.Equal("Customer", segments[1]);
     }
 
+    [Theory]
+    [InlineData(Corpus.SalesInvoice)]
+    [InlineData(Corpus.InventoryOrderDetails)]
+    [InlineData(Corpus.StandardStatement)]
+    [InlineData(Corpus.SalespersonCommission)]
+    [InlineData(Corpus.JobQuote)]
+    [InlineData(Corpus.StandardSalesQuote)]
+    [InlineData(Corpus.StandardPurchaseOrder)]
+    [InlineData(Corpus.SalesInvoiceVatSpec)]
+    [InlineData(Corpus.PaymentPracticeByPeriod)]
+    [InlineData(Corpus.SubcontractorDispatchList)]
+    public void No_corpus_layout_trips_the_document_content_type_check(string fileName)
+    {
+        // document-content-type is an ERROR, so every layout BC exports must carry the content type it
+        // requires - the whole corpus, including the captures excluded from the pass-clean theory above.
+        var result = LayoutValidator.Quick(Corpus.Path(fileName));
+
+        Assert.DoesNotContain(result.Findings, f => f.Check == "document-content-type");
+    }
+
     [Fact]
     public void SalesInvoice_surfaces_attachedTemplate_as_warning_not_error()
     {

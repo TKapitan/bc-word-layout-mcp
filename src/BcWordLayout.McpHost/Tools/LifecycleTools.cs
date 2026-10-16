@@ -62,7 +62,9 @@ public static class LifecycleTools
                  + "be an UNBOUND branded/styled .docx shell (headers/footers, logo, fonts/styles), NOT a "
                  + "full BC layout with its own bound content controls: the template's own body is kept as-is "
                  + "(a heading naming the report is appended only when the body is entirely empty) and its "
-                 + "pre-existing bound controls, if any, are never stripped or rebound. If the template "
+                 + "pre-existing bound controls, if any, are never stripped or rebound. A Word template "
+                 + "(.dotx) is accepted and converted to a document, so the output is a real .docx; a "
+                 + "macro-enabled file (.dotm/.docm) is refused with invalid_argument. If the template "
                  + "already has its own BC dataset part it is removed and replaced (reported as "
                  + "replacedExistingBcPart=true) - if that leaves any of the template's own bound controls "
                  + "stale against the fresh storeItemID, the call FAILS outright with error code "
@@ -97,9 +99,10 @@ public static class LifecycleTools
         [Description("Absolute path to an existing .docx layout (its BC dataset part is reused) OR a "
                      + "standalone schema .xml file.")] string schemaSource,
         [Description("Absolute path to write the new layout .docx to.")] string outputPath,
-        [Description("Optional absolute path to an UNBOUND branded/styled .docx to start from instead of a "
-                     + "blank document (e.g. a letterhead template with headers/footers/logo/styles but no "
-                     + "bound content controls of its own - see this tool's own description for why).")]
+        [Description("Optional absolute path to an UNBOUND branded/styled .docx or .dotx to start from "
+                     + "instead of a blank document (e.g. a letterhead template with headers/footers/logo/styles "
+                     + "but no bound content controls of its own - see this tool's own description for why). "
+                     + "Not a macro-enabled .dotm/.docm.")]
         string? templatePath = null,
         [Description("Optional text for the heading paragraph a BLANK (non-template) layout starts with. "
                      + "Omit for the default (the report's own name, e.g. 'Standard_Sales_Order_Conf'); "

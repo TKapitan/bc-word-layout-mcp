@@ -533,6 +533,32 @@ internal static class SyntheticLayout
     }
 
     /// <summary>
+    /// Writes an UNBOUND letterhead-style package of the given <paramref name="documentType"/> (one paragraph
+    /// carrying <paramref name="bodyText"/>, no custom XML part) to a temp file with
+    /// <paramref name="extension"/> — the shape a company keeps as a Word template (<c>.dotx</c>), or its
+    /// macro-enabled siblings (<c>.dotm</c>/<c>.docm</c>), for <c>create_layout</c>'s <c>templatePath</c>
+    /// tests (GitHub issue #77). Built at runtime through the SDK rather than committed as a binary: the
+    /// package's main-part content type is exactly what <see cref="WordprocessingDocument.Create(string, WordprocessingDocumentType)"/>
+    /// writes for that type, which is the only property under test.
+    /// </summary>
+    public static string CreateWordPackage(WordprocessingDocumentType documentType, string extension, string bodyText = "Letterhead")
+    {
+        var path = System.IO.Path.Combine(
+            System.IO.Path.GetTempPath(), $"bcwl-synth-{documentType}-{Guid.NewGuid():N}{extension}");
+
+        using (var doc = WordprocessingDocument.Create(path, documentType))
+        {
+            var main = doc.AddMainDocumentPart();
+            WriteRaw(
+                main.GetStream(FileMode.Create, FileAccess.Write),
+                "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
+                + $"<w:document {Ns}><w:body>{PlainParagraph(bodyText)}<w:sectPr/></w:body></w:document>");
+        }
+
+        return path;
+    }
+
+    /// <summary>
     /// Writes a temp .docx like <see cref="Create"/>, but ALSO adds one header part containing
     /// <paramref name="headerFragments"/> raw sdt/paragraph fragments — for tests needing a control located
     /// specifically in a header (e.g. <see cref="BcWordLayout.Domain.LayoutValidator"/>'s

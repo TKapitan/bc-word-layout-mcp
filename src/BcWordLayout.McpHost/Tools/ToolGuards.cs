@@ -1230,6 +1230,13 @@ internal static class ToolGuards
             + "(its BC dataset part is reused) or a standalone exported schema .xml; see the message above "
             + "for exactly what was rejected about it.",
 
+        "templatepath" =>
+            "create_layout's templatePath must be an unbound branded/styled shell saved as a Word Document "
+            + "(.docx) or a Word Template (.dotx - converted to a document automatically). A macro-enabled "
+            + "file (.dotm/.docm) is refused rather than stripped of its macros: open it in Word, save it as a "
+            + "Word Document or Word Template, and pass that file instead (or omit templatePath for a blank "
+            + "layout).",
+
         "newschemasource" =>
             "refresh_xml_part's newSchemaSource must be a non-empty absolute path to an existing .docx "
             + "layout (its BC dataset part is reused) or a standalone exported schema .xml - the same shape "

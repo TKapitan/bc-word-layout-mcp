@@ -33,6 +33,7 @@ public static class LayoutValidator
             ?? throw new InvalidDataException("Layout has no main document part.");
 
         CheckOpenXmlStructure(doc, findings);
+        CheckDocumentContentType(main, findings);
         var bcPartItemId = CheckSingleBcPart(main, findings);
         DatasetTree? schema = TryBuildSchema(main, findings);
 
@@ -94,6 +95,40 @@ public static class LayoutValidator
     /// </remarks>
     private static bool IsWordPlaceholderCharacterScale(ValidationErrorInfo error) =>
         error.Node is CharacterScale { Val.Value: 0 };
+
+    /// <summary>The main-part content type of a plain Word document package — the only one a .docx may carry.</summary>
+    private const string DocumentMainContentType =
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml";
+
+    // 1a. The main document part is typed as a plain Word DOCUMENT.
+    //
+    //     The package type lives in the main part's content type, not the file name: a template (.dotx) or
+    //     a macro-enabled file (.dotm/.docm) renamed to .docx keeps its own, and Word then refuses to open
+    //     it ("Word was unable to read this document"). Nothing else here notices - OpenXmlValidator accepts
+    //     every Word package type and the binding checks never look at packaging - so before this check a
+    //     create_layout built over a .dotx validated clean while Word refused the result (GitHub issue #77;
+    //     create_layout now converts a template itself, which this check also guards). ERROR: the file is
+    //     unusable as a layout. Every corpus layout carries the document type, as Word writes any .docx.
+    private static void CheckDocumentContentType(MainDocumentPart main, List<ValidationFinding> findings)
+    {
+        if (string.Equals(main.ContentType, DocumentMainContentType, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        findings.Add(new ValidationFinding
+        {
+            Check = "document-content-type",
+            Severity = FindingSeverity.Error,
+            Message = $"The main document part is typed '{main.ContentType}', not '{DocumentMainContentType}': "
+                      + "this package is a Word template or macro-enabled file whatever its file name says, and "
+                      + "Word refuses to open it as a .docx (\"Word was unable to read this document\"). To "
+                      + "repair it, give it back its real extension (.dotx/.dotm/.docm), open it in Word and "
+                      + "save it as a Word Document (.docx) - or, for a template with no bound controls of its "
+                      + "own, pass it to create_layout as templatePath, which converts a .dotx automatically.",
+            Location = main.Uri.ToString(),
+        });
+    }
 
     // 2. Exactly one custom XML part in the BC namespace, and that part carries a DataStoreItem for its
     //    bindings to name. Returns the BC part's item ID (or null when there is none to return).

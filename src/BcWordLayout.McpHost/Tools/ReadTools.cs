@@ -133,7 +133,8 @@ public static class ReadTools
 
     [McpServerTool(Name = "validate_layout")]
     [Description("Validate a BC Word layout. level='quick' runs structural + binding checks (OpenXML "
-                 + "validity, single BC XML part, storeItemID match, binding dataset-namespace match, XPath "
+                 + "validity, a document-content-type ERROR when the main part is typed as a Word template or "
+                 + "macro-enabled file - which Word refuses to open as a .docx, single BC XML part, storeItemID match, binding dataset-namespace match, XPath "
                  + "resolution, repeater shape, attachedTemplate warning, a compatibility-mode warning "
                  + "when a layout that CONTAINS repeaters declares a Word compatibility mode below 15, and"
                  + "a repeater-downgraded ERROR when a control's alias names a whole data item but the"

@@ -512,6 +512,30 @@ public class InvalidArgumentHintCoverageTests
         AssertActionableFailure(response, "invalid_argument", "outputPath is where the new");
     }
 
+    // ---- "templatepath" — LayoutBuilder.Create (a macro-enabled templatePath, GitHub issue #77) ----
+
+    [Fact]
+    public void CreateLayout_macro_enabled_templatePath_hint_names_create_layout_templatePath()
+    {
+        var templatePath = SyntheticLayout.CreateWordPackage(
+            DocumentFormat.OpenXml.WordprocessingDocumentType.MacroEnabledTemplate, ".dotm");
+        var outputPath = NewOutputPath();
+        try
+        {
+            var response = LifecycleTools.CreateLayout(Corpus.Path(Corpus.SalesInvoice), outputPath, templatePath);
+            AssertActionableFailure(response, "invalid_argument", "create_layout's templatePath");
+            Assert.False(File.Exists(outputPath));
+        }
+        finally
+        {
+            File.Delete(templatePath);
+            if (File.Exists(outputPath))
+            {
+                File.Delete(outputPath);
+            }
+        }
+    }
+
     // ---- "newschemasource" — LayoutRefresher.Refresh (newSchemaSource empty) ----
 
     [Fact]
