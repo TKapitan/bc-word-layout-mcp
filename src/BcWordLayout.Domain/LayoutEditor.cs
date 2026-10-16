@@ -353,9 +353,12 @@ public static class LayoutEditor
         var schema = SchemaProvider.FromLayout(doc);
         var nextId = MakeIdGenerator(doc);
 
-        var table = SdtFactory.BuildRepeaterTable(schema, dataItemPath, columns, options, nextId);
-
+        // Resolved before the build (Resolve only reads) because an omitted columnWidths is split across
+        // the width of wherever the table lands - the page's content width, or the host cell's.
         var anchor = LocationResolver.Resolve(location, doc);
+        var table = SdtFactory.BuildRepeaterTable(
+            schema, dataItemPath, columns, options, nextId, ResolveAvailableWidthTwips(doc, anchor));
+
         anchor.InsertBlock(table);
         SeparateFromAdjacentTables(table);
 
@@ -862,12 +865,15 @@ public static class LayoutEditor
         };
     }
 
-    /// <summary>Corpus A4 content width in twips — the full-width fallback for a new plain table's grid.</summary>
-    private const int DefaultPlainTableWidthTwips = 10206;
+    /// <summary>
+    /// Corpus A4 content width in twips — the full-width fallback for a new table's grid (plain or
+    /// repeater) when the document's own page size/margins cannot be read.
+    /// </summary>
+    internal const int CorpusContentWidthTwips = 10206;
 
     /// <summary>
     /// The body's usable content width (page width minus left/right margins) from its trailing sectPr;
-    /// the corpus-standard <see cref="DefaultPlainTableWidthTwips"/> when page size/margins are absent
+    /// the corpus-standard <see cref="CorpusContentWidthTwips"/> when page size/margins are absent
     /// or nonsensical.
     /// </summary>
     private static int ResolveContentWidthTwips(WordprocessingDocument doc)
@@ -877,11 +883,35 @@ public static class LayoutEditor
         var margins = sectPr?.GetFirstChild<PageMargin>();
         if (pageWidth is null || margins is null)
         {
-            return DefaultPlainTableWidthTwips;
+            return CorpusContentWidthTwips;
         }
 
         var width = pageWidth.Value - (int)(margins.Left?.Value ?? 0) - (int)(margins.Right?.Value ?? 0);
-        return width > 1000 ? width : DefaultPlainTableWidthTwips;
+        return width > 1000 ? width : CorpusContentWidthTwips;
+    }
+
+    /// <summary>
+    /// The width a new table landing at <paramref name="anchor"/> has to fit in: the host cell's own
+    /// <c>w:tcW</c> when the anchor sits inside a table cell (a table nested in a cell with a page-wide
+    /// fixed grid would overrun the cell, and with it the outer table's own fixed grid), else
+    /// <see cref="ResolveContentWidthTwips"/>. A host cell without a positive dxa width — none in the
+    /// corpus — falls back to the page's content width rather than guessing from the grid.
+    /// </summary>
+    private static int ResolveAvailableWidthTwips(WordprocessingDocument doc, InsertionAnchor anchor)
+    {
+        var cellWidth = anchor.EnclosingCell?.TableCellProperties?.TableCellWidth;
+        if (cellWidth?.Type?.Value == TableWidthUnitValues.Dxa
+            && int.TryParse(
+                cellWidth.Width?.Value,
+                System.Globalization.NumberStyles.Integer,
+                System.Globalization.CultureInfo.InvariantCulture,
+                out var width)
+            && width > 0)
+        {
+            return width;
+        }
+
+        return ResolveContentWidthTwips(doc);
     }
 
     /// <summary>

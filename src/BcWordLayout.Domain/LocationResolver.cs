@@ -58,6 +58,14 @@ public sealed class InsertionAnchor
     internal OpenXmlElement InnermostHost => (OpenXmlElement?)_inlineParagraph ?? _blockContainer;
 
     /// <summary>
+    /// The table cell block content inserted at this anchor lands inside (the nearest one, for a cell in a
+    /// nested table), or null when it lands at a part's top level — for callers sizing new block content to
+    /// its container, e.g. <see cref="LayoutEditor.InsertRepeaterTable"/>'s default column widths.
+    /// </summary>
+    internal TableCell? EnclosingCell =>
+        _blockContainer as TableCell ?? _blockContainer.Ancestors<TableCell>().FirstOrDefault();
+
+    /// <summary>
     /// The <see cref="OpenXmlPart"/> this anchor's content lands in — the package-level counterpart of
     /// <see cref="PartName"/>, for the one caller that needs the part OBJECT rather than its file name:
     /// <see cref="LayoutEditor.InsertPicture"/>, which must add its <see cref="ImagePart"/> to this exact

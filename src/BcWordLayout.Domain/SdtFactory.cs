@@ -221,6 +221,12 @@ public static class SdtFactory
     /// repeatingSectionItem and repeatingSection wrappers themselves); callers own uniqueness (see
     /// <see cref="LayoutEditor.InsertRepeaterTable"/>, which guarantees uniqueness across the whole doc).
     /// </param>
+    /// <param name="availableWidthTwips">
+    /// The width an omitted <see cref="RepeaterTableOptions.ColumnWidths"/> is split evenly across — the
+    /// destination's content width, which <see cref="LayoutEditor.InsertRepeaterTable"/> resolves (the
+    /// page's, or the host cell's for a table placed inside a cell). Null means the corpus-standard A4
+    /// content width, <see cref="LayoutEditor.CorpusContentWidthTwips"/>. Ignored when explicit widths are given.
+    /// </param>
     /// <exception cref="ArgumentException">
     /// <paramref name="dataItemPath"/> does not resolve, resolves to a leaf column instead of a data item,
     /// or resolves to a system data item; <paramref name="columns"/> is empty, contains an entry that is
@@ -233,7 +239,8 @@ public static class SdtFactory
         string dataItemPath,
         IReadOnlyList<string> columns,
         RepeaterTableOptions options,
-        Func<int> nextId)
+        Func<int> nextId,
+        int? availableWidthTwips = null)
     {
         ArgumentNullException.ThrowIfNull(schema);
         ArgumentNullException.ThrowIfNull(columns);
@@ -270,7 +277,8 @@ public static class SdtFactory
             ValidateColumnOfItem(dataItem, dataItemPath, column);
         }
 
-        var widths = ResolveColumnWidths(options.ColumnWidths, columns.Count);
+        var widths = ResolveColumnWidths(
+            options.ColumnWidths, columns.Count, availableWidthTwips ?? LayoutEditor.CorpusContentWidthTwips);
 
         if (options.ColumnAlignments is not null && options.ColumnAlignments.Count != columns.Count)
         {
@@ -769,10 +777,17 @@ public static class SdtFactory
 
     // ---- BuildRepeaterTable: column widths ----
 
-    private const int DefaultColumnWidthTwips = 2000;
-
-    private static IReadOnlyList<int> ResolveColumnWidths(IReadOnlyList<int>? explicitWidths, int columnCount) =>
-        explicitWidths ?? Enumerable.Repeat(DefaultColumnWidthTwips, columnCount).ToList();
+    /// <summary>
+    /// The caller's explicit widths, else an even split of <paramref name="availableWidthTwips"/> — the
+    /// rule <c>insert_table</c> applies. A fixed per-column default (it was 2000 twips) cannot be right:
+    /// the grid is pinned with <c>w:tblLayout="fixed"</c>, so the default is binding, and six columns of
+    /// 2000 already overran the corpus-standard 10206-twip content width (GitHub issue #84). The split
+    /// floors, so the columns sum to at most the available width — short by fewer twips than there are
+    /// columns, invisible on the page — and rounding can never push the table past the margin.
+    /// </summary>
+    private static IReadOnlyList<int> ResolveColumnWidths(
+        IReadOnlyList<int>? explicitWidths, int columnCount, int availableWidthTwips) =>
+        explicitWidths ?? Enumerable.Repeat(availableWidthTwips / columnCount, columnCount).ToList();
 
     // ---- BuildRepeaterTable: table shell (tblPr/tblGrid/cells) ----
 

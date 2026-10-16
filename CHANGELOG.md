@@ -67,6 +67,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   no finding. `refresh_xml_part` now writes a bare mapping it re-points as an `xmlns:ns0='…'`
   declaration; before, it stayed bare and Word still reported the control as unmapped.
 
+- **`insert_repeater_table` without `columnWidths` no longer runs off the page** (GitHub issue
+  #84). Every column got a fixed 2000 twips, and now that the grid is pinned, tables of six or more
+  columns ran past the margin. The columns now split the document's content width evenly, as
+  `insert_table` does; a table placed inside a cell splits that cell's width instead.
+
 ### Security
 
 - **A crafted layout can no longer kill the server through the OpenXml SDK's own parse** (GitHub

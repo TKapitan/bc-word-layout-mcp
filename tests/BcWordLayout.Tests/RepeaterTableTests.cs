@@ -879,6 +879,100 @@ public class RepeaterTableTests
         }
     }
 
+    // ---- default column widths (GitHub issue #84) ----
+
+    [Fact]
+    public void Without_columnWidths_a_seven_column_table_splits_the_page_content_width_and_fits_the_page()
+    {
+        // The issue's own reproduction: the old fixed 2000-twip default made this table 14000 twips wide
+        // on a 10206-twip content width, and since the grid is pinned fixed, Word cut the 6th column at the
+        // page edge and dropped the 7th.
+        var path = CopyOfCorpus(Corpus.StandardSalesQuote);
+        try
+        {
+            var response = TableTools.InsertRepeaterTable(
+                path, LineItemPath,
+                "ItemNo_Line,Description_Line,Quantity_Line,LineAmount_Line,LineDiscountPercent_Line,"
+                + "AmountExcludingVAT_Line,AmountIncludingVAT_Line",
+                "documentEnd");
+            Assert.True(response.Ok, response.Error?.Message);
+            var dto = Assert.IsType<EditResultDto>(response.Data);
+
+            using var doc = WordprocessingDocument.Open(path, false);
+            var body = doc.MainDocumentPart!.Document!.Body!;
+            var sectPr = body.Elements<SectionProperties>().Single();
+            var contentWidth = (int)sectPr.GetFirstChild<PageSize>()!.Width!.Value
+                - (int)sectPr.GetFirstChild<PageMargin>()!.Left!.Value
+                - (int)sectPr.GetFirstChild<PageMargin>()!.Right!.Value;
+            Assert.Equal(10206, contentWidth);
+
+            var table = TableGridNavigator.Tables(body)[dto.TableIndex!.Value];
+            Assert.Equal(Enumerable.Repeat("1458", 7), GridWidths(table));
+            Assert.Equal("10206", table.GetFirstChild<TableProperties>()!.TableWidth!.Width!.Value);
+            Assert.All(table.Descendants<TableCellWidth>(), w => Assert.Equal("1458", w.Width!.Value));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(4)]
+    [InlineData(6)]
+    [InlineData(9)]
+    [InlineData(13)]
+    public void Default_widths_never_round_past_the_available_width(int columnCount)
+    {
+        // 10206 does not divide evenly by most counts; flooring keeps the sum at or under the margin
+        // (short by fewer twips than there are columns), so the rounding alone can never overflow.
+        var schema = SchemaProvider.FromLayout(Corpus.Path(Corpus.SalesInvoice));
+        var columns = Enumerable.Repeat("ItemNo_Line", columnCount).ToList();
+        var nextIdValue = 1;
+
+        var table = SdtFactory.BuildRepeaterTable(
+            schema, LineItemPath, columns, new RepeaterTableOptions(), () => nextIdValue++, availableWidthTwips: 10206);
+
+        var widths = GridWidths(table).Select(int.Parse).ToList();
+        Assert.Equal(columnCount, widths.Count);
+        Assert.Single(widths.Distinct());
+        Assert.InRange(widths.Sum(), 10206 - columnCount + 1, 10206);
+        Assert.Equal(widths.Sum().ToString(System.Globalization.CultureInfo.InvariantCulture),
+            table.GetFirstChild<TableProperties>()!.TableWidth!.Width!.Value);
+    }
+
+    [Fact]
+    public void Without_columnWidths_a_table_placed_in_a_cell_splits_the_host_cells_width()
+    {
+        // A table nested in a cell has the cell to fit in, not the page: a page-wide fixed grid there would
+        // overrun the host cell (and the outer table's own fixed grid with it).
+        var path = CopyOfCorpus(Corpus.SalesInvoice);
+        try
+        {
+            var outer = Assert.IsType<EditResultDto>(TableTools.InsertRepeaterTable(
+                path, LineItemPath, "ItemNo_Line,Description_Line,TransHeaderAmount", "documentEnd",
+                columnWidths: "1500,6000,1200").Data);
+
+            var inner = TableTools.InsertRepeaterTable(
+                path, "/Header/Line/ShipmentLine", "PostingDate_ShipmentLine,Quantity_ShipmentLine", "tableCell",
+                tableIndex: outer.TableIndex, row: outer.DataRowIndex, col: 1);
+            Assert.True(inner.Ok, inner.Error?.Message);
+            var innerDto = Assert.IsType<EditResultDto>(inner.Data);
+
+            using var doc = WordprocessingDocument.Open(path, false);
+            var innerTable = TableGridNavigator.Tables(doc.MainDocumentPart!.Document!.Body!)[innerDto.TableIndex!.Value];
+            Assert.Equal(new[] { "3000", "3000" }, GridWidths(innerTable));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    private static List<string> GridWidths(Table table) =>
+        table.GetFirstChild<TableGrid>()!.Elements<GridColumn>().Select(c => c.Width!.Value!).ToList();
+
     private static int TableIndexOfLastBodyTable(string path)
     {
         using var doc = WordprocessingDocument.Open(path, false);

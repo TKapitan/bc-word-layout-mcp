@@ -70,7 +70,9 @@ public static class TableTools
         [Description("Optional Word table style name to reference via w:tblStyle, e.g. 'TableGrid'.")]
         string? tableStyle = null,
         [Description("Optional comma-separated column widths in twips (1/20 pt), one per column; count must "
-                     + "match the number of columns. Omit for an even default width per column. The widths "
+                     + "match the number of columns. Omit for an even split of the document's content width "
+                     + "(page width minus margins; for a table placed inside a cell, that cell's width), so "
+                     + "the table always fits the page however many columns it has. The widths "
                      + "are BINDING, not advisory: the table is emitted with w:tblLayout='fixed' and a "
                      + "w:tblW total equal to their sum, so Word renders the grid as specified instead of "
                      + "autofitting the columns to whatever the merged content happens to be.")]
