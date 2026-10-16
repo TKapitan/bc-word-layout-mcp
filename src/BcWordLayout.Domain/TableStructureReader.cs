@@ -111,12 +111,18 @@ public static class TableStructureReader
         }
 
         var cells = new List<TableCellInfo>();
+        var (gridBefore, gridAfter) = rowSlot.InnerRow is null ? (0, 0) : TableGridNavigator.GridEdges(rowSlot.InnerRow);
         if (rowSlot.InnerRow is not null)
         {
+            // The grid column each cell starts at, by the same arithmetic every column tool uses (the row's
+            // first cell sits at gridBefore, each later one after the spans before it), so the gridColumn
+            // reported here is exactly the index remove_column/insert_column/set_column_widths act on.
             var cellSlots = TableGridNavigator.Cells(rowSlot.InnerRow);
+            var gridColumn = gridBefore;
             for (var c = 0; c < cellSlots.Count; c++)
             {
-                cells.Add(ReadCell(table, cellSlots[c], tableIndex, rowIndex, c, coords));
+                cells.Add(ReadCell(table, cellSlots[c], tableIndex, rowIndex, c, gridColumn, coords));
+                gridColumn += cellSlots[c].GridSpan;
             }
         }
 
@@ -125,12 +131,15 @@ public static class TableStructureReader
             RowIndex = rowIndex,
             IsControlRow = rowSlot.IsControlRow,
             ControlId = rowSlot.ControlId,
+            GridBefore = gridBefore,
+            GridAfter = gridAfter,
             Cells = cells,
         };
     }
 
     private static TableCellInfo ReadCell(
-        Table table, TableGridNavigator.CellSlot cellSlot, int tableIndex, int rowIndex, int colIndex, Dictionary<SdtElement, Coord> coords)
+        Table table, TableGridNavigator.CellSlot cellSlot, int tableIndex, int rowIndex, int colIndex, int gridColumn,
+        Dictionary<SdtElement, Coord> coords)
     {
         var coord = new Coord(tableIndex, rowIndex, colIndex);
 
@@ -188,6 +197,8 @@ public static class TableStructureReader
         return new TableCellInfo
         {
             ColIndex = colIndex,
+            GridColumn = gridColumn,
+            GridSpan = cellSlot.GridSpan,
             IsControlCell = isControlCell,
             ControlId = cellControlId,
             ControlKind = controlKind,

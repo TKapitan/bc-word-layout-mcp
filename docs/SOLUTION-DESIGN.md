@@ -206,7 +206,10 @@ Conventions that hold across the surface:
   about first-page visibility from the tool surface alone.
 - **Coordinates round-trip.** The `tableIndex`/`row`/`col` an agent reads from `get_layout_info` address
   the same physical spot in every editing tool, by construction: reader and editor share
-  `TableGridNavigator` rather than keeping parallel implementations.
+  `TableGridNavigator` rather than keeping parallel implementations. Each cell carries both of its
+  coordinates — `colIndex`, its physical position in the row (what the cell tools take), and
+  `gridColumn`/`gridSpan`, its place on the grid (what the column tools take, per §2.4) — and each row its
+  `gridBefore`/`gridAfter`, so the grid column of any cell is read, never derived.
 
 ## 5. The mock preview pipeline
 

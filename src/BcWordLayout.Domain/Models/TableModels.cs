@@ -75,15 +75,47 @@ public sealed class TableRowInfo
     /// <summary>The row-level control's <c>w:id</c>, when <see cref="IsControlRow"/> is true; else null.</summary>
     public int? ControlId { get; init; }
 
+    /// <summary>
+    /// Grid columns the row skips BEFORE its first cell (<c>w:trPr/w:gridBefore</c>, 0 when absent) — so its
+    /// first cell starts at this grid column, not 0. With <see cref="GridAfter"/> and the cells'
+    /// <see cref="TableCellInfo.GridSpan"/>s it accounts for the whole grid:
+    /// <c>GridBefore + ΣGridSpan + GridAfter = ColumnCount</c> on a well-formed row.
+    /// </summary>
+    public required int GridBefore { get; init; }
+
+    /// <summary>Grid columns the row skips AFTER its last cell (<c>w:trPr/w:gridAfter</c>, 0 when absent).</summary>
+    public required int GridAfter { get; init; }
+
     /// <summary>The cells in document order.</summary>
     public required IReadOnlyList<TableCellInfo> Cells { get; init; }
 }
 
 /// <summary>One cell of a <see cref="TableRowInfo"/>.</summary>
+/// <remarks>
+/// TWO COORDINATES, ONE PER KIND OF TOOL. <see cref="ColIndex"/> is the cell's PHYSICAL position in its row
+/// — what the cell tools take (<c>tableCell</c> locations, <c>set_cell_text</c>, <c>merge_cells</c>,
+/// <c>split_cells</c>, <c>set_cell_borders</c>'s <c>col</c>). <see cref="GridColumn"/>/<see cref="GridSpan"/>
+/// are where the cell sits on the table's <c>w:tblGrid</c> — what the column tools take
+/// (<c>insert_column</c>'s <c>atColumn</c>, <c>remove_column</c>, <c>set_column_widths</c>' list order).
+/// They differ on almost every real BC table, which is <c>gridSpan</c>-pervasive: on the stock VAT-spec
+/// invoice's lines table, Line Amount is physical cell 7 in both its header and data rows but grid column 9,
+/// and <c>remove_column</c> with the physical index removed a grid column inside the VAT % cells instead
+/// (GitHub issue #81). Before <see cref="GridColumn"/> was reported, nothing in <c>get_layout_info</c> let a
+/// caller convert one to the other.
+/// </remarks>
 public sealed class TableCellInfo
 {
     /// <summary>0-based column index within its row (counts every cell, whether or not it is a control cell).</summary>
     public required int ColIndex { get; init; }
+
+    /// <summary>
+    /// 0-based GRID column the cell starts at — its row's <see cref="TableRowInfo.GridBefore"/> plus the
+    /// <see cref="GridSpan"/>s of the cells before it. The index to pass to the column tools.
+    /// </summary>
+    public required int GridColumn { get; init; }
+
+    /// <summary>How many grid columns the cell covers (<c>w:gridSpan</c>, 1 when absent): grid columns <see cref="GridColumn"/>..<see cref="GridColumn"/>+<see cref="GridSpan"/>-1.</summary>
+    public required int GridSpan { get; init; }
 
     /// <summary>
     /// True when the cell itself is wrapped by a cell-level content control (<c>SdtCell</c>) — e.g. the BC

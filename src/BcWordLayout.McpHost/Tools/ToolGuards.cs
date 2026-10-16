@@ -933,7 +933,11 @@ internal static class ToolGuards
                     cell.Alias,
                     cell.XPath,
                     cell.Text,
-                    cell.InnerControlIds)).ToList())).ToList());
+                    cell.InnerControlIds,
+                    cell.GridColumn,
+                    cell.GridSpan)).ToList(),
+                r.GridBefore,
+                r.GridAfter)).ToList());
 
     /// <summary>
     /// SECURITY: recurses once per <see cref="DataItem"/>
@@ -1360,7 +1364,8 @@ internal static class ToolGuards
         "widths" =>
             "set_column_widths' widths must be a non-empty comma-separated list of integers (twips, each 1 to "
             + $"{TableTools.MaxColumnWidthTwips}), exactly one per GRID column - the count must equal the table's "
-            + "columnCount from get_layout_info.",
+            + "columnCount from get_layout_info (a cell's own columns are positions "
+            + "gridColumn..gridColumn+gridSpan-1 in that list).",
 
         "cells" =>
             "cells is a comma-separated list of cell specs, one per cell of the new row: '-' is an empty spacer, "
@@ -1372,7 +1377,9 @@ internal static class ToolGuards
 
         "atcolumn" =>
             "insert_column's atColumn is the 0-based GRID position for the new column (0..columnCount from "
-            + "get_layout_info; columnCount, or omitting it, appends at the far-right edge). An INTERIOR "
+            + "get_layout_info; columnCount, or omitting it, appends at the far-right edge): a cell's "
+            + "gridColumn in get_layout_info's tables[] inserts before that cell, gridColumn+gridSpan after "
+            + "it - not its colIndex, the physical position in the row. An INTERIOR "
             + "position must land on a cell boundary in every row that carries the new column's content (a "
             + "header row, and the bound data row) - if it falls inside a spanned cell there, split that "
             + "cell first with split_cells or pick a different position.",
@@ -1384,7 +1391,8 @@ internal static class ToolGuards
             + "columns. Omit it for an equal share, and use set_column_widths afterwards for any other split.",
 
         "gridcolumn" =>
-            "remove_column's column is a 0-based GRID column index (0..columnCount-1 from get_layout_info); "
+            "remove_column's column is a 0-based GRID column index (0..columnCount-1 from get_layout_info) - "
+            + "the gridColumn get_layout_info's tables[] report for the column's cells, not their colIndex; "
             + "the last remaining column cannot be removed, nor a column that is some row's ONLY cell (a row "
             + "otherwise made of w:gridBefore/w:gridAfter skipped columns - Word cannot open a row with no "
             + "cells), nor any column of a table none of whose rows matches its w:tblGrid (repair the grid "

@@ -219,6 +219,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     answered `not_found`. They now refuse the cell as a bound control (`invalid_argument`), like
     any single-level bound cell.
 
+- **`get_layout_info` reports the grid column of every cell** (GitHub issue #81). Cells reported
+  only `colIndex`, their physical position in the row, while `remove_column`, `insert_column`'s
+  `atColumn` and `set_column_widths` take a grid column. On spanned tables the two differ: on the
+  stock VAT-spec invoice's lines table, Line Amount is `colIndex` 7 but grid column 9, and
+  `remove_column` 7 narrowed the VAT % cells instead and reported success.
+  - **New fields:** each cell now carries `gridColumn` (where it starts, `gridBefore` included)
+    and `gridSpan`, and each row `gridBefore`/`gridAfter`. The column tools' descriptions and hints
+    point at `gridColumn`.
+  - **`remove_column`'s summary** says per row whether a cell was deleted, a spanned cell narrowed
+    or a skipped run shrunk, and warns when no row had a cell of its own at that column.
+  - **`set_cell_borders`** returned the physical `col` as `columnIndex`. It now returns the grid
+    column the cell starts at, as the result type documents and `merge_cells`/`split_cells` do.
+
 ### Security
 
 - **A crafted layout can no longer kill the server through the OpenXml SDK's own parse** (GitHub

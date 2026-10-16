@@ -106,9 +106,10 @@ public static class TableStructureEditor
     /// vMerge tables — there is no span arithmetic here to get wrong.
     /// </summary>
     /// <param name="col">
-    /// 0-based PHYSICAL cell index within the row (the same index <c>get_layout_info</c> reports), or null
+    /// 0-based PHYSICAL cell index within the row (the <c>colIndex</c> <c>get_layout_info</c> reports), or null
     /// for every cell in the row. Physical rather than grid: a rule is drawn on a cell, and a spanned cell is
-    /// one cell however many grid columns it covers.
+    /// one cell however many grid columns it covers. The result's <see cref="TableEditResult.ColumnIndex"/>
+    /// is nevertheless the GRID column that cell starts at (null for a whole row), like every table tool's.
     /// </param>
     /// <exception cref="ArgumentException">
     /// <paramref name="options"/> selects no edge at all (nothing to do), or its
@@ -184,12 +185,20 @@ public static class TableStructureEditor
 
         var verb = options.Remove ? "Cleared" : "Drew";
         var where = col is { } c ? $"cell {c} of row {row}" : $"all {cellsAffected} cell(s) of row {row}";
+
+        // ColumnIndex is documented, for every table tool, as a GRID column — merge_cells/split_cells already
+        // report the grid column their cell starts at. This one used to echo the PHYSICAL col back (GitHub
+        // issue #81), which names a different column on any spanned row; report where the cell sits instead.
+        int? gridColumn = col is { } physical
+            ? TableGridNavigator.GridEdges(innerRow).Before + cellSlots.Take(physical).Sum(s => s.GridSpan)
+            : null;
+
         return new TableEditResult
         {
             Operation = "set_cell_borders",
             Part = partFile,
             TableIndex = tableIndex,
-            ColumnIndex = col,
+            ColumnIndex = gridColumn,
             RowsAffected = 1,
             ColumnCountBefore = gridCount,
             ColumnCountAfter = gridCount,
@@ -1073,19 +1082,24 @@ public static class TableStructureEditor
         // basis to scale from).
         var allWidthsKnown = TryGetGridWidths(table, out var widthsBefore);
 
-        var rowsAffected = 0;
-        foreach (var row in TableGridNavigator.Rows(table))
+        // What happened to each row, for the summary: a caller who picked the wrong index (a physical cell
+        // index instead of a grid column — GitHub issue #81) otherwise had only "updating N row(s)" to go on,
+        // which reads the same whether the intended cells went or a neighbouring span merely got narrower.
+        var outcomes = new RemovalOutcomes();
+        var rows = TableGridNavigator.Rows(table);
+        for (var r = 0; r < rows.Count; r++)
         {
-            if (row.InnerRow is null)
+            if (rows[r].InnerRow is not { } innerRow)
             {
                 continue;
             }
 
-            var cells = TableGridNavigator.Cells(row.InnerRow);
-            var coverage = TableGridNavigator.Coverage(row.InnerRow);
+            var cells = TableGridNavigator.Cells(innerRow);
+            var coverage = TableGridNavigator.Coverage(innerRow);
             if (coverage.Total != gridCount)
             {
-                continue; // A pre-existing malformed row: do not guess how to shrink it.
+                outcomes.Untouched.Add(r); // A pre-existing malformed row: do not guess how to shrink it.
+                continue;
             }
 
             // The removed grid column may fall in a row's SKIPPED region rather than on one of its cells (a
@@ -1094,15 +1108,15 @@ public static class TableStructureEditor
             // coverage equal to the newly shrunk grid exactly as a cell removal does for the other rows.
             if (gridColumn < coverage.Before)
             {
-                TableGridNavigator.SetGridEdges(row.InnerRow, coverage.Before - 1, coverage.After);
-                rowsAffected++;
+                TableGridNavigator.SetGridEdges(innerRow, coverage.Before - 1, coverage.After);
+                outcomes.SkippedRunShrunk.Add(r);
                 continue;
             }
 
             if (gridColumn >= coverage.ContentEnd)
             {
-                TableGridNavigator.SetGridEdges(row.InnerRow, coverage.Before, coverage.After - 1);
-                rowsAffected++;
+                TableGridNavigator.SetGridEdges(innerRow, coverage.Before, coverage.After - 1);
+                outcomes.SkippedRunShrunk.Add(r);
                 continue;
             }
 
@@ -1114,19 +1128,22 @@ public static class TableStructureEditor
                     if (cell.GridSpan <= 1)
                     {
                         cell.CellChild.Remove();
+                        outcomes.CellDeleted.Add(r);
                     }
                     else
                     {
                         SetCellGridSpan(cell.InnerCell, cell.GridSpan - 1);
+                        outcomes.SpanNarrowed.Add(r);
                     }
 
-                    rowsAffected++;
                     break;
                 }
 
                 cursor += cell.GridSpan;
             }
         }
+
+        var rowsAffected = outcomes.CellDeleted.Count + outcomes.SpanNarrowed.Count + outcomes.SkippedRunShrunk.Count;
 
         GridColumns(table)[gridColumn].Remove();
 
@@ -1154,8 +1171,60 @@ public static class TableStructureEditor
             ColumnCountAfter = gridCount - 1,
             Summary = $"Removed grid column {gridColumn} from table {tableIndex}"
                 + (partFile == "document.xml" ? string.Empty : $" in {partFile}")
-                + $", updating {rowsAffected} row(s){widthNote}.",
+                + $", updating {rowsAffected} row(s) ({outcomes.Describe()}){widthNote}."
+                + outcomes.NoOwnCellNote(gridColumn),
         };
+    }
+
+    /// <summary>
+    /// Which rows <see cref="RemoveColumn"/> changed, and how — the row indexes are the same ones
+    /// <c>get_layout_info</c>'s <c>tables[].rows[]</c> reports.
+    /// </summary>
+    private sealed class RemovalOutcomes
+    {
+        /// <summary>Rows whose cell at the removed grid column spanned only it, and was deleted.</summary>
+        public List<int> CellDeleted { get; } = new();
+
+        /// <summary>Rows whose cell at the removed grid column spans further columns, and lost one of span.</summary>
+        public List<int> SpanNarrowed { get; } = new();
+
+        /// <summary>Rows that reach the removed grid column through a <c>w:gridBefore</c>/<c>w:gridAfter</c> run, which shrank.</summary>
+        public List<int> SkippedRunShrunk { get; } = new();
+
+        /// <summary>Pre-existing rows that did not match the grid, left as they were.</summary>
+        public List<int> Untouched { get; } = new();
+
+        public string Describe()
+        {
+            var parts = new List<string>(4);
+            Add(CellDeleted, "deleted the covering cell");
+            Add(SpanNarrowed, "narrowed the covering spanned cell by one column");
+            Add(SkippedRunShrunk, "shrank the skipped grid run");
+            Add(Untouched, "left untouched (already off-grid before the edit)");
+            return parts.Count == 0 ? "no row reaches that column" : string.Join("; ", parts);
+
+            void Add(List<int> rows, string what)
+            {
+                if (rows.Count > 0)
+                {
+                    parts.Add($"{what} in row{(rows.Count == 1 ? string.Empty : "s")} {string.Join(", ", rows)}");
+                }
+            }
+        }
+
+        /// <summary>
+        /// A warning when NO row had a cell of its own at the removed grid column — every covering cell was
+        /// a spanned one that merely got narrower. That is a legitimate edit (dropping a grid column that only
+        /// exists as part of spans), but it is also exactly what passing a physical cell index for the grid
+        /// column looks like (GitHub issue #81), so the summary says so rather than leave it to a preview.
+        /// </summary>
+        public string NoOwnCellNote(int gridColumn) =>
+            CellDeleted.Count == 0 && SpanNarrowed.Count > 0
+                ? $" No row had a cell of its own in grid column {gridColumn}: every cell covering it spans "
+                  + "further columns and was narrowed, not deleted. If you meant to remove a column of cells, "
+                  + "take its index from the gridColumn of one of those cells in get_layout_info's tables[] "
+                  + "(colIndex is the physical position in the row, which differs on spanned rows)."
+                : string.Empty;
     }
 
     /// <summary>

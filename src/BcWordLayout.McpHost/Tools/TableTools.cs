@@ -391,7 +391,10 @@ public static class TableTools
     [Description("Set the column widths of a table, addressed by its 0-based table index (the SAME index "
                  + "get_layout_info reports in its tables[] section). widths is a comma-separated list of "
                  + "twips (1/20 pt), ONE PER GRID COLUMN - the count must equal the table's columnCount from "
-                 + "get_layout_info. Each grid column's w:gridCol width is set, and every cell's width (w:tcW) "
+                 + "get_layout_info, and a cell's own columns are list positions gridColumn..gridColumn+"
+                 + "gridSpan-1 (get_layout_info's tables[].rows[].cells[] report both; colIndex is the "
+                 + "physical position in the row, not a grid column). Each grid column's w:gridCol width is "
+                 + "set, and every cell's width (w:tcW) "
                  + "is set to the sum of the grid-column widths it spans, so a cell that spans multiple columns "
                  + "(w:gridSpan - pervasive in real BC tables) stays as wide as the columns beneath it. If the "
                  + "table has a fixed total width (w:tblW type dxa) it is kept in sync with the new grid. "
@@ -428,7 +431,10 @@ public static class TableTools
                  + "look with its amounts still on the table's right edge. "
                  + "atColumn is the 0-based GRID position for the new column: omit it (or pass the table's "
                  + "columnCount) to append at the far-right edge, or give an INTERIOR position to insert "
-                 + "between existing columns. An interior position must land on a cell BOUNDARY in every row "
+                 + "between existing columns - a cell's gridColumn in get_layout_info's tables[] puts the new "
+                 + "column just before that cell, its gridColumn+gridSpan just after it (colIndex is the "
+                 + "physical position in the row, not a grid position). An interior position must land on a "
+                 + "cell BOUNDARY in every row "
                  + "that carries the new column's content (a header row, and the bound data row); a row with "
                  + "nothing there - a spacer, or a totals block's leading empty run - has its spanning cell "
                  + "widened instead of gaining a cell, so the block stays put. If it falls INSIDE a spanned "
@@ -468,9 +474,11 @@ public static class TableTools
         [Description("Optional: bind the header cell to this label-column dataset path (by default a "
                      + "'*Lbl'/'*_Lbl' path - see list_dataset_fields's isLabel flag) instead of static text.")]
         string? headerLabelPath = null,
-        [Description("Optional 0-based GRID position for the new column (0..columnCount). Omit, or pass the "
-                     + "table's columnCount, to append at the far-right edge; an interior value inserts "
-                     + "between existing columns (see this tool's description for the spanned-cell rule).")]
+        [Description("Optional 0-based GRID position for the new column (0..columnCount) - a cell's gridColumn "
+                     + "(before it) or gridColumn+gridSpan (after it) from get_layout_info's tables[], never "
+                     + "its colIndex. Omit, or pass the table's columnCount, to append at the far-right edge; "
+                     + "an interior value inserts between existing columns (see this tool's description for "
+                     + "the spanned-cell rule).")]
         int? atColumn = null,
         [Description("Optional width of the NEW column in twips, taken proportionally from the existing "
                      + "columns (the table's total width does not change), so it must be positive and less "
@@ -501,7 +509,12 @@ public static class TableTools
 
     [McpServerTool(Name = "remove_column")]
     [Description("Remove a whole column from a table, addressed by its 0-based table index and 0-based GRID "
-                 + "column index (see get_layout_info's tables[]). The matching w:gridCol is removed, and in "
+                 + "column index: the gridColumn get_layout_info's tables[].rows[].cells[] report for the "
+                 + "column's cells - NOT their colIndex, which is the cell's physical position in its row and "
+                 + "names a different column on any row with spanned cells (pervasive in real BC tables). The "
+                 + "summary says, per row, whether a cell was deleted, a spanned cell narrowed, or a skipped "
+                 + "run shrunk, and warns when no row had a cell of its own there. The matching w:gridCol is "
+                 + "removed, and in "
                  + "every row the cell covering that grid column is deleted when it spans only that column - "
                  + "including a bound field/label cell, whose binding is dropped with it (UNLIKE remove_control, "
                  + "which preserves the cell) - or has its w:gridSpan decremented when it spans more. Repeater "
@@ -519,7 +532,8 @@ public static class TableTools
     public static ToolResponse RemoveColumn(
         [Description("Absolute path to the .docx layout file.")] string layoutPath,
         [Description("0-based table index in document order (see get_layout_info's tables[]).")] int tableIndex,
-        [Description("0-based GRID column index to remove (0..columnCount-1 from get_layout_info).")] int column,
+        [Description("0-based GRID column index to remove (0..columnCount-1): a cell's gridColumn from "
+                     + "get_layout_info's tables[], not its colIndex.")] int column,
         [Description("Which OOXML part the table is in: 'body' (default), 'header', or 'footer'.")] string layoutPart = "body",
         [Description("Only used when layoutPart is 'header'/'footer': a specific part file name (e.g. "
                      + "'header2.xml'); omit to target the DEFAULT header/footer part (see get_layout_info's "
@@ -535,7 +549,8 @@ public static class TableTools
     [McpServerTool(Name = "merge_cells")]
     [Description("Horizontally merge a run of adjacent cells in ONE row into a single cell, addressed by the "
                  + "0-based table index, row index, and the 0-based physical cell indices fromColumn..toColumn "
-                 + "(inclusive) within that row - the SAME table/row/cell indices get_layout_info reports. The "
+                 + "(inclusive) within that row - the SAME table/row indices and cell colIndex get_layout_info "
+                 + "reports (the result's columnIndex is the merged cell's GRID column). The "
                  + "first cell is KEPT (its content and any binding survive) and widened to span all the merged "
                  + "columns (w:gridSpan); the rest are deleted. The table grid is unchanged. REJECTED if any "
                  + "absorbed (non-first) cell holds a bound field/label control (merging would silently drop "
@@ -562,7 +577,8 @@ public static class TableTools
     [McpServerTool(Name = "split_cells")]
     [Description("Horizontally split ONE spanned cell back into one cell per grid column it spans, addressed "
                  + "by the 0-based table index, row index, and 0-based physical cell index within that row "
-                 + "(the SAME indices get_layout_info reports). The cell's w:gridSpan is reset to 1 (keeping "
+                 + "(the SAME table/row indices and cell colIndex get_layout_info reports). The cell's "
+                 + "w:gridSpan is reset to 1 (keeping "
                  + "its content in the first resulting cell) and empty single-column cells are inserted after "
                  + "it for the remaining columns. The table grid is unchanged. REJECTED if the cell is not "
                  + "spanned (gridSpan 1 - nothing to split), or if the table uses w:vMerge. "
@@ -592,7 +608,8 @@ public static class TableTools
                  + "is the tool for the rest of them: 'put a line above the totals row', 'underline the "
                  + "grand-total cell'. Addressed by 0-based table index and row index (the SAME indices "
                  + "get_layout_info reports); omit col to apply to EVERY cell in the row (the usual case - a "
-                 + "rule spans the whole row), or pass a 0-based PHYSICAL cell index to target one cell. "
+                 + "rule spans the whole row), or pass a 0-based PHYSICAL cell index (the cell's colIndex) to "
+                 + "target one cell - the result's columnIndex is then that cell's GRID column. "
                  + "edges is a comma-separated list of 'top','bottom','left','right' (or 'all'); "
                  + "style='single' (default) draws a line, style='none' clears those edges explicitly (they "
                  + "stay clear even in a table that declares its own border grid). Edges you do NOT name are "
