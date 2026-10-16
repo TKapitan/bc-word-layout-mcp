@@ -41,6 +41,7 @@ public static class LayoutValidator
         CheckBindingNamespaces(inventory, schema, findings);
         CheckXPathsResolve(inventory, schema, findings);
         CheckRepeaterShape(main, findings);
+        CheckTopLevelBlockRepeaterGroup(main, findings);
         CheckRepeaterNotInHeaderOrFooter(inventory, findings);
         CheckRepeaterDowngraded(inventory, schema, findings);
         CheckCompatibilityMode(main, inventory, findings);
@@ -378,6 +379,99 @@ public static class LayoutValidator
                 }
             }
         }
+    }
+
+    // 5a. A BLOCK-level repeating section bound directly to a TOP-LEVEL data item must hold its
+    //     repeatingSectionItem inside a w:group content control.
+    //
+    //     Business Central already renders the body once per top-level record (SOLUTION-DESIGN §2.3), so the
+    //     usual layout binds straight to <Item>[1] and has no repeater at that level at all. An explicit
+    //     block-level repeater over the top-level item is legal, but only in the shape Microsoft ships:
+    //     StandardStatement.docx (report 1316) wraps its whole body in a repeater over /Customer whose single
+    //     child is a contentLocked w:group sdt, and the repeatingSectionItem sits inside that group.
+    //
+    //     ERROR, settled by BC evidence (report 1306, Standard Sales - Invoice). Three layouts identical in
+    //     content and bindings: (A) no outer repeater - prints; (B) the whole body in
+    //     repeatingSection(/Header) > repeatingSectionItem - BC prints an EMPTY page; (C) the same as B with
+    //     a w:group sdt between the section and its item - prints. B and C differ by that one sdt. Quick and
+    //     full validation and preview_layout all passed B, so the first symptom was a blank printout.
+    //
+    //     Deliberately narrow, so no captured layout trips it:
+    //     - block-level only. Row-level repeaters (an sdt inside a w:tbl) over the top-level item are the
+    //       list-report shape (SalespersonCommission, InventoryOrderDetails, SubcontractorDispatchList, and
+    //       the P07-verified skeleton insert_repeater_table builds) and render without any group;
+    //     - top-level only. Block-level repeaters over NESTED items (Header[1]/WorkDescriptionLines,
+    //       Header[1]/PaymentReportingArgument in the stock 1304/1306 layouts) have no group and render.
+    //     No tool here emits a block-level repeater, so this guards layouts authored or edited outside the
+    //     tools - e.g. an agent writing the OOXML directly, which is how shape B was produced.
+    private static void CheckTopLevelBlockRepeaterGroup(MainDocumentPart main, List<ValidationFinding> findings)
+    {
+        foreach (var (rootElement, partName) in EnumerateContentParts(main))
+        {
+            foreach (var repeater in rootElement.Descendants<SdtBlock>().Where(SdtInspector.IsRepeater))
+            {
+                var topLevelItem = TopLevelDataItemName(repeater);
+                if (topLevelItem is null || ItemIsInsideGroup(repeater))
+                {
+                    continue;
+                }
+
+                findings.Add(new ValidationFinding
+                {
+                    Check = "top-level-repeater-group",
+                    Severity = FindingSeverity.Error,
+                    Message = $"This block-level repeating section repeats the top-level data item "
+                              + $"'{topLevelItem}' without a w:group content control around its "
+                              + "repeatingSectionItem. Business Central renders such a layout as an EMPTY "
+                              + "document (verified on report 1306), although preview_layout and the full "
+                              + "dry-run merge fill it normally. BC already renders the body once per top-level "
+                              + "record, so the usual fix is to remove this repeater and bind the content "
+                              + $"directly to '{topLevelItem}[1]'. If the explicit repeater is wanted, wrap the "
+                              + "repeatingSectionItem in a contentLocked w:group sdt, the shape Microsoft's "
+                              + "StandardStatement layout uses.",
+                    Location = $"{partName}: {RepeaterXPath(repeater) ?? SdtDescriptor(repeater)}",
+                });
+            }
+        }
+    }
+
+    /// <summary>
+    /// The data-item name when <paramref name="repeater"/>'s w15 binding names a top-level, non-system data
+    /// item (<c>/ns0:NavWordReportXmlPart[1]/ns0:&lt;Item&gt;</c>); otherwise null. Decided from the XPath
+    /// alone, not the schema: a repeating section only ever binds a data item, and StandardStatement.docx
+    /// (the stock witness for the valid shape) must be judged the same way whether or not its dataset part
+    /// parses.
+    /// </summary>
+    private static string? TopLevelDataItemName(SdtElement repeater)
+    {
+        var segments = BindingXPath.Segments(RepeaterXPath(repeater));
+        if (segments.Count != 2
+            || !string.Equals(segments[0], OoxmlNames.RootElementName, StringComparison.Ordinal)
+            || string.Equals(segments[1], OoxmlNames.SystemNodeName, StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        return segments[1];
+    }
+
+    /// <summary>
+    /// True when the repeater's own <c>repeatingSectionItem</c> has a <c>w:group</c> sdt between it and the
+    /// repeater. A repeater with no item of its own is repeater-shape's business, so it counts as true here
+    /// rather than drawing a second, misleading finding.
+    /// </summary>
+    private static bool ItemIsInsideGroup(SdtElement repeater)
+    {
+        var item = repeater.Descendants<SdtElement>()
+            .FirstOrDefault(s => SdtInspector.IsRepeaterItem(s) && SdtInspector.NearestRepeaterAncestor(s) == repeater);
+        if (item is null)
+        {
+            return true;
+        }
+
+        return item.Ancestors<SdtElement>()
+            .TakeWhile(a => a != repeater)
+            .Any(a => a.GetFirstChild<SdtProperties>() is { } pr && SdtInspector.HasChild(pr, "group", OoxmlNames.W));
     }
 
     // 5b. A control whose alias names a DATA ITEM but which is not a repeating-section control: a repeater

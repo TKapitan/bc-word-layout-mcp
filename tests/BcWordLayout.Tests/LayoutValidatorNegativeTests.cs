@@ -16,6 +16,14 @@ public class LayoutValidatorNegativeTests
     private const string BogusFieldXPath = Root + "/ns0:Header[1]/ns0:BogusField[1]";
     private const string HeaderXPath = Root + "/ns0:Header[1]";
 
+    // A repeater over a NESTED data item (needs SyntheticLayout.DatasetWithLineXml). Tests that only need
+    // "some well-formed repeater" use this rather than HeaderXPath: a block-level repeater over the
+    // top-level item is itself a finding (top-level-repeater-group) and would add an unrelated error.
+    private const string LineXPath = Root + "/ns0:Header[1]/ns0:Line";
+
+    // A top-level repeater's binding the way BC writes it: the repeated item's own step carries no index.
+    private const string TopLevelHeaderXPath = Root + "/ns0:Header";
+
     [Fact]
     public void XPath_to_nonexistent_field_is_flagged_but_valid_sibling_is_not()
     {
@@ -96,9 +104,11 @@ public class LayoutValidatorNegativeTests
     [Fact]
     public void Repeater_located_in_a_header_part_is_flagged_as_a_warning_but_a_body_repeater_is_not()
     {
-        var bodyRepeater = SyntheticLayout.ProperRepeater(HeaderXPath, SyntheticLayout.GoodItemId);
-        var headerRepeater = SyntheticLayout.ProperRepeater(HeaderXPath, SyntheticLayout.GoodItemId);
-        var path = SyntheticLayout.CreateWithHeader(bodyFragments: bodyRepeater, headerFragments: headerRepeater);
+        var bodyRepeater = SyntheticLayout.ProperRepeater(LineXPath, SyntheticLayout.GoodItemId);
+        var headerRepeater = SyntheticLayout.ProperRepeater(LineXPath, SyntheticLayout.GoodItemId);
+        var path = SyntheticLayout.CreateWithHeader(
+            bodyFragments: bodyRepeater, headerFragments: headerRepeater,
+            datasetXml: SyntheticLayout.DatasetWithLineXml);
 
         try
         {
@@ -392,7 +402,8 @@ public class LayoutValidatorNegativeTests
         // part, so Word implies mode 12 - where repeating sections do not exist and an interactive save
         // converts them to plain rich-text controls, dropping the binding (GitHub issue #51).
         var path = SyntheticLayout.Create(
-            SyntheticLayout.ProperRepeater(HeaderXPath, SyntheticLayout.GoodItemId));
+            SyntheticLayout.ProperRepeater(LineXPath, SyntheticLayout.GoodItemId),
+            datasetXml: SyntheticLayout.DatasetWithLineXml);
 
         try
         {
@@ -420,7 +431,8 @@ public class LayoutValidatorNegativeTests
         // DocumentSettingsScaffold to the same fixture must silence the check - which is simultaneously the
         // proof that what a blank build now ships actually satisfies it.
         var path = SyntheticLayout.Create(
-            SyntheticLayout.ProperRepeater(HeaderXPath, SyntheticLayout.GoodItemId));
+            SyntheticLayout.ProperRepeater(LineXPath, SyntheticLayout.GoodItemId),
+            datasetXml: SyntheticLayout.DatasetWithLineXml);
 
         try
         {
@@ -455,6 +467,72 @@ public class LayoutValidatorNegativeTests
 
             Assert.DoesNotContain(result.Findings, f => f.Check == "compatibility-mode");
             Assert.True(result.Passed);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    // ---- top-level-repeater-group: a block-level repeater over the TOP-LEVEL data item without a w:group
+    // around its item renders an EMPTY document in BC (report 1306, verified 2026-10-13). Paired with the
+    // three shapes that must NOT trip it: the same repeater wrapped in a w:group (StandardStatement's
+    // shape), a block-level repeater over a NESTED item, and a ROW-level repeater over the top-level item
+    // (the list-report shape insert_repeater_table builds). ----
+
+    [Fact]
+    public void Block_repeater_over_the_top_level_item_without_a_group_is_flagged_but_its_valid_siblings_are_not()
+    {
+        var body =
+            SyntheticLayout.ProperRepeater(TopLevelHeaderXPath, SyntheticLayout.GoodItemId) +
+            SyntheticLayout.RepeaterWithField(
+                LineXPath, LineXPath + "[1]/ns0:ItemNo[1]", SyntheticLayout.GoodItemId,
+                repeaterId: 200, itemId: 201) +
+            SyntheticLayout.RepeaterTable(
+                TopLevelHeaderXPath, HeaderXPath + "/ns0:CompanyName[1]", SyntheticLayout.GoodItemId);
+        var path = SyntheticLayout.Create(body, datasetXml: SyntheticLayout.DatasetWithLineXml);
+
+        try
+        {
+            var result = LayoutValidator.Quick(path);
+
+            var finding = Assert.Single(result.Findings, f => f.Check == "top-level-repeater-group");
+            Assert.Equal(FindingSeverity.Error, finding.Severity);
+            Assert.Contains("'Header'", finding.Message);
+            Assert.Contains("w:group", finding.Message);
+            Assert.Contains("Header[1]", finding.Message);
+            Assert.NotNull(finding.Location);
+            Assert.Contains("document.xml", finding.Location);
+            Assert.False(result.Passed);
+
+            // The defect is this check's alone: the repeater is otherwise well formed.
+            Assert.DoesNotContain(result.Findings, f => f.Check == "repeater-shape");
+            Assert.DoesNotContain(result.Findings, f => f.Check == "xpath-resolves");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Block_repeater_over_the_top_level_item_inside_a_group_is_not_flagged()
+    {
+        // The identical repeater with the one sdt that made BC print it: repeatingSection > w:group >
+        // repeatingSectionItem. Also proves repeater-shape still accepts the group in between.
+        var path = SyntheticLayout.Create(
+            SyntheticLayout.GroupedRepeater(TopLevelHeaderXPath, SyntheticLayout.GoodItemId));
+
+        try
+        {
+            var result = LayoutValidator.Quick(path);
+
+            Assert.DoesNotContain(result.Findings, f => f.Check == "top-level-repeater-group");
+            Assert.DoesNotContain(result.Findings, f => f.Check == "repeater-shape");
+            Assert.DoesNotContain(result.Findings, f => f.Check == "openxml-structure");
+            Assert.True(result.Passed,
+                "expected pass; errors: "
+                + string.Join(" | ", result.Findings.Where(f => f.Severity == FindingSeverity.Error).Select(f => f.Message)));
         }
         finally
         {
