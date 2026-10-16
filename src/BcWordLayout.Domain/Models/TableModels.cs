@@ -92,7 +92,13 @@ public sealed class TableCellInfo
     /// </summary>
     public required bool IsControlCell { get; init; }
 
-    /// <summary>The cell-level control's <c>w:id</c>, when <see cref="IsControlCell"/> is true; else null.</summary>
+    /// <summary>
+    /// The cell-level control's <c>w:id</c>, when <see cref="IsControlCell"/> is true; else null. When the cell
+    /// is wrapped in a CHAIN of cell-level controls (the Business Central Word add-in's "Hide Table Row If
+    /// Empty" wrapper around a bound field's own cell-level control), this — and <see cref="ControlKind"/>/
+    /// <see cref="Alias"/>/<see cref="XPath"/> — describe the INNERMOST one, the control directly around the
+    /// <c>w:tc</c>; the outer wrappers are in the control inventory at this cell's coordinate.
+    /// </summary>
     public int? ControlId { get; init; }
 
     /// <summary>The cell-level control's kind (e.g. <c>Field</c>/<c>Label</c>), when <see cref="IsControlCell"/> is true.</summary>

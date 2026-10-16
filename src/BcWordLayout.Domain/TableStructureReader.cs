@@ -135,22 +135,29 @@ public static class TableStructureReader
         var coord = new Coord(tableIndex, rowIndex, colIndex);
 
         TableCell? cell = cellSlot.InnerCell;
-        bool isControlCell;
+        var isControlCell = cellSlot.Wrappers.Count > 0;
         int? cellControlId = null;
         string? controlKind = null, alias = null, xpath = null;
 
-        if (cellSlot.CellChild is SdtCell sdtCell)
+        if (isControlCell)
         {
-            isControlCell = true;
-            cellControlId = SdtInspector.ReadControlId(sdtCell);
-            controlKind = SdtInspector.ClassifyControlKind(sdtCell).ToString();
-            alias = SdtInspector.ReadAlias(sdtCell);
-            xpath = SdtInspector.ReadXPath(sdtCell);
-            coords[sdtCell] = coord;
-        }
-        else
-        {
-            isControlCell = false;
+            // EVERY level of a cell-level wrapper chain is this cell's control and gets its coordinate (GitHub
+            // issue #85). The one reported as the cell's own is the INNERMOST — the control that directly wraps
+            // the w:tc. In the only multi-level shape observed, the Business Central Word add-in's conditional
+            // "Hide Table Row If Empty"/"Hide Table If Empty" controls, that is the bound field the add-in
+            // wrapped; the outermost is an unbound wrapper that says nothing about what the cell shows, and
+            // reporting it made a bound cell read as an empty "Unbound" one. The wrapper stays reachable through
+            // the control inventory, at this same coordinate.
+            foreach (var wrapper in cellSlot.Wrappers)
+            {
+                coords[wrapper] = coord;
+            }
+
+            var owner = cellSlot.Wrappers[^1];
+            cellControlId = SdtInspector.ReadControlId(owner);
+            controlKind = SdtInspector.ClassifyControlKind(owner).ToString();
+            alias = SdtInspector.ReadAlias(owner);
+            xpath = SdtInspector.ReadXPath(owner);
         }
 
         // Controls and text that belong to THIS cell (not to a nested table inside it): filter on the

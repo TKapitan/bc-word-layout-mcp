@@ -18,10 +18,11 @@ namespace BcWordLayout.Domain;
 /// <remarks>
 /// A "row" is a bare <c>w:tr</c> OR a row-level control (<see cref="SdtRow"/>, possibly a
 /// <c>repeatingSection</c> wrapping a <c>repeatingSectionItem</c>) descended to the inner <c>w:tr</c> it
-/// ultimately holds; a "cell" is a bare <c>w:tc</c> OR a cell-level control (<see cref="SdtCell"/>)
-/// descended to the inner <c>w:tc</c> it wraps. <see cref="RowSlot.Wrappers"/> exposes every level of a
-/// nested row-control chain (not just the outermost) for the one caller — <see cref="TableStructureReader"/>
-/// — that needs to attribute EACH wrapper level to the row's coordinate, not just the outermost id.
+/// ultimately holds; a "cell" is a bare <c>w:tc</c> OR a cell-level control (<see cref="SdtCell"/>, possibly
+/// a chain of them) descended to the innermost <c>w:tc</c> it ultimately wraps. <see cref="RowSlot.Wrappers"/>
+/// and <see cref="CellSlot.Wrappers"/> expose every level of a nested control chain (not just the outermost)
+/// for the one caller — <see cref="TableStructureReader"/> — that needs to attribute EACH wrapper level to the
+/// row's/cell's coordinate, not just the outermost id.
 /// </remarks>
 internal static class TableGridNavigator
 {
@@ -39,11 +40,22 @@ internal static class TableGridNavigator
 
     /// <summary>
     /// One cell of a row in document order. <see cref="CellChild"/> is the direct child of the <c>w:tr</c>
-    /// (a <c>w:tc</c> or an <see cref="SdtCell"/> wrapper); <see cref="InnerCell"/> is the <c>w:tc</c> it
-    /// resolves to (null when a cell-level control wraps none). <see cref="GridSpan"/> is how many grid
-    /// columns the cell occupies (from <c>w:tcPr/w:gridSpan</c>, default 1).
+    /// (a <c>w:tc</c> or an <see cref="SdtCell"/> wrapper); <see cref="InnerCell"/> is the innermost
+    /// <c>w:tc</c> the chain of cell-level wrappers ultimately holds (null when it holds none).
+    /// <see cref="GridSpan"/> is how many grid columns the cell occupies (from that inner cell's
+    /// <c>w:tcPr/w:gridSpan</c>, default 1). <see cref="Wrappers"/> is the full chain of cell-level control
+    /// wrappers from outermost (<see cref="CellChild"/> itself) to innermost — empty for a bare <c>w:tc</c>.
     /// </summary>
-    public readonly record struct CellSlot(OpenXmlElement CellChild, TableCell? InnerCell, int GridSpan);
+    /// <remarks>
+    /// The chain is usually one level (a BC bound field or label sitting where a <c>w:tc</c> would), but the
+    /// Business Central Word add-in's conditional controls wrap a SECOND cell-level control around a bound
+    /// field's own one: <c>SalespersonCommission.docx</c>'s "Hide Table Row If Empty"
+    /// (<c>#BC:HideTableRowIfEmpty</c>) around the bound <c>SalespersonPurchaser_Code</c> cell, and
+    /// <c>SubcontractorDispatchList.docx</c>'s "Hide Table If Empty" around a <c>gridSpan</c>-4 cell. Reading
+    /// one level only found no <c>w:tc</c> at all there, so every table tool skipped the cell — no rule, no
+    /// width, no text, span counted as 1, and the bound field had no table coordinates (GitHub issue #85).
+    /// </remarks>
+    public readonly record struct CellSlot(OpenXmlElement CellChild, TableCell? InnerCell, int GridSpan, IReadOnlyList<SdtCell> Wrappers);
 
     /// <summary>
     /// Every <c>w:tbl</c> in <paramref name="partRoot"/>, in <c>Descendants&lt;Table&gt;()</c> document
@@ -110,14 +122,15 @@ internal static class TableGridNavigator
         var slots = new List<CellSlot>();
         foreach (var child in innerRow.ChildElements.Where(e => e is TableCell or SdtCell))
         {
-            var inner = child switch
+            if (child is SdtCell sdtCell)
             {
-                TableCell tc => tc,
-                SdtCell sc => sc.SdtContentCell?.GetFirstChild<TableCell>(),
-                _ => null,
-            };
-
-            slots.Add(new CellSlot(child, inner, GridSpanOf(inner)));
+                var chain = ResolveCellWrapperChain(sdtCell);
+                slots.Add(new CellSlot(sdtCell, chain.InnerCell, GridSpanOf(chain.InnerCell), chain.Wrappers));
+            }
+            else
+            {
+                slots.Add(new CellSlot(child, (TableCell)child, GridSpanOf((TableCell)child), Array.Empty<SdtCell>()));
+            }
         }
 
         return slots;
@@ -258,5 +271,38 @@ internal static class TableGridNavigator
         }
 
         return new RowWrapperChain(wrappers, null);
+    }
+
+    /// <summary>The full chain of nested cell-level control wrappers <see cref="ResolveCellWrapperChain"/> returns.</summary>
+    public readonly record struct CellWrapperChain(IReadOnlyList<SdtCell> Wrappers, TableCell? InnerCell);
+
+    /// <summary>
+    /// The cell-level counterpart of <see cref="ResolveRowWrapperChain"/>: descends a chain of cell-level
+    /// controls starting at <paramref name="outer"/> (a BC add-in conditional control may wrap a bound
+    /// field's own cell-level control, which wraps the <c>w:tc</c>; see <see cref="CellSlot"/>'s remarks),
+    /// returning every wrapper visited (outermost first) plus the innermost <c>w:tc</c> the chain ultimately
+    /// holds (null if it holds none). Every level belongs to the same cell: <see cref="Cells"/> reads the
+    /// span from the innermost <c>w:tc</c>, and callers that address a control by id (an <c>afterControl</c>
+    /// location on any level) resolve it to that same cell.
+    /// </summary>
+    public static CellWrapperChain ResolveCellWrapperChain(SdtCell outer)
+    {
+        ArgumentNullException.ThrowIfNull(outer);
+        var wrappers = new List<SdtCell>();
+        SdtCell? current = outer;
+        while (current is not null)
+        {
+            wrappers.Add(current);
+            var content = current.SdtContentCell;
+            var innerCell = content?.GetFirstChild<TableCell>();
+            if (innerCell is not null)
+            {
+                return new CellWrapperChain(wrappers, innerCell);
+            }
+
+            current = content?.GetFirstChild<SdtCell>();
+        }
+
+        return new CellWrapperChain(wrappers, null);
     }
 }

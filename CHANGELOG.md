@@ -205,6 +205,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     tool as well as the name. `insert_table`'s `columns` (a count) no longer gets the hint for
     `insert_repeater_table`'s list of column names, and its `rows` no longer gets the generic hint.
 
+- **Cells wrapped in two cell-level content controls are visible to the table tools** (GitHub
+  issue #85). The Business Central Word add-in's "Hide Table Row If Empty" and "Hide Table If
+  Empty" controls wrap a bound field's own cell-level control (`w:tr > w:sdt > w:sdt > w:tc`), as in
+  the stock SalespersonCommission and SubcontractorDispatchList layouts. The tools read one level
+  only, so they found no cell there:
+  - **`get_layout_info`** reported an empty "Unbound" cell, and the bound field had no table
+    coordinates. The cell now reports the bound field as its control, with its text, and every
+    wrapper level gets the cell's coordinate.
+  - **Rules, widths and spans:** `set_cell_borders` left a gap under the cell, `set_column_widths`
+    left its width stale, and a wrapped `gridSpan`-4 cell counted as one grid column.
+  - **Text and inserts:** `set_cell_text`, `tableCell` inserts and `afterControl` on either level
+    answered `not_found`. They now refuse the cell as a bound control (`invalid_argument`), like
+    any single-level bound cell.
+
 ### Security
 
 - **A crafted layout can no longer kill the server through the OpenXml SDK's own parse** (GitHub
