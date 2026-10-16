@@ -283,12 +283,16 @@ public class TableStructureEditorTests
             using var reopened = WordprocessingDocument.Open(path, false);
             var table = BodyTable(reopened, LineTableIndex);
 
-            // The new w:gridCol sits AT position 3, not at the end.
-            var widthsAfter = GridWidths(table);
+            // The new w:gridCol sits AT position 3, not at the end, at the requested width - and the table
+            // keeps its total width (GitHub issue #83): those 700 twips came out of the other columns, each
+            // shrinking in proportion.
+            var widthsAfter = GridWidths(table).Select(int.Parse).ToList();
+            var before = widthsBefore.Select(int.Parse).ToList();
             Assert.Equal(LineGridColumns + 1, widthsAfter.Count);
-            Assert.Equal("700", widthsAfter[3]);
-            Assert.Equal(widthsBefore.Take(3), widthsAfter.Take(3));
-            Assert.Equal(widthsBefore.Skip(3), widthsAfter.Skip(4));
+            Assert.Equal(700, widthsAfter[3]);
+            Assert.Equal(before.Sum(), widthsAfter.Sum());
+            var others = widthsAfter.Take(3).Concat(widthsAfter.Skip(4)).ToList();
+            Assert.All(others.Zip(before), p => Assert.InRange(p.First, p.Second * (before.Sum() - 700) / before.Sum(), p.Second));
 
             Assert.Equal(fieldsBefore + 1, LayoutReader.Read(reopened).Controls.Count(c => c.XPath == TaxAmountXPath));
             Assert.Empty(TableGridConsistencyGuard.Find(reopened));
@@ -331,7 +335,8 @@ public class TableStructureEditorTests
     public void InsertColumn_interior_inside_a_spanned_FILLER_cell_widens_it_instead_of_adding_a_cell()
     {
         // Same table, but the straddling row (a plain spacer with no content) simply gets wider: no cell is
-        // added there, so nothing shifts, and its w:tcW grows by the new column's width.
+        // added there, so nothing shifts, and its w:tcW covers the new column's width too. The table keeps
+        // its 3000-twip total (issue #83), so the 500 come out of the three old columns: 834/833/833.
         var path = SyntheticLayout.Create(SpannedFillerTable);
         try
         {
@@ -354,7 +359,9 @@ public class TableStructureEditorTests
             var spannedRowCells = rows[1].Elements<TableCell>().ToList();
             Assert.Equal(2, spannedRowCells.Count);
             Assert.Equal(3, spannedRowCells[0].TableCellProperties!.GridSpan!.Val!.Value);
-            Assert.Equal("2500", spannedRowCells[0].TableCellProperties!.TableCellWidth!.Width!.Value); // 1000+500+1000
+            Assert.Equal(new[] { "834", "500", "833", "833" }, GridWidths(table));
+            Assert.Equal("2167", spannedRowCells[0].TableCellProperties!.TableCellWidth!.Width!.Value); // 834+500+833
+            Assert.Equal("833", spannedRowCells[1].TableCellProperties!.TableCellWidth!.Width!.Value);
 
             Assert.Empty(TableGridConsistencyGuard.Find(reopened));
             Assert.Empty(OpenXmlErrors(reopened));
@@ -551,10 +558,12 @@ public class TableStructureEditorTests
             Assert.Equal("822.97", row1[2].InnerText);
             var amountTcPr = row1[2].GetFirstChild<TableCellProperties>()!;
             Assert.Equal(2, amountTcPr.GetFirstChild<GridSpan>()!.Val!.Value);
-            // Re-sliced widths: untouched cells keep their column's width; the widened amount cell covers
-            // its old 2000 column plus the new 1000 one.
+            // Re-sliced widths: the table keeps its 6000-twip total (issue #83), so the new 1000 came out of
+            // the three old columns (1667/1667/1666); every cell covers exactly its grid columns, the widened
+            // amount cell its own column plus the new one.
+            Assert.Equal(new[] { "1667", "1667", "1666", "1000" }, GridWidths(BodyTable(reopened, 0)));
             Assert.Equal(
-                new[] { "2000", "2000", "3000" },
+                new[] { "1667", "1667", "2666" },
                 row1.Select(c => c.GetFirstChild<TableCellProperties>()!.GetFirstChild<TableCellWidth>()!.Width!.Value));
 
             Assert.Empty(TableGridConsistencyGuard.Find(reopened));

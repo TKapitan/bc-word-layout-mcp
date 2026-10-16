@@ -1168,6 +1168,12 @@ internal static class ToolGuards
             + "header row, and the bound data row) - if it falls inside a spanned cell there, split that "
             + "cell first with split_cells or pick a different position.",
 
+        "width" =>
+            "insert_column's width is the NEW column's width in twips: a positive number smaller than the "
+            + "table's current total width (the sum of get_layout_info's gridColumnWidths), because the table "
+            + "keeps that total and the new column's twips are taken proportionally from the existing "
+            + "columns. Omit it for an equal share, and use set_column_widths afterwards for any other split.",
+
         "gridcolumn" =>
             "remove_column's column is a 0-based GRID column index (0..columnCount-1 from get_layout_info); "
             + "the last remaining column cannot be removed, nor a column that is some row's ONLY cell (a row "

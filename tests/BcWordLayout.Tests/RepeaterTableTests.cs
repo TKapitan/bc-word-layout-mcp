@@ -860,14 +860,16 @@ public class RepeaterTableTests
             InsertThreeColumnTable(path, new RepeaterTableOptions { ColumnWidths = new[] { 1500, 6000, 1200 } });
             var tableIndex = TableIndexOfLastBodyTable(path);
 
+            // insert_column and remove_column both KEEP the table's total width (GitHub issue #83 for the
+            // insert): the new 800 twips come out of the existing columns, and a removed column's go back in.
             var afterInsert = TableTools.InsertColumn(
                 path, tableIndex, mode: "plainText", headerText: "Extra", width: 800);
             Assert.True(afterInsert.Ok, afterInsert.Error?.Message);
-            AssertDeclaredTotalMatchesGrid(path, tableIndex, expectedTotal: 9500);
+            AssertDeclaredTotalMatchesGrid(path, tableIndex, expectedTotal: 8700);
 
             var afterRemove = TableTools.RemoveColumn(path, tableIndex, column: 0);
             Assert.True(afterRemove.Ok, afterRemove.Error?.Message);
-            AssertDeclaredTotalMatchesGrid(path, tableIndex, expectedTotal: 9500);
+            AssertDeclaredTotalMatchesGrid(path, tableIndex, expectedTotal: 8700);
 
             var afterResize = TableTools.SetColumnWidths(path, tableIndex, "2000,2000,2000");
             Assert.True(afterResize.Ok, afterResize.Error?.Message);

@@ -341,7 +341,26 @@ public static class TableStructureEditor
                 "dataPath");
         }
 
-        var width = options.Width ?? MeanGridWidth(table);
+        // WIDTH. The table keeps its total width, like remove_column: the new column's twips are taken
+        // proportionally from the existing columns rather than added on (GitHub issue #83 - a full-width
+        // table used to grow past the page margin, pushing its right-anchored totals off the page). So the
+        // default is an equal share of that total, and an explicit width must leave room for the others.
+        // When any declared grid width fails to parse there is no total to keep, and the old additive
+        // behaviour (mean width, table grows) is all that is left.
+        var widthsKnown = TryGetGridWidths(table, out var widthsBefore);
+        var totalBefore = widthsKnown ? widthsBefore.Sum() : 0;
+        if (options.Width is { } requested && (requested <= 0 || (widthsKnown && requested >= totalBefore)))
+        {
+            throw new ArgumentException(
+                $"width {requested} is out of range for table {tableIndex}: the new column's width is taken from "
+                + "the existing columns so the table keeps its total width"
+                + (widthsKnown ? $" ({totalBefore} twips)" : string.Empty)
+                + ", so it must be a positive number of twips smaller than that total.",
+                "width");
+        }
+
+        var width = options.Width
+            ?? (widthsKnown ? (int)Math.Round((double)totalBefore / (gridCount + 1)) : MeanGridWidth(table));
 
         // The schema is needed for a bound data cell AND for a bound header label - plainText mode with a
         // headerLabelPath used to skip loading it, which silently turned the label into static text and
@@ -354,12 +373,16 @@ public static class TableStructureEditor
         var nextId = LayoutEditor.MakeIdGenerator(doc);
         var plans = PlanInsertColumnRows(table, tableIndex, options);
 
+        // "Append" is the caller's request, decided before the grid index is settled: the totals-block rule
+        // below keys on it, and the settled index can move one column left on a trailing-skipped-run table.
+        var appending = target == gridCount;
+        target = SettleGridInsertionIndex(plans, target, gridCount);
+
         // Refuse BEFORE mutating anything: an interior position that falls inside a spanned cell of a row
         // that must carry the new column's content has no honest answer (see this method's remarks).
         RejectStraddledContentRows(plans, target, tableIndex);
 
         var rowsAffected = 0;
-        var rowsToReslice = new List<TableRow>();
         foreach (var plan in plans)
         {
             Paragraph paragraph;
@@ -388,11 +411,9 @@ public static class TableStructureEditor
             // reasoning about cells that do not extend to the insertion point.
             if (TryGrowSkippedRegion(plan.Row, coverage, target, plan.ReceivesContent))
             {
-                rowsToReslice.Add(plan.Row);
                 rowsAffected++;
                 continue;
             }
-
 
             // A filler row shaped like a BC totals/summary block — leading EMPTY cell(s), content hugging
             // the right edge (e.g. "Total Incl VAT | 822.97" under a lines table) — must KEEP that content
@@ -403,11 +424,9 @@ public static class TableStructureEditor
             // last one stretches, so the block looks exactly as before with its right-aligned content
             // still on the table's right edge. Appends only: an interior position lands inside the block
             // rather than past it, where the straddle rule below already keeps the layout intact.
-            var appending = target == gridCount;
             if (appending && isFillerRow && rowCells.Count > 0 && IsEmptyCell(rowCells[0]) && !IsEmptyCell(rowCells[^1]))
             {
                 SetCellGridSpan(rowCells[^1].InnerCell, rowCells[^1].GridSpan + 1);
-                rowsToReslice.Add(plan.Row);
                 rowsAffected++;
                 continue;
             }
@@ -419,7 +438,6 @@ public static class TableStructureEditor
                 // added, so nothing shifts and nothing is lost (content rows never reach here: they were
                 // refused above).
                 SetCellGridSpan(straddled.InnerCell, straddled.GridSpan + 1);
-                rowsToReslice.Add(plan.Row);
                 rowsAffected++;
                 continue;
             }
@@ -454,21 +472,29 @@ public static class TableStructureEditor
             GridElement(table).InsertBefore(newGridColumn, gridColumns[target]);
         }
 
-        // A widened cell now also covers the new column, so its w:tcW must grow by that column's width —
-        // re-slice the affected rows against the final grid (skipped when any declared grid width doesn't
-        // parse; there is nothing reliable to slice by).
-        if (rowsToReslice.Count > 0 && TryGetGridWidths(table, out var finalWidths))
+        // Re-slice EVERY well-formed row from the final grid, exactly as remove_column/set_column_widths do
+        // (issue #83). Only widened rows used to be re-sliced, which left two visible failures: a table
+        // whose cells carry w:tcW type="pct" (26 cells in the stock quote body alone) kept every old cell
+        // claiming its full percentage, squeezing the new dxa cell to a sliver; and every untouched cell kept
+        // its old width while the grid changed under it. Re-slicing writes dxa widths that match the grid,
+        // which is what remove_column already does to such a table.
+        var widthNote = string.Empty;
+        if (widthsKnown)
         {
-            foreach (var widened in rowsToReslice)
-            {
-                ResliceRowWidths(widened, finalWidths);
-            }
+            var others = ScaleToTotal(widthsBefore, totalBefore - width);
+            var finalWidths = others.Take(target).Append(width).Concat(others.Skip(target)).ToArray();
+            ApplyGridWidths(table, finalWidths);
+            widthNote = $"; its {width} twips were taken proportionally from the other columns (table width "
+                + $"kept at {totalBefore} twips - use set_column_widths for a different distribution)";
         }
 
         SyncTableWidthToGrid(table);
 
-        var placement = target == gridCount
-            ? $"Appended a new {DescribeMode(options)} column (grid index {target})"
+        var settledNote = appending && target != gridCount
+            ? ", ahead of the rows' trailing skipped grid column(s)"
+            : string.Empty;
+        var placement = appending
+            ? $"Appended a new {DescribeMode(options)} column (grid index {target}{settledNote})"
             : $"Inserted a new {DescribeMode(options)} column at grid index {target}";
 
         return new TableEditResult
@@ -482,8 +508,40 @@ public static class TableStructureEditor
             ColumnCountAfter = gridCount + 1,
             Summary = $"{placement} to table {tableIndex}"
                 + (partFile == "document.xml" ? string.Empty : $" in {partFile}")
-                + $", adding a cell to {rowsAffected} row(s).",
+                + $", adding a cell to {rowsAffected} row(s){widthNote}.",
         };
+    }
+
+    /// <summary>
+    /// The grid index the new <c>w:gridCol</c> really goes in: <paramref name="target"/>, unless every row
+    /// that receives content would place its new cell at one OTHER index — then that index.
+    /// </summary>
+    /// <remarks>
+    /// A content row whose cells stop short of <paramref name="target"/> (a trailing <c>w:gridAfter</c> run,
+    /// or a leading <c>w:gridBefore</c> one) gets its new cell at its own nearest boundary, not at
+    /// <paramref name="target"/> (see <see cref="TryGrowSkippedRegion"/>'s remarks). On the stock
+    /// <c>StandardSalesInvoiceVatSpec.docx</c> lines table — content rows of ten cells plus a 34-twip
+    /// skipped column — appending therefore puts the new cells at grid 10 while the old code added the new
+    /// <c>w:gridCol</c> at 11: the cells sat over the 34-twip column, which re-slicing every row from the
+    /// grid (issue #83) would have turned into a sliver. Inserting the <c>w:gridCol</c> where the cells
+    /// actually land keeps grid and cells in step: the skipped run, and the filler rows that span it, move
+    /// one column right. When content rows disagree (or none is displaced) <paramref name="target"/> stands.
+    /// </remarks>
+    private static int SettleGridInsertionIndex(IReadOnlyList<RowInsertPlan> plans, int target, int gridCount)
+    {
+        var landings = new HashSet<int>();
+        foreach (var plan in plans.Where(p => p.ReceivesContent))
+        {
+            var coverage = TableGridNavigator.Coverage(plan.Row);
+            if (coverage.Total != gridCount)
+            {
+                continue; // A pre-existing ragged row says nothing reliable about where the column goes.
+            }
+
+            landings.Add(Math.Clamp(target, coverage.Before, coverage.ContentEnd));
+        }
+
+        return landings.Count == 1 ? landings.Single() : target;
     }
 
     /// <summary>One row's role in an <see cref="InsertColumn"/> call, decided once and reused by the pre-flight check and the edit itself.</summary>
@@ -1182,13 +1240,19 @@ public static class TableStructureEditor
     /// Scales every width except <paramref name="removedIndex"/> up so their sum equals the ORIGINAL
     /// total (largest-remainder rounding — the result sums exactly, no drift).
     /// </summary>
-    private static int[] RedistributeWidth(int[] widthsBefore, int removedIndex)
-    {
-        var target = widthsBefore.Sum();
-        var remaining = widthsBefore.Where((_, i) => i != removedIndex).ToArray();
-        var remainingTotal = remaining.Sum();
+    private static int[] RedistributeWidth(int[] widthsBefore, int removedIndex) =>
+        ScaleToTotal(widthsBefore.Where((_, i) => i != removedIndex).ToArray(), widthsBefore.Sum());
 
-        var exact = remaining.Select(w => (double)w * target / remainingTotal).ToArray();
+    /// <summary>
+    /// Scales <paramref name="widths"/> proportionally so they sum to exactly <paramref name="target"/>
+    /// (largest-remainder rounding — no drift). Shared by <see cref="RemoveColumn"/> (scaling the remaining
+    /// columns UP to the old total) and <see cref="InsertColumn"/> (scaling the existing columns DOWN to
+    /// make room for the new one).
+    /// </summary>
+    private static int[] ScaleToTotal(int[] widths, int target)
+    {
+        var total = widths.Sum();
+        var exact = widths.Select(w => (double)w * target / total).ToArray();
         var result = exact.Select(e => (int)e).ToArray();
         var shortfall = target - result.Sum();
         foreach (var i in Enumerable.Range(0, exact.Length)
@@ -1361,7 +1425,7 @@ public static class TableStructureEditor
     /// re-slices every well-formed row's cell widths (<c>w:tcW</c>) to match — a spanning cell gets the
     /// sum of its covered grid columns. Rows whose grid coverage doesn't equal the grid (pre-existing
     /// malformed rows) are left alone rather than mis-sliced. Shared by <see cref="SetColumnWidths"/>
-    /// and <see cref="RemoveColumn"/>'s width redistribution.
+    /// and the width redistribution of <see cref="RemoveColumn"/> and <see cref="InsertColumn"/>.
     /// </summary>
     private static int ApplyGridWidths(Table table, IReadOnlyList<int> widths)
     {

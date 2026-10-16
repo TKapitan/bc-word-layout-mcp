@@ -101,6 +101,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - **Validation:** `headerLabelPath` is now checked against the dataset in every mode, including
     `plainText`.
 
+- **`insert_column` keeps the table's width** (GitHub issue #83). The new column was added on top
+  of the existing ones, so a full-width table such as the stock invoice's lines table grew past
+  the page margin and pushed its grand total off the page. In tables whose cells are sized in
+  percent (the quote's info block, footers), the new column was squeezed to a sliver.
+  - The table now keeps its total width: the new column's width is taken proportionally from the
+    existing columns.
+  - Every row's cell widths are recomputed from the new grid, as `remove_column` already did.
+  - `width` is now the new column's width, taken from the others; it must be smaller than the
+    table. Omit it for an equal share.
+
 ### Security
 
 - **A crafted layout can no longer kill the server through the OpenXml SDK's own parse** (GitHub

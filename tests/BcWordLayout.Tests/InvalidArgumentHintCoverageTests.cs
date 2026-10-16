@@ -291,6 +291,23 @@ public class InvalidArgumentHintCoverageTests
         }
     }
 
+    // ---- "width" — TableStructureEditor.InsertColumn's width must leave room for the existing columns ----
+
+    [Fact]
+    public void InsertColumn_width_as_wide_as_the_table_hint_names_the_kept_total()
+    {
+        var path = SyntheticLayout.Create(SyntheticLayout.SimpleTable(rows: 2, cols: 3));
+        try
+        {
+            var response = TableTools.InsertColumn(path, tableIndex: 0, mode: "plainText", width: 6000);
+            AssertActionableFailure(response, "invalid_argument", "smaller than the table's current total width");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     // ---- "gridcolumn" — TableStructureEditor.RemoveColumn's range check ----
 
     [Fact]

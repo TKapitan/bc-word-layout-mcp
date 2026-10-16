@@ -422,8 +422,11 @@ public static class TableTools
                  + "a line-items table, else - in a plain table - its caption rows (rows whose bound controls "
                  + "are all labels, the BC caption-over-value shape). headerText/headerLabelPath on a table "
                  + "with no header row are refused rather than dropped, and headerLabelPath is checked against "
-                 + "the dataset in every mode. All other rows get an empty cell. One w:gridCol is added; "
-                 + "width defaults to the mean of the existing columns. "
+                 + "the dataset in every mode. All other rows get an empty cell. One w:gridCol is added and "
+                 + "the table KEEPS its total width, like remove_column: the new column's width is taken "
+                 + "proportionally from the existing columns and every row's cell widths are re-sliced from "
+                 + "the new grid (cells declared in percent become twips), so a full-width table stays "
+                 + "within the margins and a percentage-width table does not squeeze the new column. "
                  + "REJECTED for tables using w:vMerge (w:gridBefore/w:gridAfter rows are supported). Same write/validate/"
                  + "save-or-reject safety as insert_field, plus the grid-consistency backstop.")]
     public static ToolResponse InsertColumn(
@@ -444,7 +447,10 @@ public static class TableTools
                      + "table's columnCount, to append at the far-right edge; an interior value inserts "
                      + "between existing columns (see this tool's description for the spanned-cell rule).")]
         int? atColumn = null,
-        [Description("Optional new-column width in twips; omit for the mean of the existing columns.")]
+        [Description("Optional width of the NEW column in twips, taken proportionally from the existing "
+                     + "columns (the table's total width does not change), so it must be positive and less "
+                     + "than the table's current total. Omit for an equal share: total / (columnCount + 1). "
+                     + "Follow with set_column_widths for any other distribution.")]
         int? width = null,
         [Description("Which OOXML part the table is in: 'body' (default), 'header', or 'footer'.")] string layoutPart = "body",
         [Description("Only used when layoutPart is 'header'/'footer': a specific part file name (e.g. "
