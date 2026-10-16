@@ -111,6 +111,26 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - `width` is now the new column's width, taken from the others; it must be smaller than the
     table. Omit it for an equal share.
 
+- **Edits of a layout that is open in Word or read-only fail as `file_locked`, and a read-only
+  layout can be previewed, validated and used as a template** (GitHub issue #94).
+  - **Wrong error code:** with the layout open in Word, or read-only (a TFVC/Perforce file that is
+    not checked out), every edit failed as `internal_error` with a "likely a bug in the tool" hint.
+    Word still lets the file be read and copied, so the failure only appeared when the edit
+    replaced the file. The same happened for `create_layout` over such an `outputPath`, and for
+    `preview_layout` while the previous `merged.docx` was open in Word. All of these now fail as
+    `file_locked`. The hint names the three likely causes: the file is open in Word or another
+    program, it is read-only or not checked out, or you have no write permission. The file is left
+    byte-identical.
+  - **Read-only sources:** private copies inherited the read-only attribute. So `preview_layout`
+    and `validate_layout level=full` failed on a read-only layout, `create_layout` failed on a
+    read-only `templatePath`, and each failure left behind a read-only copy that nothing could
+    delete. Private copies are now always writable, and a `create_layout` output is never
+    read-only.
+  - **Leftover temp files:** `.bcwl-build-*` files next to a `create_layout` output and
+    `%TEMP%\bcwl-edit-*` working copies were never cleaned up after a crash. Both are now removed
+    once they are a day old, like the other temporary files. This includes read-only leftovers
+    from earlier versions.
+
 ### Security
 
 - **A crafted layout can no longer kill the server through the OpenXml SDK's own parse** (GitHub

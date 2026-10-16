@@ -68,10 +68,8 @@ public static class FullValidator
         }
         finally
         {
-            if (File.Exists(tempOutput))
-            {
-                File.Delete(tempOutput);
-            }
+            // Best-effort (never throws): a cleanup failure must not replace the validation result.
+            ScratchFiles.Delete(tempOutput);
         }
 
         return new ValidationResult { Level = "full", Findings = findings };

@@ -272,8 +272,11 @@ Every tool returns the same envelope and never throws across the MCP boundary:
   `invalid_layout`, `invalid_argument`, `not_found`, `edit_would_corrupt` (a mutating-tool
   structural-safety rejection — the file is left untouched), `edit_would_break_table` (the
   table-structure tools' grid-consistency rejection — a corruption class the OpenXML validator
-  accepts silently; file untouched), `file_locked` (another process holds the file — e.g. the layout
-  is open in Word), `template_not_unbound` (`create_layout`-only: `templatePath` was a full BC
+  accepts silently; file untouched), `file_locked` (the file the call reads or must replace is busy
+  or not writable: open in Word or another program, read-only — e.g. a TFVC/Perforce file that is
+  not checked out — or not writable by your account; the hint names the cause to check, and the file
+  is untouched. A read-only layout can still be inspected, validated and previewed; only writing it
+  is refused), `template_not_unbound` (`create_layout`-only: `templatePath` was a full BC
   layout, not an unbound shell — see §"Lifecycle" above; nothing is written), or `internal_error`.
   `hint` is always non-empty and actionable: which argument to fix and its valid values, or which
   inspection tool to call. Act on it before retrying blindly.

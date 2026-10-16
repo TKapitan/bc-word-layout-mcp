@@ -81,6 +81,11 @@ public static class LayoutBuilder
     /// reachable in practice (see <see cref="AttachEverything"/>'s remarks). <paramref name="outputPath"/> is
     /// never touched when this is thrown.
     /// </exception>
+    /// <exception cref="TargetFileNotWritableException">
+    /// The final rename onto <paramref name="outputPath"/> was refused with access denied: the existing file
+    /// is open in Word or another program, is read-only, or is not writable by this account.
+    /// <paramref name="outputPath"/> is unchanged when this is thrown.
+    /// </exception>
     public static CreateResult Create(string schemaSource, string outputPath, string? templatePath = null, string? headingText = null)
     {
         if (string.IsNullOrWhiteSpace(schemaSource))
@@ -119,6 +124,13 @@ public static class LayoutBuilder
 
         var usedTemplate = templatePath is not null;
 
+        // Best-effort orphan cleanup of THIS method's own build files in the directory it is about to write
+        // into: a hard kill before the finally below leaves a .bcwl-build-*.docx next to outputPath - often
+        // inside a source-controlled repo, where it shows up in git status and nothing else ever revisits it.
+        // Same age rule as every other private-copy family (see ScratchFiles.SweepStale), so another call's
+        // live build file in this directory is never touched.
+        ScratchFiles.SweepStale(targetDir, ".bcwl-build-*.docx");
+
         // Build into a private temp file in outputPath's OWN directory (guaranteeing the commit below is a
         // same-volume rename) rather than outputPath itself, so a failure at any point - a template with no
         // main document part, schemaSource/templatePath/outputPath aliasing the same file, an (unreachable in
@@ -133,7 +145,10 @@ public static class LayoutBuilder
 
             if (usedTemplate)
             {
-                TransientFileRetry.Run(() => File.Copy(templatePath!, tempPath, overwrite: true));
+                // CopyWritable, not a bare File.Copy: a read-only template (a checked-in letterhead that is
+                // not checked out) would otherwise yield a read-only build file that can be neither opened
+                // for write below nor deleted afterwards - see ScratchFiles' own remarks (GitHub issue #94).
+                TransientFileRetry.Run(() => ScratchFiles.CopyWritable(templatePath!, tempPath));
 
                 using var doc = LayoutPackage.Open(tempPath, isEditable: true);
                 _ = doc.MainDocumentPart
@@ -182,8 +197,16 @@ public static class LayoutBuilder
             // Only now - once the built layout has passed OpenXmlValidator (inside AttachEverything) and the
             // stale-controls refusal above did not fire - does outputPath itself get touched, and via a
             // same-volume rename rather than a truncate-and-stream copy, so it can never end up partially
-            // written.
-            TransientFileRetry.Run(() => File.Move(tempPath, fullOutputPath, overwrite: true));
+            // written. Access denied here is about outputPath itself (open in Word, read-only, or not writable
+            // by this account), so it is reported as such rather than as an internal error.
+            try
+            {
+                TransientFileRetry.Run(() => File.Move(tempPath, fullOutputPath, overwrite: true));
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                throw new TargetFileNotWritableException(fullOutputPath, ex);
+            }
 
             return new CreateResult
             {
@@ -199,10 +222,9 @@ public static class LayoutBuilder
         }
         finally
         {
-            if (File.Exists(tempPath))
-            {
-                File.Delete(tempPath);
-            }
+            // Best-effort (never throws): see ScratchFiles.Delete for why a cleanup failure must not replace
+            // this call's real outcome.
+            ScratchFiles.Delete(tempPath);
         }
     }
 

@@ -153,7 +153,8 @@ public static class MergeEngine
     /// ATOMICITY. The fill happens against a throwaway staging copy in
     /// <paramref name="outputPath"/>'s own directory, never against <paramref name="outputPath"/> itself; the
     /// staging file is moved onto <paramref name="outputPath"/> as the last step, after every part is saved,
-    /// and is always deleted (whether that move happened or not) before this method returns or throws. A
+    /// and its deletion is always attempted (whether that move happened or not) before this method returns
+    /// or throws; one that cannot be deleted is left to <see cref="SweepStaleMergeStagingFiles"/>. A
     /// mid-merge exception (e.g. <see cref="LayoutValidator"/>/<see cref="ResourceLimits"/> depth guards)
     /// therefore leaves <paramref name="outputPath"/> exactly as it was before the call — absent if it did
     /// not already exist, unchanged if it did — never a partially-merged file.
@@ -217,44 +218,35 @@ public static class MergeEngine
         MergeResult result;
         try
         {
-            File.Copy(layoutPath, stagingPath, overwrite: true);
+            // CopyWritable, not a bare File.Copy: a read-only layout (a TFVC/Perforce file that is not
+            // checked out) would otherwise yield a read-only staging copy that can be neither opened for
+            // write below nor deleted afterwards - see ScratchFiles' own remarks (GitHub issue #94).
+            ScratchFiles.CopyWritable(layoutPath, stagingPath);
             result = MergeIntoOpenCopy(stagingPath, options);
 
             // Only reached once every mutation/save above completed without throwing: the staged file is a
             // fully-merged, self-consistent document. Replace outputPath with it as the last step — a plain
-            // File.Move(overwrite:true) between two paths in the same directory, i.e. the same volume.
-            File.Move(stagingPath, outputPath, overwrite: true);
+            // File.Move(overwrite:true) between two paths in the same directory, i.e. the same volume. Access
+            // denied here is about outputPath itself (e.g. a previous preview's merged.docx left open in Word,
+            // or made read-only), so it is reported as such rather than as an internal error.
+            try
+            {
+                File.Move(stagingPath, outputPath, overwrite: true);
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                throw new TargetFileNotWritableException(Path.GetFullPath(outputPath), ex);
+            }
         }
         finally
         {
-            if (File.Exists(stagingPath))
-            {
-                File.Delete(stagingPath);
-            }
+            // Best-effort (never throws): see ScratchFiles.Delete for why a cleanup failure must not replace
+            // this call's real outcome.
+            ScratchFiles.Delete(stagingPath);
         }
 
         return result;
     }
-
-    /// <summary>
-    /// Retention window for <see cref="SweepStaleMergeStagingFiles"/> — see that method's own remarks. Same
-    /// value and rationale as <c>BcWordLayout.McpHost.Tools.ToolGuards.StageFileRetentionWindow</c> (the
-    /// projects cannot share the constant directly, but both sweeps guard the identical failure mode: a
-    /// crash between a stage-copy and its atomic rename).
-    /// </summary>
-    /// <remarks>
-    /// AGE SIGNAL — <see cref="File.GetCreationTimeUtc(string)"/>, deliberately NOT
-    /// <see cref="File.GetLastWriteTimeUtc(string)"/> (a bug found and fixed during review of this exact
-    /// sweep): <see cref="File.Copy(string, string, bool)"/> copies the SOURCE's last-write time onto the
-    /// new file but resets its creation time to "now" (confirmed empirically on Windows/NTFS). The staged
-    /// file this sweep targets is itself produced by copying <c>layoutPath</c> — if that source is an old,
-    /// already-committed file (the common case: a real corpus/checked-in layout), its last-write time can
-    /// trivially be more than a day old, making a staging file created THIS INSTANT already look "stale" by
-    /// last-write time alone — exactly the failure mode that let a concurrent sweep delete a live, mid-merge
-    /// staging file out from under an in-progress merge. Creation time reliably reflects how long THIS
-    /// staging file has actually existed, regardless of its content's own history.
-    /// </remarks>
-    private static readonly TimeSpan MergeStagingRetentionWindow = TimeSpan.FromDays(1);
 
     /// <summary>
     /// Best-effort age-based cleanup of orphaned <c>.bcwl-merge-stage-*.docx</c> files (Opus review of B21,
@@ -274,48 +266,24 @@ public static class MergeEngine
     /// </summary>
     /// <remarks>
     /// <para>
-    /// SAFE AGAINST A LIVE CONCURRENT MERGE: only files older than <see cref="MergeStagingRetentionWindow"/>
-    /// are removed — comfortably longer than any plausible in-flight merge — so a staging file another
-    /// call (this process or a different one, merging some OTHER layout into an output that happens to
-    /// share this directory) is actively producing can never be mistaken for an orphan.
+    /// SAFE AGAINST A LIVE CONCURRENT MERGE: only files older than
+    /// <see cref="ScratchFiles.OrphanRetentionWindow"/> are removed — comfortably longer than any plausible
+    /// in-flight merge (see that field's own remarks, including why creation time is the age signal) — so a
+    /// staging file another call (this process or a different one, merging some OTHER layout into an output
+    /// that happens to share this directory) is actively producing can never be mistaken for an orphan. The
+    /// window and age rule are the ones <c>ToolGuards.SweepStaleStagingFiles</c> uses for the identical
+    /// failure mode (a crash between a stage-copy and its atomic rename).
     /// </para>
     /// <para>
     /// BEST-EFFORT: every failure — a locked file, an inaccessible directory, a candidate removed by a
-    /// concurrently-running sweep — is swallowed. A missed sweep simply leaves the file for a later merge
-    /// call to retry; it must never fail the merge this cleanup piggybacks on.
+    /// concurrently-running sweep — is swallowed by <see cref="ScratchFiles.SweepStale"/>. A missed sweep
+    /// simply leaves the file for a later merge call to retry; it must never fail the merge this cleanup
+    /// piggybacks on. A READ-ONLY orphan (one a read-only layout left behind before GitHub issue #94 made the
+    /// staging copy writable) is removed too.
     /// </para>
     /// </remarks>
-    private static void SweepStaleMergeStagingFiles(string outputDir)
-    {
-        try
-        {
-            if (!Directory.Exists(outputDir))
-            {
-                return;
-            }
-
-            var cutoffUtc = DateTime.UtcNow - MergeStagingRetentionWindow;
-            foreach (var candidate in Directory.EnumerateFiles(outputDir, ".bcwl-merge-stage-*.docx"))
-            {
-                try
-                {
-                    // CreationTimeUtc, not LastWriteTimeUtc — see MergeStagingRetentionWindow's remarks.
-                    if (File.GetCreationTimeUtc(candidate) < cutoffUtc)
-                    {
-                        File.Delete(candidate);
-                    }
-                }
-                catch
-                {
-                    // Best-effort: leave this one candidate for a later sweep rather than failing the merge.
-                }
-            }
-        }
-        catch
-        {
-            // Best-effort: an inaccessible/unreadable directory must never fail the merge.
-        }
-    }
+    private static void SweepStaleMergeStagingFiles(string outputDir) =>
+        ScratchFiles.SweepStale(outputDir, ".bcwl-merge-stage-*.docx");
 
     /// <summary>
     /// Opens <paramref name="stagingPath"/> (already a fresh copy of the source layout — see

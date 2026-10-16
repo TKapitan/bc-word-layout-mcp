@@ -163,11 +163,16 @@ internal static class ToolGuards
                 }
 
                 // Best-effort orphan cleanup: runs on EVERY mutating call,
-                // scoped to layoutPath's OWN directory only — see SweepStaleStagingFiles's own remarks.
+                // scoped to layoutPath's OWN directory only — see SweepStaleStagingFiles's own remarks — plus
+                // this method's own %TEMP% working copies, at most hourly (see SweepStaleEditWorkingCopiesIfDue).
                 SweepStaleStagingFiles(layoutPath);
+                SweepStaleEditWorkingCopiesIfDue();
 
-                var workingCopy = Path.Combine(Path.GetTempPath(), $"bcwl-edit-{Guid.NewGuid():N}.docx");
-                RetryTransientFileDenial(() => File.Copy(layoutPath, workingCopy, overwrite: true));
+                // CopyWritable, not a bare File.Copy: a read-only layout (a TFVC/Perforce file that is not
+                // checked out) would otherwise yield a read-only working copy that can be neither opened for
+                // write below nor deleted afterwards - see ScratchFiles' own remarks (GitHub issue #94).
+                var workingCopy = Path.Combine(Path.GetTempPath(), $"{EditWorkingCopyPrefix}{Guid.NewGuid():N}.docx");
+                RetryTransientFileDenial(() => ScratchFiles.CopyWritable(layoutPath, workingCopy));
                 try
                 {
                     TResult mutateResult;
@@ -309,18 +314,24 @@ internal static class ToolGuards
                     var targetDir = Path.GetDirectoryName(Path.GetFullPath(layoutPath))
                         ?? throw new InvalidOperationException($"Could not determine the directory of '{layoutPath}'.");
                     var staged = Path.Combine(targetDir, $".bcwl-stage-{Guid.NewGuid():N}.docx");
-                    RetryTransientFileDenial(() => File.Copy(workingCopy, staged, overwrite: true));
                     try
                     {
+                        RetryTransientFileDenial(() => ScratchFiles.CopyWritable(workingCopy, staged));
                         RetryTransientFileDenial(() => File.Move(staged, layoutPath, overwrite: true));
+                    }
+                    catch (UnauthorizedAccessException ex)
+                    {
+                        // Access denied HERE can only be about layoutPath or its folder: the stage copy reads
+                        // this call's own working copy, and the move replaces layoutPath. Word holding the file
+                        // open, the read-only attribute, and a folder the account cannot write all fail this
+                        // way (not as a sharing-violation IOException), so this is the file_locked case - see
+                        // TargetFileNotWritableException. layoutPath is unchanged.
+                        ScratchFiles.Delete(staged);
+                        throw new TargetFileNotWritableException(Path.GetFullPath(layoutPath), ex);
                     }
                     catch
                     {
-                        if (File.Exists(staged))
-                        {
-                            File.Delete(staged);
-                        }
-
+                        ScratchFiles.Delete(staged);
                         throw;
                     }
 
@@ -328,53 +339,29 @@ internal static class ToolGuards
                 }
                 finally
                 {
-                    if (File.Exists(workingCopy))
-                    {
-                        File.Delete(workingCopy);
-                    }
+                    // Best-effort (never throws): see ScratchFiles.Delete for why a cleanup failure must not
+                    // replace this call's real outcome.
+                    ScratchFiles.Delete(workingCopy);
                 }
             }
         }, layoutPath);
     }
 
     /// <summary>
-    /// Retention window for the orphan-staging-file sweep below: a crash between
-    /// <see cref="File.Copy(string, string, bool)"/> and <see cref="File.Move(string, string, bool)"/> in
-    /// the commit step above is normally over in microseconds, so any genuinely orphaned staging file is,
-    /// in practice, either brand new (another in-flight commit — this process or a different one entirely,
-    /// targeting a DIFFERENT layout in the same directory) or has been sitting untouched for a very long
-    /// time (a hard-killed process that never reached its own cleanup). One day comfortably clears any
-    /// plausible in-flight window (network share latency, an AV scan holding the handle, a slow disk)
-    /// while still being "soon" on human timescales, so an orphan left behind by a crash doesn't linger in
-    /// a source-controlled layout's directory indefinitely.
-    /// </summary>
-    /// <remarks>
-    /// AGE SIGNAL — <see cref="File.GetCreationTimeUtc(string)"/>, deliberately NOT
-    /// <see cref="File.GetLastWriteTimeUtc(string)"/> (a bug found and fixed during review of this exact
-    /// method): <see cref="File.Copy(string, string, bool)"/> copies the SOURCE's last-write time onto the
-    /// new file but resets its creation time to "now" (confirmed empirically on Windows/NTFS). The staged
-    /// file here is itself produced by a copy (of a working copy, itself copied from <c>layoutPath</c>) — if
-    /// <c>layoutPath</c> is an old, already-committed file (the common case: a real corpus/checked-in
-    /// layout), its last-write time can trivially be more than a day old, making a staging file created THIS
-    /// INSTANT already look "stale" by last-write time alone — exactly the failure mode that let a
-    /// concurrent sweep delete a live, mid-commit staging file out from under an in-progress edit. Creation
-    /// time reliably reflects how long THIS staging file has actually existed, regardless of its content's
-    /// own history.
-    /// </remarks>
-    private static readonly TimeSpan StageFileRetentionWindow = TimeSpan.FromDays(1);
-
-    /// <summary>
     /// Name shapes swept by <see cref="SweepStaleStagingFiles"/>: this class's own <c>.bcwl-stage-*.docx</c>
-    /// commit-step staging file, AND <c>BcWordLayout.Merge.MergeEngine</c>'s <c>.bcwl-merge-stage-*.docx</c>
-    /// merge-commit staging file (interaction). The two live in DIFFERENT
-    /// directories in the common case — this one in a layout's own directory, the merge one in whatever
-    /// directory a <c>preview_layout</c>/merge <c>outputDir</c> points at — so this sweep, which only ever
-    /// looks at a layout's own directory, is a complementary/opportunistic pass for the merge shape (the
-    /// primary defense for it is <c>MergeEngine.SweepStaleMergeStagingFiles</c>, scoped to the merge
-    /// output's own directory instead). Swept here too anyway, in case a caller happens to point a
-    /// merge/preview <c>outputDir</c> AT a layout's own directory, where nothing else would ever revisit it.
+    /// commit-step staging file, <c>BcWordLayout.Merge.MergeEngine</c>'s <c>.bcwl-merge-stage-*.docx</c>
+    /// merge-commit staging file, and <see cref="LayoutBuilder"/>'s <c>.bcwl-build-*.docx</c> build file. The
+    /// latter two live in DIFFERENT directories in the common case — the merge one in whatever directory a
+    /// <c>preview_layout</c>/merge <c>outputDir</c> points at, the build one next to a
+    /// <c>create_layout</c> <c>outputPath</c> — so this sweep, which only ever looks at a layout's own
+    /// directory, is a complementary pass for them (each one's primary defense is its owner's own sweep,
+    /// scoped to the directory it writes into: <c>MergeEngine.SweepStaleMergeStagingFiles</c> and
+    /// <see cref="LayoutBuilder.Create"/>'s build-file sweep). Swept here too because the directories often
+    /// coincide: layouts are created next to the layouts they are edited beside, and a caller may point a
+    /// merge/preview <c>outputDir</c> at a layout's own directory.
     /// </summary>
-    private static readonly string[] StagingFileGlobs = { ".bcwl-stage-*.docx", ".bcwl-merge-stage-*.docx" };
+    private static readonly string[] StagingFileGlobs =
+        { ".bcwl-stage-*.docx", ".bcwl-merge-stage-*.docx", ".bcwl-build-*.docx" };
 
     /// <summary>
     /// Best-effort age-based cleanup of orphaned staging files (see
@@ -391,9 +378,10 @@ internal static class ToolGuards
     /// </summary>
     /// <remarks>
     /// <para>
-    /// SAFE AGAINST A LIVE CONCURRENT COMMIT: only files older than <see cref="StageFileRetentionWindow"/>
-    /// are removed — comfortably longer than any plausible in-flight commit (see that field's own
-    /// remarks) — so a staging file another call (this process, serialized behind the very
+    /// SAFE AGAINST A LIVE CONCURRENT COMMIT: only files older than
+    /// <see cref="ScratchFiles.OrphanRetentionWindow"/> are removed — comfortably longer than any plausible
+    /// in-flight commit (see that field's own remarks, including why creation time is the age signal) — so a
+    /// staging file another call (this process, serialized behind the very
     /// <see cref="EditLockFor"/>/<see cref="CrossProcessLock"/> pair guarding this one, or a DIFFERENT
     /// process mutating a DIFFERENT layout that happens to share this directory) is actively mid-commit on
     /// can never be mistaken for an orphan and swept out from under it.
@@ -401,45 +389,109 @@ internal static class ToolGuards
     /// <para>
     /// BEST-EFFORT: every failure — a locked file (another process's antivirus scan, or the narrow window
     /// where a genuinely live commit is mid-<see cref="File.Move(string, string, bool)"/>), an inaccessible
-    /// directory, a candidate deleted by a concurrently-running sweep — is swallowed. A missed sweep simply
-    /// leaves the file for a later mutating call to retry; it must never fail the edit this cleanup
-    /// piggybacks on.
+    /// directory, a candidate deleted by a concurrently-running sweep — is swallowed by
+    /// <see cref="ScratchFiles.SweepStale"/>. A missed sweep simply leaves the file for a later mutating call
+    /// to retry; it must never fail the edit this cleanup piggybacks on. A READ-ONLY orphan (one a read-only
+    /// source left behind before GitHub issue #94 made every private copy writable) is removed too.
     /// </para>
     /// </remarks>
     private static void SweepStaleStagingFiles(string layoutPath)
     {
+        string? targetDir;
         try
         {
-            var targetDir = Path.GetDirectoryName(Path.GetFullPath(layoutPath));
-            if (string.IsNullOrEmpty(targetDir) || !Directory.Exists(targetDir))
-            {
-                return;
-            }
-
-            var cutoffUtc = DateTime.UtcNow - StageFileRetentionWindow;
-            foreach (var glob in StagingFileGlobs)
-            {
-                foreach (var candidate in Directory.EnumerateFiles(targetDir, glob))
-                {
-                    try
-                    {
-                        // CreationTimeUtc, not LastWriteTimeUtc — see StageFileRetentionWindow's remarks.
-                        if (File.GetCreationTimeUtc(candidate) < cutoffUtc)
-                        {
-                            File.Delete(candidate);
-                        }
-                    }
-                    catch
-                    {
-                        // Best-effort: leave this one candidate for a later sweep rather than failing the edit.
-                    }
-                }
-            }
+            targetDir = Path.GetDirectoryName(Path.GetFullPath(layoutPath));
         }
         catch
         {
-            // Best-effort: an inaccessible/unreadable directory must never fail the edit.
+            return; // Best-effort: a path-shape problem is reported by the edit itself, never by this sweep.
         }
+
+        if (string.IsNullOrEmpty(targetDir))
+        {
+            return;
+        }
+
+        foreach (var glob in StagingFileGlobs)
+        {
+            ScratchFiles.SweepStale(targetDir, glob);
+        }
+    }
+
+    /// <summary>The name prefix of <see cref="GuardMutate{TResult}"/>'s <c>%TEMP%</c> edit working copy.</summary>
+    private const string EditWorkingCopyPrefix = "bcwl-edit-";
+
+    /// <summary>
+    /// How often, at most, one host process sweeps <c>%TEMP%</c> for orphaned edit working copies (see
+    /// <see cref="SweepStaleEditWorkingCopiesIfDue"/>). The layout-directory sweep runs on every call because
+    /// that directory is small; <c>%TEMP%</c> is shared by every program on the machine and can hold tens of
+    /// thousands of entries, and an orphan only needs removing eventually, not on the next call.
+    /// </summary>
+    private static readonly TimeSpan EditWorkingCopySweepInterval = TimeSpan.FromHours(1);
+
+    /// <summary>UTC ticks before which <see cref="SweepStaleEditWorkingCopiesIfDue"/> skips its sweep.</summary>
+    private static long _nextEditWorkingCopySweepTicks;
+
+    /// <summary>
+    /// Runs <see cref="SweepStaleEditWorkingCopies"/> against <see cref="Path.GetTempPath"/> when
+    /// <see cref="EditWorkingCopySweepInterval"/> has elapsed since this process last did, so the first
+    /// mutating call of a fresh process always sweeps. Concurrent callers race on one
+    /// <see cref="Interlocked.CompareExchange(ref long, long, long)"/>, so exactly one of them sweeps per interval.
+    /// </summary>
+    private static void SweepStaleEditWorkingCopiesIfDue()
+    {
+        var nowTicks = DateTime.UtcNow.Ticks;
+        var dueTicks = Interlocked.Read(ref _nextEditWorkingCopySweepTicks);
+        if (nowTicks < dueTicks
+            || Interlocked.CompareExchange(
+                ref _nextEditWorkingCopySweepTicks, nowTicks + EditWorkingCopySweepInterval.Ticks, dueTicks) != dueTicks)
+        {
+            return;
+        }
+
+        SweepStaleEditWorkingCopies(Path.GetTempPath());
+    }
+
+    /// <summary>
+    /// Best-effort, age-based cleanup of orphaned <c>bcwl-edit-*.docx</c> working copies in
+    /// <paramref name="tempDir"/>. <see cref="GuardMutate{TResult}"/> creates one per call in
+    /// <see cref="Path.GetTempPath"/> and deletes it in its own <c>finally</c>; a hard-killed process skips
+    /// that, and before GitHub issue #94 a read-only source also left a read-only copy that the delete could
+    /// not remove. Nothing else ever revisited the family. Same age rule and best-effort contract as
+    /// <see cref="SweepStaleStagingFiles"/> (see <see cref="ScratchFiles.SweepStale"/>).
+    /// </summary>
+    /// <remarks>
+    /// <c>%TEMP%</c> is NOT tool-owned, unlike a layout's directory, where the dot-prefixed staging names are
+    /// distinctive. So a candidate must also match the exact shape this class generates
+    /// (<see cref="IsEditWorkingCopyName"/>: the prefix, a 32-character lowercase hex GUID, <c>.docx</c>), the
+    /// same restriction <c>LifecycleTools.SweepStalePreviewDirs</c> applies to its own shared root. Internal
+    /// rather than private, and taking the directory as a parameter, so a test can drive it against a private
+    /// folder instead of the machine's real <c>%TEMP%</c>.
+    /// </remarks>
+    internal static void SweepStaleEditWorkingCopies(string tempDir) =>
+        ScratchFiles.SweepStale(tempDir, EditWorkingCopyPrefix + "*.docx", IsEditWorkingCopyName);
+
+    /// <summary>True for exactly <c>bcwl-edit-&lt;32 lowercase hex&gt;.docx</c>, the name this class generates.</summary>
+    private static bool IsEditWorkingCopyName(string fileName)
+    {
+        const int GuidLength = 32;
+        const string Extension = ".docx";
+        if (fileName.Length != EditWorkingCopyPrefix.Length + GuidLength + Extension.Length
+            || !fileName.StartsWith(EditWorkingCopyPrefix, StringComparison.Ordinal)
+            || !fileName.EndsWith(Extension, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        for (var i = EditWorkingCopyPrefix.Length; i < EditWorkingCopyPrefix.Length + GuidLength; i++)
+        {
+            if (fileName[i] is not ((>= '0' and <= '9') or (>= 'a' and <= 'f')))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /// <summary>
@@ -920,17 +972,21 @@ internal static class ToolGuards
     /// dataset part/wrong namespace" one, again keyed off the TYPE rather than any <c>ex.Message</c> text.
     /// </para>
     /// <para>
-    /// <c>file_locked</c> is produced two ways: (1) below, by catching
+    /// <c>file_locked</c> is produced three ways: (1) below, by catching
     /// <see cref="IOException"/> and checking <see cref="Exception.HResult"/> for a Windows sharing/lock
     /// violation (<c>ERROR_SHARING_VIOLATION</c> 0x80070020 / <c>ERROR_LOCK_VIOLATION</c> 0x80070021) - the
-    /// "this layout is open in Word (or another program) right now" case, where opening/copying the file
-    /// itself fails; and (2) not through this method at all, but as a plain <see cref="ToolResponse.Failure"/>
+    /// "this layout is open in Word (or another program) right now" case, where opening the file itself
+    /// fails; (2) below, by catching <see cref="TargetFileNotWritableException"/> - the commit that REPLACES
+    /// the caller's target was refused with access denied, which is how Word holding the file open, the
+    /// read-only attribute and a missing write permission all surface at a rename (GitHub issue #94; reads
+    /// and copies of a file Word holds still succeed, so the denial only shows at the commit); and (3) not
+    /// through this method at all, but as a plain <see cref="ToolResponse.Failure"/>
     /// returned directly by <see cref="CrossProcessLockTimeoutFailure"/> when the cross-process/in-process
     /// edit-lock WAIT itself times out (see <see cref="GuardMutate{TResult}"/>, <see cref="GuardRead"/>, and
     /// <c>LifecycleTools.PreviewLayout</c>/<c>CreateLayout</c>) - the "another process/thread is currently
     /// editing this same layout" case, which is not an exception at all and so never reaches this catch chain.
-    /// Both land on the identical <c>file_locked</c> code so a caller need only branch on one value regardless
-    /// of which of the two actually happened. An <see cref="IOException"/> whose <see cref="Exception.HResult"/>
+    /// All land on the identical <c>file_locked</c> code so a caller need only branch on one value regardless
+    /// of which actually happened. An <see cref="IOException"/> whose <see cref="Exception.HResult"/>
     /// does NOT match either code (e.g. a genuinely corrupt/unreadable file, or - on a non-Windows OS - any
     /// I/O failure at all, since these specific HRESULT values are a Windows convention) falls through to the
     /// generic <c>catch (Exception)</c> below exactly as before this change, keeping today's <c>internal_error</c>
@@ -973,14 +1029,30 @@ internal static class ToolGuards
         catch (IOException ex) when (IsSharingOrLockViolation(ex))
         {
             // "This layout is open in Word (or another program) right now" - the
-            // sharing-violation half of the file_locked story (see this method's own remarks above for the
-            // other half - a timed-out edit-lock WAIT, which never reaches this catch chain at all).
+            // sharing-violation part of the file_locked story (see this method's own remarks above for the
+            // other two - a refused write of the target, and a timed-out edit-lock WAIT).
             return ToolResponse.Failure(
                 "file_locked",
                 ex.Message,
                 "This file is open in another program (typically Word) or is being read/written by another "
                 + "process right now - close it there (or wait for that other operation to finish) and retry; "
                 + "the layout on disk is unaffected by this failure.");
+        }
+        catch (TargetFileNotWritableException ex)
+        {
+            // The commit that replaces the caller's target file was refused with access denied (GitHub issue
+            // #94) - see the exception type's own remarks for why each of the three causes below fails this
+            // way rather than as a sharing violation. Keyed on the TYPE, which only a throw site writing the
+            // target constructs; a bare UnauthorizedAccessException (e.g. a source file that cannot be read)
+            // still reports internal_error.
+            return ToolResponse.Failure(
+                "file_locked",
+                ex.Message,
+                $"'{ex.FilePath}' could not be replaced. The likely causes, most common first: (1) it is open "
+                + "in Word or another program - close it there and retry; (2) it is read-only, e.g. a "
+                + "TFVC/Perforce workspace file that is not checked out - check it out or clear its read-only "
+                + "attribute, then retry; (3) your account has no write permission on the file or its folder - "
+                + "fix the permission, or write to a folder you own. The file itself is unchanged.");
         }
         catch (ResourceLimitExceededException ex)
         {
