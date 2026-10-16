@@ -21,6 +21,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   items. No tool emits a block-level repeater, so this guards layouts written or edited outside the
   tools.
 
+- **New `validate_layout` check `duplicate-control-id` (warning)** (GitHub issue #101). Two content
+  controls sharing a `w:sdtPr/w:id`, which only a hand edit at the package level produces, passed
+  validation silently while every id-addressed tool acted on the first of them. The check names
+  both controls, and the id-addressed tools now refuse such an id.
+
 ### Fixed
 
 - **Inserts that would land inside a data-bound field, label or picture control are refused**
@@ -258,6 +263,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     the insert tools and `create_layout`'s `schemaSource` fail `invalid_layout` with a repair hint.
   - **Repair:** `refresh_xml_part` replaces such a part's content, keeping its `storeItemID`, and
     reports it as `repairedUnreadablePart` (`newUnboundFields` is then empty).
+
+- **Layouts with two BC dataset parts, or two controls sharing an id, are no longer resolved by
+  "first match"** (GitHub issue #101).
+  - **Two BC parts:** reading uses the part most bindings name by `storeItemID`, then by namespace,
+    then the lowest package path, never relationship order; `single-bc-part` lists the parts and
+    says which one was measured. `refresh_xml_part`, `create_layout`'s `schemaSource` and every
+    tool that writes a binding refuse such a layout with `invalid_layout`.
+  - **Shared control ids:** `remove_control`, `afterControl` locations and `parentRepeaterId` refuse
+    an id more than one control carries instead of acting on the first.
 
 ### Security
 

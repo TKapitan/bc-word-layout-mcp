@@ -15,6 +15,19 @@ public enum LayoutDefect
     /// re-save, an unescaped <c>&amp;</c>, a truncated file, or a DOCTYPE (GitHub issue #96).
     /// </summary>
     UnreadableDatasetPart,
+
+    /// <summary>
+    /// The package carries more than one BC dataset custom XML part, so an operation that copies, replaces
+    /// or binds to "the" dataset part would have to guess which one is meant (GitHub issue #101). Reading
+    /// still works against the part the bindings use; writing refuses (ADR-0003).
+    /// </summary>
+    SeveralDatasetParts,
+
+    /// <summary>
+    /// More than one content control in the package carries the <c>w:sdtPr/w:id</c> an id-addressed tool was
+    /// given, so the id does not say which control is meant (GitHub issue #101).
+    /// </summary>
+    DuplicateControlId,
 }
 
 /// <summary>

@@ -44,7 +44,8 @@ public static class LayoutRefresher
     /// custom XML part; or is a schema <c>.xml</c> whose root is not <c>NavWordReportXmlPart</c>.
     /// </exception>
     /// <exception cref="LayoutDefectException">
-    /// <paramref name="newSchemaSource"/> is a <c>.docx</c> whose BC dataset part cannot be parsed.
+    /// <paramref name="doc"/> or a <c>.docx</c> <paramref name="newSchemaSource"/> carries several BC dataset
+    /// parts (<see cref="LayoutDefect.SeveralDatasetParts"/>), or the source's BC dataset part cannot be parsed.
     /// </exception>
     public static RefreshResult Refresh(WordprocessingDocument doc, string newSchemaSource)
     {
@@ -190,11 +191,17 @@ public static class LayoutRefresher
     /// unparsable part), and it keeps its <c>ds:itemID</c> like any refreshed part, so the layout's bindings stay
     /// linked. Refusing here, as this used to ("Layout has no BC dataset custom XML part to refresh"), left the
     /// layout with no repair path inside the tool set at all.
+    /// <para>
+    /// SEVERAL BC parts are refused (GitHub issue #101): this used to replace "the first" in relationship
+    /// order, so with a foreign part listed first it rewrote THAT part, reported namespaceChanged, listed
+    /// dozens of the layout's own columns as new, and left errors no tool could clear.
+    /// <see cref="SchemaProvider.FindBcPart"/> is the refusal, unreadable candidates counting towards it.
+    /// </para>
     /// </remarks>
     private static RefreshTarget ResolveTarget(MainDocumentPart main)
     {
         var scan = SchemaProvider.Scan(main);
-        if (scan.Parts.Count == 0 && scan.Unreadable is [var broken])
+        if (scan.Count == 1 && scan.Unreadable is [var broken])
         {
             return new RefreshTarget(
                 broken.Part,
@@ -240,7 +247,8 @@ public static class LayoutRefresher
             var sourceMain = sourceDoc.MainDocumentPart
                 ?? throw new InvalidDataException($"'{newSchemaSource}' has no main document part.");
 
-            var found = SchemaProvider.FindBcPart(sourceMain)
+            // FindBcPart refuses a source carrying several BC parts too: which schema to copy would be a guess.
+            var found = SchemaProvider.FindBcPart(sourceMain, $"newSchemaSource '{newSchemaSource}'")
                 ?? throw new InvalidDataException(
                     $"'{newSchemaSource}' has no BC dataset custom XML part (namespace starting "
                     + $"'{OoxmlNames.BcNamespacePrefix}').");

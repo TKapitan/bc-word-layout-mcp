@@ -37,4 +37,26 @@ internal static class PackageSurgery
         using var stream = entry.Open();
         stream.Write(bytes, 0, bytes.Length);
     }
+
+    /// <summary>
+    /// Rewrites <c>word/_rels/document.xml.rels</c> so the relationship whose Target ends with
+    /// <paramref name="targetSuffix"/> comes FIRST — the order the OpenXml SDK enumerates
+    /// <c>MainDocumentPart.CustomXmlParts</c> in, and the only thing that decided which of two BC parts a layout
+    /// was read against before GitHub issue #101.
+    /// </summary>
+    public static void MoveRelationshipFirst(string docxPath, string targetSuffix)
+    {
+        const string relsEntry = "word/_rels/document.xml.rels";
+        var rels = System.Xml.Linq.XDocument.Parse(
+            System.Text.Encoding.UTF8.GetString(ReadEntry(docxPath, relsEntry)).TrimStart('﻿'));
+        var root = rels.Root!;
+        var moved = root.Elements()
+            .Single(r => ((string?)r.Attribute("Target"))?.EndsWith(targetSuffix, StringComparison.OrdinalIgnoreCase) == true);
+        moved.Remove();
+        root.AddFirst(moved);
+
+        using var buffer = new MemoryStream();
+        rels.Save(buffer);
+        ReplaceEntry(docxPath, relsEntry, buffer.ToArray());
+    }
 }

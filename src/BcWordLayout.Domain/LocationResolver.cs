@@ -191,6 +191,13 @@ public static class LocationResolver
         ArgumentNullException.ThrowIfNull(doc);
         location.Validate();
 
+        // An afterControl id that several controls carry, in ANY part, is refused before the part-scoped
+        // lookup below could settle on one of them (GitHub issue #101; see ControlIds for why package-wide).
+        if (location.Type == LocationKind.AfterControl && doc.MainDocumentPart is { } main)
+        {
+            ControlIds.EnsureUnique(main, location.ControlId!.Value);
+        }
+
         var (root, partName) = ResolvePartRoot(location, doc);
         var partDescription = DescribePart(partName);
 

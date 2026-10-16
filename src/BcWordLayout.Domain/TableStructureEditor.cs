@@ -375,7 +375,7 @@ public static class TableStructureEditor
         // headerLabelPath used to skip loading it, which silently turned the label into static text and
         // never checked the path at all (GitHub issue #82).
         var schema = mode != InsertColumnMode.PlainText || options.HeaderLabelPath is not null
-            ? SchemaProvider.FromLayout(doc)
+            ? SchemaProvider.FromLayoutForBinding(doc)
             : null;
         ValidateInsertColumnPaths(schema, options);
 
@@ -1041,7 +1041,7 @@ public static class TableStructureEditor
         var gridColumns = table.GetFirstChild<TableGrid>()!.Elements<GridColumn>().ToList();
         var widths = LayoutEditor.ComputeCellWidthsFromGrid(gridColumns, cells);
 
-        var schema = SchemaProvider.FromLayout(doc);
+        var schema = LayoutEditor.SchemaForRow(doc, cells);
         var nextId = LayoutEditor.MakeIdGenerator(doc);
         var row = SdtFactory.BuildStaticRow(schema, cells, widths, nextId);
 

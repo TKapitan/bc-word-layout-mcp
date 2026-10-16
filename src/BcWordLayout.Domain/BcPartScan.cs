@@ -17,6 +17,33 @@ internal sealed class BcPartScan
     /// in relationship order. Unrelated broken parts are not listed.
     /// </summary>
     public required IReadOnlyList<UnreadableBcPart> Unreadable { get; init; }
+
+    /// <summary>
+    /// The readable part the layout is READ against: the only one, or — when there are several — the one its
+    /// bindings use (GitHub issue #101, see <see cref="SchemaProvider.ChooseBcPart"/>). Null when no part is readable.
+    /// </summary>
+    public required BcPartInfo? Chosen { get; init; }
+
+    /// <summary>Why <see cref="Chosen"/> was chosen, as a clause that reads after its name; null unless there were several readable parts.</summary>
+    public required string? ChoiceReason { get; init; }
+
+    /// <summary>How many BC dataset parts the package carries, readable or not — "exactly one" is the valid shape.</summary>
+    public int Count => Parts.Count + Unreadable.Count;
+
+    /// <summary>
+    /// Every BC dataset part, by package path and report (or as unreadable), in relationship order — e.g.
+    /// <c>'customXml/item1.xml' (Job_Quote/1016, itemID {...}), 'customXml/item2.xml' (not well-formed XML)</c>.
+    /// </summary>
+    public string DescribeParts() =>
+        string.Join(
+            ", ",
+            Parts.Select(p =>
+                {
+                    var identity = SchemaProvider.ParseIdentity(p.Namespace, p.ItemId);
+                    return $"'{p.Name}' ({identity.ReportName}/{identity.ReportId}, "
+                           + (p.ItemId is null ? "no itemProps" : $"itemID {p.ItemId}") + ")";
+                })
+                .Concat(Unreadable.Select(u => $"'{u.Name}' (not well-formed XML)")));
 }
 
 /// <summary>A readable BC dataset custom XML part, with the facts a caller needs without re-parsing it.</summary>

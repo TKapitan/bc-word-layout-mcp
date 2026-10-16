@@ -38,20 +38,48 @@ public static class SchemaProvider
         return FromMainPart(main);
     }
 
-    /// <summary>Builds the dataset tree from an already-open main document part.</summary>
+    /// <summary>
+    /// Builds the dataset tree from an already-open main document part — from the part the layout's own
+    /// bindings use when it carries several (see <see cref="ChooseBcPart"/>). For READING only: a caller about
+    /// to write a new binding uses <see cref="FromLayoutForBinding"/>, which refuses to choose.
+    /// </summary>
     /// <exception cref="InvalidDataException">The package has no BC dataset custom XML part at all.</exception>
     /// <exception cref="LayoutDefectException">
-    /// Its BC dataset part is there but cannot be parsed (see <see cref="FindBcPart"/>).
+    /// Its only BC dataset part(s) are there but cannot be parsed (see <see cref="ChooseBcPart"/>).
     /// </exception>
     internal static DatasetTree FromMainPart(MainDocumentPart main)
     {
-        var (part, root) = FindBcPart(main)
-            ?? throw new InvalidDataException(
-                $"No BC dataset custom XML part (namespace starting '{OoxmlNames.BcNamespacePrefix}') was found.");
-
-        var storeItemId = part.CustomXmlPropertiesPart?.DataStoreItem?.ItemId?.Value;
-        return Build(root, storeItemId);
+        var (part, root) = ChooseBcPart(main) ?? throw NoBcPart();
+        return Build(root, ReadItemId(part));
     }
+
+    /// <summary>
+    /// The dataset tree a NEW bound control is built against — every tool that writes a binding (the insert
+    /// tools, and <c>insert_column</c>/<c>insert_table_row</c>/<c>insert_subtotal_row</c> when they add a bound
+    /// cell) builds its schema here rather than through <see cref="FromLayout(WordprocessingDocument)"/>.
+    /// </summary>
+    /// <remarks>
+    /// A layout carrying several BC dataset parts is REFUSED here rather than resolved (ADR-0003). Reading may
+    /// settle on the part the bindings use and say so (<see cref="ChooseBcPart"/>); writing cannot, because the
+    /// new binding's namespace, tag, storeItemID and the schema its path is checked against all come from the
+    /// part chosen, and a wrong choice silently binds the control to another report (GitHub issue #101).
+    /// </remarks>
+    /// <exception cref="InvalidDataException">The layout has no main document part or no BC dataset part.</exception>
+    /// <exception cref="LayoutDefectException">
+    /// It carries several BC dataset parts (<see cref="LayoutDefect.SeveralDatasetParts"/>), or its only one
+    /// cannot be parsed (<see cref="LayoutDefect.UnreadableDatasetPart"/>).
+    /// </exception>
+    internal static DatasetTree FromLayoutForBinding(WordprocessingDocument doc)
+    {
+        var main = doc.MainDocumentPart
+            ?? throw new InvalidDataException("Layout has no main document part.");
+
+        var (part, root) = FindBcPart(main) ?? throw NoBcPart();
+        return Build(root, ReadItemId(part));
+    }
+
+    private static InvalidDataException NoBcPart() =>
+        new($"No BC dataset custom XML part (namespace starting '{OoxmlNames.BcNamespacePrefix}') was found.");
 
     /// <summary>Parses the dataset from a standalone exported schema XML file (no OPC package).</summary>
     /// <exception cref="InvalidInputFileException">
@@ -112,8 +140,9 @@ public static class SchemaProvider
     }
 
     /// <summary>
-    /// Locates the BC dataset custom XML part — the first readable part whose root namespace starts with the
-    /// BC prefix, in relationship order — returning the part together with its loaded root element. Returns
+    /// Locates the package's ONE BC dataset custom XML part, returning it together with its loaded root
+    /// element — for a caller about to COPY or REPLACE that part's content (create_layout's and
+    /// refresh_xml_part's schema sources, the bound-insert tools via <see cref="FromLayoutForBinding"/>). Returns
     /// null when the package has no BC dataset part at all.
     /// </summary>
     /// <remarks>
@@ -123,39 +152,89 @@ public static class SchemaProvider
     /// <see cref="Scan"/> recognised an unreadable candidate, this throws a
     /// <see cref="LayoutDefectException"/> naming the part and the parse error instead of returning null.
     /// <para>
+    /// SEVERAL BC parts are refused, never resolved by "the first one" (GitHub issue #101): that is
+    /// relationship order, which SOLUTION-DESIGN §2.1 rules out ("by namespace, never by index"), and it made
+    /// refresh_xml_part rewrite a foreign part and report dozens of the layout's own columns as new. Even the
+    /// binding vote <see cref="ChooseBcPart"/> holds is a heuristic, and a copy or a replacement made from the
+    /// wrong part is a silently wrong deliverable (ADR-0003). Unreadable candidates count towards "several":
+    /// they are BC dataset parts too, just broken ones.
+    /// </para>
+    /// <para>
     /// SECURITY: the classification walk is <see cref="Scan"/>'s, which parses each part transiently and keeps
-    /// none of the trees; the chosen part's root is parsed again here, so no more than one parsed tree is ever
+    /// none of the trees; the part's root is parsed again here, so no more than one parsed tree is ever
     /// alive at a time however many parts the package carries.
     /// </para>
     /// </remarks>
+    /// <param name="main">The package's main document part.</param>
+    /// <param name="subject">
+    /// How the refusal names the package — "This layout" for the layout being edited, or e.g.
+    /// "newSchemaSource '...'" for a schema source, so a caller with two .docx arguments can tell which is meant.
+    /// </param>
     /// <exception cref="LayoutDefectException">
-    /// No part parses as a BC dataset part, but at least one is recognisably one
-    /// (<see cref="LayoutDefect.UnreadableDatasetPart"/>).
+    /// The package carries more than one BC dataset part (<see cref="LayoutDefect.SeveralDatasetParts"/>); or
+    /// no part parses as one, but at least one is recognisably one (<see cref="LayoutDefect.UnreadableDatasetPart"/>).
     /// </exception>
     /// <exception cref="ResourceLimitExceededException">
     /// The package has more than <see cref="ResourceLimits.MaxCustomXmlParts"/> custom XML parts, or one
     /// exceeds <see cref="ResourceLimits.MaxCustomXmlPartBytes"/>.
     /// </exception>
-    internal static (CustomXmlPart Part, XElement Root)? FindBcPart(MainDocumentPart main)
+    internal static (CustomXmlPart Part, XElement Root)? FindBcPart(MainDocumentPart main, string subject = "This layout")
     {
         var scan = Scan(main);
-        if (scan.Parts.Count == 0)
+        if (scan.Count > 1)
+        {
+            throw SeveralPartsDefect(scan, subject);
+        }
+
+        return Loaded(scan);
+    }
+
+    /// <summary>
+    /// For READING a layout that may carry several BC dataset parts: the part the layout's own bindings use
+    /// (<see cref="BcPartScan.Chosen"/>, decided by <see cref="Choose"/>), together with its loaded root
+    /// element. Returns null when the package has no BC dataset part at all.
+    /// </summary>
+    /// <remarks>
+    /// Reading must answer something — get_layout_info has to report a report, validate_layout has to measure
+    /// the bindings against a schema — and "the first part in relationship order" answered at random: the same
+    /// package reported 124 errors or 1 depending only on which relationship was listed first (GitHub issue
+    /// #101). The part the bindings name is the honest answer, and validate_layout's single-bc-part finding
+    /// still says the package is wrong and which part was measured against. Writers never come here; they go
+    /// through <see cref="FindBcPart"/>, which refuses.
+    /// </remarks>
+    /// <exception cref="LayoutDefectException">
+    /// No part parses as a BC dataset part, but at least one is recognisably one
+    /// (<see cref="LayoutDefect.UnreadableDatasetPart"/>).
+    /// </exception>
+    /// <exception cref="ResourceLimitExceededException">See <see cref="Scan"/>.</exception>
+    internal static (CustomXmlPart Part, XElement Root)? ChooseBcPart(MainDocumentPart main) => Loaded(Scan(main));
+
+    /// <summary>
+    /// <paramref name="scan"/>'s chosen part with its root parsed again; null when the package has no BC part,
+    /// or the unreadable-part defect when its only BC part(s) cannot be parsed.
+    /// </summary>
+    private static (CustomXmlPart Part, XElement Root)? Loaded(BcPartScan scan)
+    {
+        if (scan.Chosen is not { } chosen)
         {
             return scan.Unreadable.Count == 0 ? null : throw UnreadableDefect(scan.Unreadable);
         }
 
-        var part = scan.Parts[0].Part;
-        return (part, LoadRoot(part));
+        return (chosen.Part, LoadRoot(chosen.Part));
     }
 
     /// <summary>
-    /// Enumerates every custom XML part whose root parses and whose namespace starts with the BC prefix — the
-    /// PART REFERENCE only, NOT its parsed root (see <see cref="Scan"/>). Used by <see cref="LayoutBuilder"/>
-    /// to remove every existing BC part before attaching a new one.
+    /// Every BC dataset custom XML part in the package, readable or not — the PART REFERENCE only, NOT its
+    /// parsed root (see <see cref="Scan"/>). Used by <see cref="LayoutBuilder"/> to remove every existing BC
+    /// part before attaching a new one, which is why an unreadable one is included: left behind, it would sit
+    /// beside the new part as a second BC part.
     /// </summary>
     /// <exception cref="ResourceLimitExceededException">See <see cref="Scan"/>.</exception>
-    internal static IReadOnlyList<CustomXmlPart> FindBcParts(MainDocumentPart main) =>
-        Scan(main).Parts.Select(p => p.Part).ToList();
+    internal static IReadOnlyList<CustomXmlPart> FindBcParts(MainDocumentPart main)
+    {
+        var scan = Scan(main);
+        return scan.Parts.Select(p => p.Part).Concat(scan.Unreadable.Select(u => u.Part)).ToList();
+    }
 
     /// <summary>
     /// Classifies every custom XML part of <paramref name="main"/>, in relationship order, as a readable BC
@@ -198,8 +277,105 @@ public static class SchemaProvider
             }
         }
 
-        return new BcPartScan { Parts = parts, Unreadable = unreadable };
+        var (chosen, reason) = parts.Count switch
+        {
+            0 => (null, null),
+            1 => (parts[0], null),
+            _ => Choose(parts, DatasetBindings(main)),
+        };
+
+        return new BcPartScan { Parts = parts, Unreadable = unreadable, Chosen = chosen, ChoiceReason = reason };
     }
+
+    /// <summary>
+    /// Decides which of several readable BC dataset parts a layout's bindings use, and says why in a clause
+    /// that reads after the part's name: the part whose <c>ds:itemID</c> the most dataset bindings name as
+    /// their <c>w:storeItemID</c> (in Word's model that attribute IS the pointer from a binding to its data
+    /// store part); on a tie, the part whose root namespace the most bindings' <c>w:prefixMappings</c> name
+    /// (the only evidence left when no part carries an itemProps); on a further tie, the part whose package
+    /// path sorts first, ordinally.
+    /// </summary>
+    /// <remarks>
+    /// The last tie-break is arbitrary, but deterministic and independent of RELATIONSHIP order, which is what
+    /// used to decide (GitHub issue #101): the same package then measured as 124 errors or 1 depending only on
+    /// which relationship came first, and the validator's single-bc-part finding named neither part.
+    /// </remarks>
+    private static (BcPartInfo Chosen, string Reason) Choose(IReadOnlyList<BcPartInfo> parts, IReadOnlyList<DatasetBinding> bindings)
+    {
+        var ranked = parts
+            .Select(p => (
+                Part: p,
+                ByItemId: p.ItemId is null ? 0 : bindings.Count(b => b.StoreItemId is { } id && SameItemId(id, p.ItemId)),
+                ByNamespace: bindings.Count(b => string.Equals(b.Namespace, p.Namespace, StringComparison.Ordinal))))
+            .OrderByDescending(r => r.ByItemId)
+            .ThenByDescending(r => r.ByNamespace)
+            .ThenBy(r => r.Part.Name, StringComparer.Ordinal)
+            .ToList();
+
+        var (best, runnerUp) = (ranked[0], ranked[1]);
+        var reason = best.ByItemId > runnerUp.ByItemId
+            ? $"{best.ByItemId} of the layout's {bindings.Count} dataset binding(s) name its itemID as their storeItemID"
+            : best.ByNamespace > runnerUp.ByNamespace
+                ? $"no part's itemID is named by more bindings than another's, and {best.ByNamespace} of the "
+                  + $"layout's {bindings.Count} dataset binding(s) name its namespace"
+                : "no binding singles out one part, by storeItemID or by namespace, so the part whose package path "
+                  + "sorts first is used";
+
+        return (best.Part, reason);
+    }
+
+    /// <summary>
+    /// One content-control binding INTO the BC dataset: its <c>w:storeItemID</c> and the BC namespace its
+    /// <c>w:prefixMappings</c> names (either may be absent).
+    /// </summary>
+    internal sealed record DatasetBinding(string? StoreItemId, string? Namespace);
+
+    /// <summary>
+    /// Every binding into the BC dataset across the document body, headers and footers: a binding whose
+    /// XPath's root step is <c>NavWordReportXmlPart</c> or whose <c>w:prefixMappings</c> names a BC namespace —
+    /// the evidence of which BC part a layout's controls actually point at. A binding into another store (a
+    /// document-property control binds <c>coreProperties</c>) is not evidence and is left out.
+    /// </summary>
+    internal static IReadOnlyList<DatasetBinding> DatasetBindings(MainDocumentPart main)
+    {
+        var result = new List<DatasetBinding>();
+        foreach (var (root, _) in PartWalker.ContentParts(main))
+        {
+            foreach (var sdt in root.Descendants<DocumentFormat.OpenXml.Wordprocessing.SdtElement>())
+            {
+                var ns = SdtInspector.ReadBindingNamespace(sdt);
+                if (ns is not null || BindingXPath.IsBcDatasetBinding(SdtInspector.ReadXPath(sdt)))
+                {
+                    result.Add(new DatasetBinding(SdtInspector.ReadStoreItemId(sdt), ns));
+                }
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// True when two item IDs name the same GUID — compared with braces and case ignored, as every
+    /// storeItemID comparison here is, since corpus layouts are not consistent about either.
+    /// </summary>
+    internal static bool SameItemId(string a, string b)
+    {
+        static string Norm(string s) => s.Trim().Trim('{', '}').ToLowerInvariant();
+        return Norm(a) == Norm(b);
+    }
+
+    /// <summary>
+    /// The refusal for a package carrying several BC dataset parts (see <see cref="FindBcPart"/>), naming each
+    /// one and the part its bindings use — the one to keep, in the common case of a part pasted in by hand.
+    /// </summary>
+    private static LayoutDefectException SeveralPartsDefect(BcPartScan scan, string subject) =>
+        new($"{subject} carries {scan.Count} BC dataset custom XML parts ({scan.DescribeParts()}), where a layout "
+            + "has exactly one, so which report this operation means cannot be decided without guessing, and "
+            + "nothing was changed."
+            + (scan.Chosen is { } chosen && scan.ChoiceReason is { } reason
+                ? $" The read-only tools report '{chosen.Name}': {reason}."
+                : string.Empty),
+            LayoutDefect.SeveralDatasetParts);
 
     /// <summary>
     /// Parses <paramref name="part"/>'s root again and returns it — for a part <see cref="Scan"/> has already

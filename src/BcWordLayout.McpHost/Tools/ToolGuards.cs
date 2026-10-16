@@ -1588,6 +1588,24 @@ internal static class ToolGuards
             + "linked. If the broken file was passed as a schema SOURCE (schemaSource/newSchemaSource), pass an "
             + "intact copy instead.",
 
+        LayoutDefect.SeveralDatasetParts =>
+            "A layout carries exactly one BC dataset part; this one carries several (the message lists them and "
+            + "names the one its bindings use - normally the one to keep). Remove the extra part from the .docx "
+            + "package: delete its customXml/itemN.xml, the matching customXml/itemPropsN.xml and "
+            + "customXml/_rels/itemN.xml.rels, its relationship in word/_rels/document.xml.rels and its overrides "
+            + "in [Content_Types].xml, then retry. get_layout_info and validate_layout still read the file (its "
+            + "single-bc-part finding lists the parts too). If the file was passed as a schema SOURCE "
+            + "(schemaSource/newSchemaSource), pass a layout with a single dataset part instead.",
+
+        LayoutDefect.DuplicateControlId =>
+            "Content-control ids must be unique for id addressing to mean anything (validate_layout's "
+            + "duplicate-control-id warning lists every shared id). No tool here renumbers a control: for an "
+            + "insert, address the spot another way (tableCell or atText instead of afterControl); to fix the "
+            + "package, give all but one of the controls the message names a new w:sdtPr/w:id value (any integer "
+            + "no other control uses), or open the layout in Word and save it - the spec (ECMA-376 Part 1, "
+            + "17.5.2.18) has a consumer keep the first and assign fresh ids to later duplicates when it loads the "
+            + "document. Then call get_layout_info for the ids as they now are.",
+
         _ =>
             "The layout package carries a defect this call cannot work around (see the message above); run "
             + "validate_layout on it for the full list of findings and their repairs.",
