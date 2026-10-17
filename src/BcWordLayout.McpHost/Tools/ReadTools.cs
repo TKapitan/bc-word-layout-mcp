@@ -103,7 +103,7 @@ public static class ReadTools
         if (source is null)
         {
             return ToolResponse.Failure(
-                "invalid_argument",
+                ErrorCodes.InvalidArgument,
                 "source must not be null.",
                 "Pass an absolute path to either a .docx layout or a standalone exported schema .xml file.");
         }
@@ -178,7 +178,7 @@ public static class ReadTools
             && !string.Equals(level, "quick", StringComparison.OrdinalIgnoreCase))
         {
             return Guard(() => ToolResponse.Failure(
-                "invalid_argument",
+                ErrorCodes.InvalidArgument,
                 $"Unknown validation level '{level}'.",
                 "level must be 'quick' or 'full' (case-insensitive); 'quick' runs fast structural+binding "
                 + "checks, 'full' additionally dry-run merges sample data and surfaces merge warnings."), layoutPath);

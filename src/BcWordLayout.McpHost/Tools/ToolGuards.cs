@@ -224,7 +224,7 @@ internal static class ToolGuards
                         if (newNesting.Count > 0)
                         {
                             return ToolResponse.Failure(
-                                "edit_would_corrupt",
+                                ErrorCodes.EditWouldCorrupt,
                                 $"This edit would place {newNesting.Count} content control(s), field code(s), "
                                 + "table(s) or drawing(s) inside a plain-text content control, which Word rejects "
                                 + "as a corrupt document; the file was NOT modified.",
@@ -241,7 +241,7 @@ internal static class ToolGuards
                         if (newTableGrid.Count > 0)
                         {
                             return ToolResponse.Failure(
-                                "edit_would_break_table",
+                                ErrorCodes.EditWouldBreakTable,
                                 $"This edit would leave {newTableGrid.Count} table row(s) inconsistent with their "
                                 + "grid (cells covering the wrong number of grid columns, or an empty cell), which "
                                 + "Word renders as a broken/corrupt table; the file was NOT modified.",
@@ -287,7 +287,7 @@ internal static class ToolGuards
                             var preview = string.Join(
                                 " | ", newErrors.Take(5).Select(e => $"{e.Path?.XPath}: {e.Description}"));
                             return ToolResponse.Failure(
-                                "edit_would_corrupt",
+                                ErrorCodes.EditWouldCorrupt,
                                 $"This edit would introduce {newErrors.Count} new OpenXML structural error(s); "
                                 + "the file was NOT modified.",
                                 $"First new error(s): {preview} - this should not happen for any documented "
@@ -760,7 +760,7 @@ internal static class ToolGuards
     /// </summary>
     internal static ToolResponse CrossProcessLockTimeoutFailure(string layoutPath, TimeSpan timeout) =>
         ToolResponse.Failure(
-            "file_locked",
+            ErrorCodes.FileLocked,
             $"Timed out after {timeout.TotalSeconds:0.#}s waiting for the edit lock on "
             + $"'{Path.GetFullPath(layoutPath)}'.",
             "Another process (e.g. another IDE window's MCP host) is currently editing or previewing this "
@@ -1069,7 +1069,7 @@ internal static class ToolGuards
             // may not be the one that was actually missing.
             var missingPath = ex.FileName ?? path;
             return ToolResponse.Failure(
-                "file_not_found",
+                ErrorCodes.FileNotFound,
                 $"{ex.Message} Path checked: '{missingPath}'.",
                 "Pass an absolute path (not relative) to a file that already exists on disk - the parameter "
                 + "named above must point at it; check for typos, a missing drive letter, or a relative path "
@@ -1081,7 +1081,7 @@ internal static class ToolGuards
             // sharing-violation part of the file_locked story (see this method's own remarks above for the
             // other two - a refused write of the target, and a timed-out edit-lock WAIT).
             return ToolResponse.Failure(
-                "file_locked",
+                ErrorCodes.FileLocked,
                 ex.Message,
                 "This file is open in another program (typically Word) or is being read/written by another "
                 + "process right now - close it there (or wait for that other operation to finish) and retry; "
@@ -1095,7 +1095,7 @@ internal static class ToolGuards
             // target constructs; a bare UnauthorizedAccessException (e.g. a source file that cannot be read)
             // still reports internal_error.
             return ToolResponse.Failure(
-                "file_locked",
+                ErrorCodes.FileLocked,
                 ex.Message,
                 $"'{ex.FilePath}' could not be replaced. The likely causes, most common first: (1) it is open "
                 + "in Word or another program - close it there and retry; (2) it is read-only, e.g. a "
@@ -1114,7 +1114,7 @@ internal static class ToolGuards
             // for not_found/invalid_argument). Without this branch such a rejection would fall through to the
             // generic catch (Exception) below and misreport as internal_error instead of invalid_layout.
             return ToolResponse.Failure(
-                "invalid_layout",
+                ErrorCodes.InvalidLayout,
                 ex.Message,
                 "This file exceeds one of this tool's supported size/nesting limits (a package part or "
                 + "schema file too large, too many parts, or schema/document nesting too deep) - "
@@ -1127,7 +1127,7 @@ internal static class ToolGuards
             // (GitHub issue #95) - wrapped at the throw site that knows WHICH file it was reading, so the hint
             // can name it (see the exception type's own remarks for why the BCL types are not mapped wholesale).
             return ToolResponse.Failure(
-                "invalid_layout",
+                ErrorCodes.InvalidLayout,
                 ex.Message,
                 InvalidInputFileHint(ex.Problem, ex.FilePath, ex.LineNumber, ex.LinePosition));
         }
@@ -1140,7 +1140,7 @@ internal static class ToolGuards
             // tool's lazily-parsed package is the file `path` names - an edit's or preview's private copy is
             // a copy OF it, and create_layout's template is wrapped at its own source.
             return ToolResponse.Failure(
-                "invalid_layout",
+                ErrorCodes.InvalidLayout,
                 $"'{path}' contains an XML part that is not well-formed: {ex.Message}",
                 InvalidInputFileHint(
                     InputFileProblem.MalformedPackagePart,
@@ -1151,7 +1151,7 @@ internal static class ToolGuards
         catch (InvalidDataException ex)
         {
             return ToolResponse.Failure(
-                "invalid_layout",
+                ErrorCodes.InvalidLayout,
                 ex.Message,
                 "Confirm the file is either a BC Word layout (.docx) containing a dataset custom XML part, "
                 + "or a standalone exported schema .xml whose root is 'NavWordReportXmlPart' in the "
@@ -1166,7 +1166,7 @@ internal static class ToolGuards
             // that exception type's own remarks). Nothing was written - see LayoutBuilder.Create's own
             // atomic-write behavior.
             return ToolResponse.Failure(
-                "template_not_unbound",
+                ErrorCodes.TemplateNotUnbound,
                 ex.Message,
                 "templatePath must be an UNBOUND branded/styled shell (headers/footers, logo, fonts/styles "
                 + "only) - not a full BC layout with its own bound content controls. If you want to keep "
@@ -1182,23 +1182,23 @@ internal static class ToolGuards
             // The package itself carries a defect this call cannot work around (see LayoutDefectException's
             // own remarks for why that is not just InvalidDataException's generic invalid_layout hint):
             // keyed off the typed Defect, never ex.Message, exactly like NotFoundException's TargetKind.
-            return ToolResponse.Failure("invalid_layout", ex.Message, LayoutDefectHintFor(ex.Defect));
+            return ToolResponse.Failure(ErrorCodes.InvalidLayout, ex.Message, LayoutDefectHintFor(ex.Defect));
         }
         catch (ArgumentException ex)
         {
             return ToolResponse.Failure(
-                "invalid_argument",
+                ErrorCodes.InvalidArgument,
                 ex.Message,
                 ToolSpecificInvalidArgumentHint(tool, ex.ParamName) ?? InvalidArgumentHint(ex.ParamName));
         }
         catch (NotFoundException ex)
         {
-            return ToolResponse.Failure("not_found", ex.Message, NotFoundHintFor(ex.TargetKind));
+            return ToolResponse.Failure(ErrorCodes.NotFound, ex.Message, NotFoundHintFor(ex.TargetKind));
         }
         catch (Exception ex)
         {
             return ToolResponse.Failure(
-                "internal_error",
+                ErrorCodes.InternalError,
                 ex.Message,
                 "This is an unexpected failure, not one of this tool's normal validation outcomes. Confirm "
                 + "the file is a valid, uncorrupted OOXML .docx (e.g. it opens in Word); if the same failure "

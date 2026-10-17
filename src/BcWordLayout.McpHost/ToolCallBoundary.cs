@@ -128,7 +128,7 @@ internal static class ToolCallBoundary
         {
             var toolNames = context.Server.ServerOptions.ToolCollection?.Select(t => t.ProtocolTool.Name).ToList() ?? [];
             return EnvelopeError(
-                "invalid_argument",
+                ErrorCodes.InvalidArgument,
                 $"Unknown tool '{toolName}'."
                 + (ClosestName(toolName, toolNames) is { } closestTool ? $" Did you mean '{closestTool}'?" : string.Empty),
                 "This server has no tool by that name. Call tools/list for the exact names it exposes - they "
@@ -157,7 +157,7 @@ internal static class ToolCallBoundary
                 && result.Content.OfType<TextContentBlock>().FirstOrDefault() is { } text
                 && !text.Text.TrimStart().StartsWith('{'))
             {
-                return EnvelopeError("invalid_argument", text.Text, SchemaHint(tool));
+                return EnvelopeError(ErrorCodes.InvalidArgument, text.Text, SchemaHint(tool));
             }
 
             return result;
@@ -168,7 +168,7 @@ internal static class ToolCallBoundary
             // wrong-typed argument. If every supplied argument nevertheless reads cleanly into its parameter's
             // type, the exception came from somewhere else (e.g. serializing the result) and is a real fault.
             return DescribeTypeMismatch(tool, arguments)
-                ?? EnvelopeError("internal_error", ex.Message, InternalErrorHint);
+                ?? EnvelopeError(ErrorCodes.InternalError, ex.Message, InternalErrorHint);
         }
         catch (ArgumentException ex)
         {
@@ -176,7 +176,7 @@ internal static class ToolCallBoundary
             // in practice a required argument that is absent from the call.
             var missing = MissingRequiredArguments(tool, arguments);
             return EnvelopeError(
-                "invalid_argument",
+                ErrorCodes.InvalidArgument,
                 missing.Count > 0
                     ? $"{tool.ProtocolTool.Name} is missing required argument(s): "
                       + string.Join(", ", missing.Select(m => $"'{m}'")) + "."
@@ -185,7 +185,7 @@ internal static class ToolCallBoundary
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            return EnvelopeError("internal_error", ex.Message, InternalErrorHint);
+            return EnvelopeError(ErrorCodes.InternalError, ex.Message, InternalErrorHint);
         }
     };
 
@@ -248,7 +248,7 @@ internal static class ToolCallBoundary
         var described = unknown.Select(key =>
             ClosestName(key, known) is { } closest ? $"'{key}' (did you mean '{closest}'?)" : $"'{key}'");
         return EnvelopeError(
-            "invalid_argument",
+            ErrorCodes.InvalidArgument,
             $"{tool.ProtocolTool.Name} has no argument named {string.Join(", ", described)}; the call was refused "
             + "rather than run as if the argument had not been sent.",
             "Argument names are case-sensitive and must match the tool's input schema exactly. An unknown name is "
@@ -283,7 +283,7 @@ internal static class ToolCallBoundary
         }
 
         return EnvelopeError(
-            "invalid_argument",
+            ErrorCodes.InvalidArgument,
             $"{tool.ProtocolTool.Name} needs absolute paths, but {string.Join(" and ", relative)} "
             + (relative.Count == 1 ? "is" : "are")
             + " relative: it would resolve against the server process's working directory, which the caller "
@@ -383,7 +383,7 @@ internal static class ToolCallBoundary
             {
                 var expected = DescribeExpectedJson(parameter.ParameterType);
                 return EnvelopeError(
-                    "invalid_argument",
+                    ErrorCodes.InvalidArgument,
                     $"Argument '{parameter.Name}' of {tool.ProtocolTool.Name} must be {expected}, but the call "
                     + $"sent {DescribeSentJson(value)}.",
                     $"Re-send the call with '{parameter.Name}' as {expected} (see the tool's input schema via "

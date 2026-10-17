@@ -310,7 +310,7 @@ public static class LifecycleTools
             if (!TryParseConverterKind(converter, out var kind))
             {
                 return ToolResponse.Failure(
-                    "invalid_argument",
+                    ErrorCodes.InvalidArgument,
                     $"Unknown converter '{converter}'.",
                     "converter must be 'auto', 'word', or 'libreoffice' (case-insensitive); 'auto' prefers "
                     + "Word COM and falls back to LibreOffice.");
@@ -860,7 +860,7 @@ public static class LifecycleTools
         if (!inlineImages && outputDir is null)
         {
             return EnvelopeOnly(ToolResponse.Failure(
-                "invalid_argument",
+                ErrorCodes.InvalidArgument,
                 "inlineImages=false with no outputDir would render the pages and then discard them.",
                 "Either pass outputDir (the PNGs are written there and their paths come back on "
                 + "pages[].path), or leave inlineImages at its default of true."));
@@ -874,7 +874,7 @@ public static class LifecycleTools
         {
             var (name, value) = firstPage < 1 ? (nameof(firstPage), firstPage) : (nameof(maxPages), maxPages);
             return EnvelopeOnly(ToolResponse.Failure(
-                "invalid_argument",
+                ErrorCodes.InvalidArgument,
                 $"{name} must be 1 or more (got {value}).",
                 "firstPage is the 1-based page to start from (default 1) and maxPages how many pages to render "
                 + "from there (default 3, at most 10 per call); the response's pageCount tells you how many pages "
@@ -887,7 +887,7 @@ public static class LifecycleTools
         if (!File.Exists(pdfPath))
         {
             return EnvelopeOnly(ToolResponse.Failure(
-                "file_not_found",
+                ErrorCodes.FileNotFound,
                 $"pdfPath does not point to an existing file. Path checked: '{pdfPath}'.",
                 "Pass the PdfPath returned by a preview_layout call. Preview outputs are refreshed in "
                 + "place on re-preview (one whose conversion failed removes the old PDF and leaves none) "
@@ -905,7 +905,7 @@ public static class LifecycleTools
         if (!result.Ok)
         {
             return EnvelopeOnly(ToolResponse.Failure(
-                "rasterize_failed",
+                ErrorCodes.RasterizeFailed,
                 result.Error ?? "PDF rasterization failed.",
                 "Confirm pdfPath is the PdfPath from a successful preview_layout call (conversionOk true) "
                 + "and that firstPage is within the document (see the message for the page count when "
