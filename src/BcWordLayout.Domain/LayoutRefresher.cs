@@ -18,6 +18,25 @@ namespace BcWordLayout.Domain;
 /// saving are the caller's job (see <c>BcWordLayout.McpHost.Tools.LifecycleTools</c>'s <c>refresh_xml_part</c>
 /// tool, which wraps this call with the same open/validate/save-or-reject safety every mutating tool uses).
 /// </summary>
+/// <remarks>
+/// <para>
+/// The <c>w16sdtdh:storeItemChecksum</c> Word 2021+ writes on a binding (6 of the 10 corpus layouts carry
+/// them) is deliberately left alone, although swapping the part's content leaves it stale (GitHub issue #6).
+/// It is a hash of the DATA PART's content, not of the binding: every control bound to the same part carries
+/// the same value. Measured 2026-10-17 on JobQuote.docx through Word for Microsoft 365:
+/// <list type="bullet">
+/// <item>pristine, Word keeps the shipped value on save, so the corpus checksums are valid;</item>
+/// <item>with the data changed under the old checksum, Word displays the NEW value and writes a recomputed
+/// checksum on save;</item>
+/// <item>with a binding's XPath re-pointed under its old checksum, Word displays the new target's value and
+/// keeps the checksum, which is still correct because the part did not change.</item>
+/// </list>
+/// So a stale checksum never makes Word show stale data and heals on the next Word save. BC cannot be misled
+/// either: it renders with real data, which never matches the sample data the checksum was computed over. A
+/// sandbox upload of a binding-edited layout that kept its checksums byte for byte was accepted (issue #1's
+/// rounds). Dropping the attribute would be a rewrite with no evidence of need.
+/// </para>
+/// </remarks>
 public static class LayoutRefresher
 {
     /// <summary>
