@@ -541,27 +541,35 @@ public class InvalidArgumentHintCoverageTests
         }
     }
 
-    // ---- "schema" — SdtFactory.Build (schema.Report.StoreItemId null/empty). Not reachable through any
-    // documented tool call with a valid BC-created .docx: insert_field/insert_label/insert_repeater_table
-    // always build their schema via SchemaProvider.FromLayout against the already-open document, never
-    // FromSchemaXml, and every layout this tool itself creates (create_layout) always attaches a real
-    // storeItemID. The only realistic trigger is a hand-crafted/externally-authored .docx whose BC dataset
-    // part lacks the CustomXmlPropertiesPart a BC-created layout always carries — reproduced directly via
-    // SyntheticLayout.CreateWithoutStoreItemId (still driven through the real insert_field tool call, just
-    // against a document no documented tool of this project would ever itself produce). ----
+    // ---- "schema" — SdtFactory's storeItemID guard (schema.Report.StoreItemId null/empty). No tool call
+    // reaches it any more. It used to be reached by every bound insert on a layout whose dataset part has no
+    // itemProps - 4 of the 10 corpus layouts, stock ones included - with a hint naming internal C# methods
+    // (GitHub issue #93). Every tool that builds a bound control now takes its schema from
+    // SchemaProvider.FromLayoutForBinding, which supplies the part's itemID or the storeItemID the layout's
+    // existing bindings agree on, and otherwise refuses with invalid_layout (StoreItemIdFallbackTests covers
+    // both). So, like the other defensive keys, it is pinned through the public API its throw site lives on:
+    // SdtFactory handed a schema parsed from a standalone schema .xml (which has no storeItemID), run inside
+    // the same ToolGuards.Guard every tool body runs in. ----
 
     [Fact]
-    public void InsertField_against_a_layout_with_no_storeItemId_hint_points_at_FromLayout()
+    public void SdtFactory_given_a_schema_with_no_storeItemId_hint_reports_a_tool_bug()
     {
-        var path = SyntheticLayout.CreateWithoutStoreItemId(string.Empty);
+        var xml = Path.Combine(Path.GetTempPath(), $"bcwl-hintcov-schema-{Guid.NewGuid():N}.xml");
+        File.WriteAllText(xml, SyntheticLayout.DatasetWithLineXml);
         try
         {
-            var response = EditTools.InsertField(path, "/Header/CompanyName", "documentEnd");
-            AssertActionableFailure(response, "invalid_argument", "not FromSchemaXml");
+            var response = ToolGuards.Guard(
+                () => ToolResponse.Success(
+                    BcWordLayout.Domain.SdtFactory.BuildField(
+                        BcWordLayout.Domain.SchemaProvider.FromSchemaXml(xml), "/Header/CompanyName")),
+                xml);
+
+            AssertActionableFailure(response, "invalid_argument", "resolves one from the layout itself");
+            Assert.DoesNotContain("SchemaProvider", response.Error!.Hint, StringComparison.Ordinal);
         }
         finally
         {
-            File.Delete(path);
+            File.Delete(xml);
         }
     }
 

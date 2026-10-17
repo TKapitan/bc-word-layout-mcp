@@ -273,6 +273,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - **Shared control ids:** `remove_control`, `afterControl` locations and `parentRepeaterId` refuse
     an id more than one control carries instead of acting on the first.
 
+- **Bound inserts work on layouts whose dataset part has no itemProps** (GitHub issue #93).
+  - **Stock layouts:** on `SalespersonCommission`, `StandardStatement` and every other such layout,
+    a new binding reuses the `storeItemID` all existing bindings agree on; no itemProps is minted.
+  - **No consensus:** with no bindings, or disagreeing ones, the call fails `invalid_layout` with a
+    hint saying what to do, instead of `invalid_argument` naming internal methods.
+
 ### Security
 
 - **A crafted layout can no longer kill the server through the OpenXml SDK's own parse** (GitHub

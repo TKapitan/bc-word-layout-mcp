@@ -28,6 +28,13 @@ public enum LayoutDefect
     /// given, so the id does not say which control is meant (GitHub issue #101).
     /// </summary>
     DuplicateControlId,
+
+    /// <summary>
+    /// A new binding needs a storeItemID, the BC dataset part carries no itemProps to take one from, and the
+    /// layout's existing dataset bindings do not all name the same one — there are none, or they disagree —
+    /// so there is nothing to reuse without guessing (GitHub issue #93).
+    /// </summary>
+    NoStoreItemId,
 }
 
 /// <summary>

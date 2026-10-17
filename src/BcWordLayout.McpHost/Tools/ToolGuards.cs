@@ -1475,9 +1475,11 @@ internal static class ToolGuards
             + "otherwise leave the control in place.",
 
         "schema" =>
-            "Build the schema via SchemaProvider.FromLayout against a .docx layout (not FromSchemaXml "
-            + "against a standalone schema .xml) so a real storeItemID is available to bind against; see the "
-            + "message above for exactly what was rejected.",
+            "A bound control must name the storeItemID of the layout's dataset part, and every insert tool "
+            + "resolves one from the layout itself before building the control (from the part's itemProps, or "
+            + "from the storeItemID its existing bindings agree on - refusing with invalid_layout when there is "
+            + "neither), so reaching this message indicates a tool bug rather than a mistake in your call; "
+            + "please report it with the message above.",
 
         "schemasource" =>
             "create_layout's schemaSource must be a non-empty absolute path to an existing .docx layout "
@@ -1605,6 +1607,16 @@ internal static class ToolGuards
             + "no other control uses), or open the layout in Word and save it - the spec (ECMA-376 Part 1, "
             + "17.5.2.18) has a consumer keep the first and assign fresh ids to later duplicates when it loads the "
             + "document. Then call get_layout_info for the ids as they now are.",
+
+        LayoutDefect.NoStoreItemId =>
+            "A new bound control must name the storeItemID of the layout's dataset part. When that part carries "
+            + "no itemProps (stock layouts such as StandardStatement ship that way) the tools reuse the "
+            + "storeItemID every existing dataset binding names - and this layout offers neither. Business "
+            + "Central re-attaches the store item when a layout is uploaded (see validate_layout's single-bc-part "
+            + "warning), so one way out is to upload the layout to Business Central and export it back, then "
+            + "edit the exported copy, whose dataset part should carry one; another is to work on a copy of the "
+            + "layout whose existing bindings all name the same storeItemID. A new itemProps is deliberately not "
+            + "invented here: every existing binding would then name a store item the package does not have.",
 
         _ =>
             "The layout package carries a defect this call cannot work around (see the message above); run "

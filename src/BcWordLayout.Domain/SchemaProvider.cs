@@ -63,11 +63,19 @@ public static class SchemaProvider
     /// settle on the part the bindings use and say so (<see cref="ChooseBcPart"/>); writing cannot, because the
     /// new binding's namespace, tag, storeItemID and the schema its path is checked against all come from the
     /// part chosen, and a wrong choice silently binds the control to another report (GitHub issue #101).
+    /// <para>
+    /// The returned <see cref="ReportIdentity.StoreItemId"/> is never null: it is the part's own
+    /// <c>ds:itemID</c>, or — when the part carries no itemProps — the storeItemID the layout's existing
+    /// dataset bindings agree on (<see cref="StoreItemIdFromBindings"/>), else the call is refused. That is
+    /// the difference from <see cref="FromLayout(WordprocessingDocument)"/>, whose identity reports what the
+    /// part itself declares (null there means "no itemProps", which get_layout_info shows as such).
+    /// </para>
     /// </remarks>
     /// <exception cref="InvalidDataException">The layout has no main document part or no BC dataset part.</exception>
     /// <exception cref="LayoutDefectException">
-    /// It carries several BC dataset parts (<see cref="LayoutDefect.SeveralDatasetParts"/>), or its only one
-    /// cannot be parsed (<see cref="LayoutDefect.UnreadableDatasetPart"/>).
+    /// It carries several BC dataset parts (<see cref="LayoutDefect.SeveralDatasetParts"/>); its only one
+    /// cannot be parsed (<see cref="LayoutDefect.UnreadableDatasetPart"/>); or that part carries no itemProps
+    /// and the existing bindings give no single storeItemID to reuse (<see cref="LayoutDefect.NoStoreItemId"/>).
     /// </exception>
     internal static DatasetTree FromLayoutForBinding(WordprocessingDocument doc)
     {
@@ -75,7 +83,70 @@ public static class SchemaProvider
             ?? throw new InvalidDataException("Layout has no main document part.");
 
         var (part, root) = FindBcPart(main) ?? throw NoBcPart();
-        return Build(root, ReadItemId(part));
+        var tree = Build(root, ReadItemId(part));
+        if (!string.IsNullOrEmpty(tree.Report.StoreItemId))
+        {
+            return tree;
+        }
+
+        var report = tree.Report;
+        return new DatasetTree
+        {
+            Report = new ReportIdentity
+            {
+                ReportName = report.ReportName,
+                ReportId = report.ReportId,
+                Namespace = report.Namespace,
+                StoreItemId = StoreItemIdFromBindings(main, PartPath(part)),
+            },
+            Root = tree.Root,
+        };
+    }
+
+    /// <summary>
+    /// The storeItemID a new binding names when the BC dataset part carries no itemProps: the one every
+    /// existing dataset binding of the layout already names (bindings that name none are not counted), in the
+    /// literal form of the first of them.
+    /// </summary>
+    /// <remarks>
+    /// SOLUTION-DESIGN §2.1: the BC part "may carry no itemProps/DataStoreItem at all" — four of the ten corpus
+    /// layouts ship that way, among them the stock SalespersonCommission and StandardStatement — and every
+    /// bound insert used to fail on them, with a hint naming internal C# methods (GitHub issue #93). Their
+    /// bindings are unanimous (45 of 45, 82 of 82), and a new binding that names the same storeItemID is bound
+    /// exactly as they are: no more and no less verifiable, and whatever Business Central does with their
+    /// storeItemID when it re-attaches the store item on upload, it does with the new binding's too. Minting an
+    /// itemProps instead would have left every EXISTING binding naming a store item the package does not have.
+    /// <para>
+    /// No bindings, or bindings that disagree (PaymentPracticeByPeriod: 5 and 20 across two ids), leave no
+    /// such answer — any pick would be a guess (ADR-0003), so that is refused with what the caller can do.
+    /// </para>
+    /// </remarks>
+    /// <exception cref="LayoutDefectException">There is no single storeItemID to reuse (<see cref="LayoutDefect.NoStoreItemId"/>).</exception>
+    private static string StoreItemIdFromBindings(MainDocumentPart main, string partName)
+    {
+        var named = DatasetBindings(main)
+            .Select(b => b.StoreItemId)
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Select(id => id!)
+            .ToList();
+
+        var groups = named.GroupBy(NormalizeItemId, StringComparer.Ordinal).ToList();
+
+        if (groups.Count == 1)
+        {
+            return named[0];
+        }
+
+        var lead = $"The BC dataset part '{partName}' carries no itemProps, so it declares no storeItemID "
+                   + "(ds:itemID) for a new binding to name, and ";
+        throw new LayoutDefectException(
+            (groups.Count == 0
+                ? lead + "this layout has no existing dataset binding whose storeItemID could be reused"
+                : lead + $"the layout's {named.Count} existing dataset bindings do not agree on one: they name "
+                  + string.Join(", ", groups.Select(g => $"{g.First()} ({g.Count()}x)"))
+                  + " - reusing any of them would be a guess")
+            + "; nothing was changed.",
+            LayoutDefect.NoStoreItemId);
     }
 
     private static InvalidDataException NoBcPart() =>
@@ -356,13 +427,12 @@ public static class SchemaProvider
 
     /// <summary>
     /// True when two item IDs name the same GUID — compared with braces and case ignored, as every
-    /// storeItemID comparison here is, since corpus layouts are not consistent about either.
+    /// storeItemID comparison here is, since nothing guarantees a binding and its part write the GUID alike.
     /// </summary>
-    internal static bool SameItemId(string a, string b)
-    {
-        static string Norm(string s) => s.Trim().Trim('{', '}').ToLowerInvariant();
-        return Norm(a) == Norm(b);
-    }
+    internal static bool SameItemId(string a, string b) =>
+        string.Equals(NormalizeItemId(a), NormalizeItemId(b), StringComparison.Ordinal);
+
+    private static string NormalizeItemId(string id) => id.Trim().Trim('{', '}').ToLowerInvariant();
 
     /// <summary>
     /// The refusal for a package carrying several BC dataset parts (see <see cref="FindBcPart"/>), naming each

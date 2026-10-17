@@ -474,12 +474,9 @@ internal static class SyntheticLayout
     /// <paramref name="datasetXml"/> overrides it), but the BC dataset custom XML part has NO
     /// <see cref="CustomXmlPropertiesPart"/> at all — so <c>ds:itemID</c> is absent and
     /// <see cref="BcWordLayout.Domain.SchemaProvider.FromLayout(WordprocessingDocument)"/> resolves
-    /// <c>StoreItemId</c> to null. Reproduces the one path through the real tool surface that reaches
-    /// <c>SdtFactory</c>'s "schema.Report.StoreItemId is null/empty" guard: insert_field/insert_label/
-    /// insert_repeater_table always build their schema via <c>SchemaProvider.FromLayout</c> against an
-    /// already-open <c>.docx</c> (never <c>FromSchemaXml</c>, which has no <c>.docx</c>/properties part to
-    /// begin with), so the only realistic trigger is a hand-crafted or externally-authored layout whose BC
-    /// part lacks the properties part real BC-created layouts always carry.
+    /// <c>StoreItemId</c> to null: the shape four of the ten corpus layouts ship in (SOLUTION-DESIGN §2.1).
+    /// The insert tools then reuse the storeItemID the bindings in <paramref name="bodyFragments"/> agree on,
+    /// and refuse when there are none or they disagree (GitHub issue #93).
     /// </summary>
     public static string CreateWithoutStoreItemId(string bodyFragments, string? datasetXml = null)
     {
