@@ -15,8 +15,36 @@ namespace BcWordLayout.Render;
 /// no/invalid output) is reported as a structured <see cref="PdfConversionResult"/> with <c>Ok = false</c>;
 /// <see cref="Convert"/> never throws — its entire body, including the synchronous prologue before any
 /// worker task starts, is a hard try/catch boundary — never shows a dialog (<c>Visible = false</c>,
-/// <c>DisplayAlerts</c> forced off), and never leaves a zombie WINWORD.EXE behind.
+/// <c>DisplayAlerts</c> forced off), always asks the Word instance it started to quit, and never kills a
+/// WINWORD.EXE it has not positively identified as that instance.
 /// </summary>
+/// <remarks>
+/// <para>
+/// WHICH WINWORD.EXE IS OURS. A conversion used to take the first WINWORD.EXE that appeared while
+/// <c>Word.Application</c> was being created as its own, and force-killed it after every conversion (or at
+/// once on a timeout). A second server process converting at the same time (two IDE windows, or the test
+/// suite next to an agent's preview) or the user opening Word in that window made it kill somebody else's
+/// Word, possibly with unsaved documents (GitHub issue #103). The instance is now identified POSITIVELY:
+/// right after creation it gets a unique <c>Caption</c>, and the process owning the (hidden) Word window that
+/// carries that caption is ours, provided it did not exist before the creation. If it did, automation
+/// connected to a Word that was already running, and the conversion stops without touching it any further.
+/// An instance whose window cannot be found is never killed; it is only asked to <c>Quit</c> through COM.
+/// </para>
+/// <para>
+/// A WORD THAT HANGS BEFORE IT EXISTS AS A COM OBJECT. <c>Activator.CreateInstance</c> can block while Word
+/// sits on an invisible first-run, licensing or safe-mode prompt, before any caption can be set. On a timeout
+/// in that state the conversion kills the one WINWORD.EXE that appeared since the conversion started AND was
+/// launched by COM (<see cref="WordProcessIdentity.IsComLaunched"/>; a Word the user starts never is), and only
+/// when exactly one such process exists: two mean another automation client is starting Word at the same
+/// moment, and neither is killed.
+/// </para>
+/// <para>
+/// A TIMED-OUT WORKER NEVER FINISHES THE JOB. The worker checks a cancellation flag after creation, before
+/// <c>Open</c> and before <c>ExportAsFixedFormat</c>. A worker that regains control after its conversion has
+/// already timed out (creation finally returned, or a hung <c>Open</c> recovered) quits its Word instead of
+/// exporting to a PDF path the next preview may already own.
+/// </para>
+/// </remarks>
 [SupportedOSPlatform("windows")]
 public sealed class WordComConverter : IPdfConverter
 {
@@ -26,21 +54,53 @@ public sealed class WordComConverter : IPdfConverter
     private const int MsoAutomationSecurityForceDisable = 3;
 
     /// <summary>
-    /// Serializes every Word COM conversion made through this converter. Word.Application automation is
-    /// not safe to drive concurrently, and <see cref="RunConversion"/> identifies "its" newly spawned
-    /// WINWORD.EXE process by diffing process-id snapshots taken immediately before/after
-    /// <c>Activator.CreateInstance</c> — a second conversion racing that same window could misidentify
-    /// which process is its own. Holding this lock for the whole attempt (including the timeout wait)
-    /// guarantees at most one conversion is ever actively in flight, which is what makes that pid-diff
-    /// dependable.
+    /// Serializes every Word COM conversion made in this process. Word.Application automation is not safe to
+    /// drive concurrently from one process, and the hung-startup fallback (see the class remarks) compares the
+    /// WINWORD.EXE processes that appeared since THIS conversion started, which another conversion of this
+    /// process starting Word at the same moment would blur. Held for the whole attempt, timeout wait
+    /// included. Conversions in OTHER processes are not serialized: each identifies its own instance by its
+    /// own caption.
     /// </summary>
     private static readonly object ConversionLock = new();
+
+    private readonly Func<object?> _createApplication;
+    private readonly Func<bool> _isAvailable;
+    private readonly TimeSpan _identifyTimeout;
+
+    /// <summary>Creates the converter for the Word installed on this machine.</summary>
+    public WordComConverter()
+        : this(CreateWordApplication, IsWordRegistered, TimeSpan.FromSeconds(2))
+    {
+    }
+
+    /// <summary>
+    /// Test seam: <paramref name="createApplication"/> stands in for <c>Activator.CreateInstance</c> of
+    /// <c>Word.Application</c> (a test passes a plain .NET object with the same members, or one that blocks to
+    /// simulate a Word hung at startup), <paramref name="isAvailable"/> for the COM registration check, and
+    /// <paramref name="identifyTimeout"/> bounds the search for the instance's window.
+    /// </summary>
+    internal WordComConverter(Func<object?> createApplication, Func<bool> isAvailable, TimeSpan identifyTimeout)
+    {
+        _createApplication = createApplication;
+        _isAvailable = isAvailable;
+        _identifyTimeout = identifyTimeout;
+    }
 
     /// <inheritdoc/>
     public string Name => "word-com";
 
     /// <inheritdoc/>
-    public bool IsAvailable => OperatingSystem.IsWindows() && Type.GetTypeFromProgID("Word.Application") is not null;
+    public bool IsAvailable => _isAvailable();
+
+    private static bool IsWordRegistered() =>
+        OperatingSystem.IsWindows() && Type.GetTypeFromProgID("Word.Application") is not null;
+
+    private static object? CreateWordApplication()
+    {
+        var wordType = Type.GetTypeFromProgID("Word.Application")
+            ?? throw new InvalidOperationException("Word.Application COM type is not registered.");
+        return Activator.CreateInstance(wordType);
+    }
 
     /// <inheritdoc/>
     public PdfConversionResult Convert(string docxPath, string pdfPath, PdfConversionOptions? options = null)
@@ -99,9 +159,9 @@ public sealed class WordComConverter : IPdfConverter
     }
 
     /// <summary>
-    /// Starts the worker task that drives Word and waits up to <c>options.Timeout</c> for it, killing the
-    /// tracked WINWORD process and returning a timeout failure if it does not finish in time. Must only be
-    /// called while holding <see cref="ConversionLock"/> — see that field's remarks.
+    /// Starts the worker task that drives Word and waits up to <c>options.Timeout</c> for it. On a timeout it
+    /// cancels the worker and kills the Word instance only when that instance is positively identified (see
+    /// the class remarks). Must only be called while holding <see cref="ConversionLock"/>.
     /// </summary>
     private PdfConversionResult RunWithTimeout(
         string fullDocxPath, string fullPdfPath, PdfConversionOptions options, Stopwatch sw)
@@ -127,15 +187,24 @@ public sealed class WordComConverter : IPdfConverter
         var waitMs = (int)Math.Min(options.Timeout.TotalMilliseconds, int.MaxValue);
         if (!worker.Wait(waitMs))
         {
-            KillNow(context.Process);
+            // Cancel FIRST: from here on a worker that regains control quits its Word instead of carrying on.
+            context.Cancelled = true;
+            var killed = KillOnTimeout(context);
 
-            // Best-effort only, bounded: give the now-killed worker's own teardown (COM release, GC,
-            // process dispose in RunConversion's finally) a short extra moment to finish before
-            // ConversionLock is released, so the next queued conversion is less likely to start while it is
-            // still unwinding. A worker that never unwinds must not hang the lock forever, hence the cap.
+            // Best-effort only, bounded: give the worker's own teardown (COM release, GC, process dispose in
+            // RunConversion's finally) a short extra moment to finish before ConversionLock is released, so the
+            // next queued conversion is less likely to start while it is still unwinding. A worker that never
+            // unwinds must not hang the lock forever, hence the cap.
             worker.Wait(TimeSpan.FromSeconds(5));
 
-            return PdfConversionResult.Failure(Name, $"Word COM conversion timed out after {options.Timeout}.", sw.Elapsed);
+            var message = $"Word COM conversion timed out after {options.Timeout}.";
+            if (!killed)
+            {
+                message += " The Word instance it started could not be identified with certainty, so it was not "
+                    + "killed; it has been told to quit, but a hidden WINWORD.EXE may remain until it does.";
+            }
+
+            return PdfConversionResult.Failure(Name, message, sw.Elapsed);
         }
 
         if (failure is not null)
@@ -152,29 +221,58 @@ public sealed class WordComConverter : IPdfConverter
     }
 
     /// <summary>
-    /// Runs the full Open → ExportAsFixedFormat → Close → Quit sequence against a freshly created Word
-    /// instance. Records the newly spawned WINWORD process on <paramref name="context"/> (by diffing the
-    /// WINWORD pids before/after <c>Activator.CreateInstance</c>) so <see cref="RunWithTimeout"/> can kill
-    /// it on timeout, and — regardless of success or failure — always releases every COM reference,
-    /// force-stops that same process if it is somehow still alive, and disposes it exactly once.
+    /// Kills this conversion's Word on a timeout, when it can be told apart from every other WINWORD.EXE: the
+    /// instance identified by its caption, or, while creation is still blocked, the single new COM-launched
+    /// WINWORD.EXE. Returns false when it killed nothing.
     /// </summary>
-    private static void RunConversion(string docxPath, string pdfPath, ConversionContext context)
+    private static bool KillOnTimeout(ConversionContext context)
+    {
+        var identified = context.Process;
+        if (identified is not null)
+        {
+            KillNow(identified);
+            return true;
+        }
+
+        if (context.Stage == ConversionStage.Creating && context.BeforePids is { } beforePids)
+        {
+            using var starting = FindSingleNewComLaunchedWordProcess(beforePids);
+            if (starting is not null)
+            {
+                KillNow(starting);
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Runs the full create → identify → Open → ExportAsFixedFormat → Close → Quit sequence. Records the
+    /// identified WINWORD process on <paramref name="context"/> so <see cref="RunWithTimeout"/> can kill it on a
+    /// timeout, and — regardless of success or failure — asks the instance to quit, releases every COM
+    /// reference, and force-stops the identified process if it is somehow still alive.
+    /// </summary>
+    private void RunConversion(string docxPath, string pdfPath, ConversionContext context)
     {
         object? app = null;
         object? documents = null;
         object? document = null;
 
+        // Set once `app` is known to be an instance this conversion may quit: false only while it is unknown,
+        // and when automation turned out to have connected to a Word that was already running.
+        var quitOnExit = false;
+
         try
         {
-            var beforePids = SnapshotWordProcessIds();
-
-            var wordType = Type.GetTypeFromProgID("Word.Application")
-                ?? throw new InvalidOperationException("Word.Application COM type is not registered.");
-
-            app = Activator.CreateInstance(wordType)
+            context.BeforePids = SnapshotWordProcessIds();
+            context.Stage = ConversionStage.Creating;
+            app = _createApplication()
                 ?? throw new InvalidOperationException("Failed to create a Word.Application COM instance.");
+            context.Stage = ConversionStage.Created;
 
-            context.Process = FindNewWordProcess(beforePids);
+            quitOnExit = IdentifyInstance(app, context);
+            ThrowIfCancelled(context);
 
             SetProperty(app, "Visible", false);
             SetProperty(app, "DisplayAlerts", WdAlertsNone);
@@ -182,18 +280,25 @@ public sealed class WordComConverter : IPdfConverter
             TrySetProperty(app, "AutomationSecurity", MsoAutomationSecurityForceDisable);
 
             documents = GetProperty(app, "Documents");
+            ThrowIfCancelled(context);
             document = InvokeMethod(documents!, "Open", docxPath);
 
+            ThrowIfCancelled(context);
             InvokeMethod(document!, "ExportAsFixedFormat", pdfPath, WdExportFormatPdf);
 
             InvokeMethod(document!, "Close", WdDoNotSaveChanges);
             ReleaseCom(document);
             document = null;
-
-            InvokeMethod(app, "Quit", 0);
         }
         finally
         {
+            // Asked on every path, not only after a successful export: an instance that is not positively
+            // identified can never be killed, so a polite Quit is the only way it goes away on failure too.
+            if (app is not null && quitOnExit)
+            {
+                TryInvokeMethod(app, "Quit", WdDoNotSaveChanges);
+            }
+
             ReleaseCom(document);
             ReleaseCom(documents);
             ReleaseCom(app);
@@ -218,26 +323,107 @@ public sealed class WordComConverter : IPdfConverter
     }
 
     /// <summary>
-    /// Carries the tracked WINWORD process between the worker thread (<see cref="RunConversion"/>, which
-    /// sets it once, early on, and clears it after disposing it) and the calling thread
-    /// (<see cref="RunWithTimeout"/>, which reads it only on a timeout, to kill it). One instance is
-    /// created per <see cref="Convert"/> call, so — thanks to <see cref="ConversionLock"/> — at most one
-    /// worker/caller pair ever touches a given instance concurrently; <see cref="Process"/> is still backed
-    /// by a <c>volatile</c> field so the calling thread is guaranteed to observe the worker's write rather
-    /// than a stale cached value.
+    /// Identifies <paramref name="app"/>'s process by giving the instance a unique caption and finding the Word
+    /// window that carries it (see the class remarks). Records the process on <paramref name="context"/> when
+    /// it is confirmed and new since <see cref="ConversionContext.BeforePids"/>. Returns whether the instance
+    /// may be quit at the end; throws, without quitting anything, when automation connected to a Word that was
+    /// already running.
+    /// </summary>
+    private bool IdentifyInstance(object app, ConversionContext context)
+    {
+        var token = "bcwl-" + Guid.NewGuid().ToString("N");
+        var originalCaption = TryGetProperty(app, "Caption");
+        if (!TrySetProperty(app, "Caption", token))
+        {
+            return true; // Unconfirmed: quit at the end, never kill.
+        }
+
+        var processId = WordProcessIdentity.FindWordWindowProcessId(token, _identifyTimeout);
+        if (processId is not { } pid)
+        {
+            return true; // Unconfirmed: quit at the end, never kill.
+        }
+
+        if (context.BeforePids?.Contains(pid) == true)
+        {
+            // Not an instance this conversion started: leave it exactly as it was, and never quit or kill it.
+            TrySetProperty(app, "Caption", originalCaption);
+            throw new InvalidOperationException(
+                $"Word automation connected to a Word instance that was already running (process {pid}) instead "
+                + "of starting its own, so it was left alone. Close Word and retry.");
+        }
+
+        try
+        {
+            context.Process = Process.GetProcessById(pid);
+        }
+        catch (ArgumentException)
+        {
+            // The process exited between the window lookup and here; nothing left to track.
+        }
+
+        return true;
+    }
+
+    private static void ThrowIfCancelled(ConversionContext context)
+    {
+        if (context.Cancelled)
+        {
+            throw new OperationCanceledException("The conversion already timed out.");
+        }
+    }
+
+    /// <summary>Where the worker is, as far as the timeout path needs to know.</summary>
+    private enum ConversionStage
+    {
+        Starting,
+        Creating,
+        Created,
+    }
+
+    /// <summary>
+    /// Carries state between the worker thread (<see cref="RunConversion"/>) and the calling thread
+    /// (<see cref="RunWithTimeout"/>, which reads it only on a timeout). One instance is created per
+    /// <see cref="Convert"/> call, so — thanks to <see cref="ConversionLock"/> — at most one worker/caller pair
+    /// ever touches a given instance concurrently; every member is backed by a <c>volatile</c> field so each
+    /// thread observes the other's latest write rather than a stale cached value.
     /// </summary>
     private sealed class ConversionContext
     {
         private volatile Process? _process;
+        private volatile HashSet<int>? _beforePids;
+        private volatile int _stage;
+        private volatile bool _cancelled;
 
+        /// <summary>The positively identified WINWORD process, set once by the worker and cleared after disposal.</summary>
         public Process? Process
         {
             get => _process;
             set => _process = value;
         }
+
+        /// <summary>The WINWORD process ids that existed before this conversion created its instance.</summary>
+        public HashSet<int>? BeforePids
+        {
+            get => _beforePids;
+            set => _beforePids = value;
+        }
+
+        public ConversionStage Stage
+        {
+            get => (ConversionStage)_stage;
+            set => _stage = (int)value;
+        }
+
+        /// <summary>Set by the caller on a timeout; the worker stops at its next check and quits its Word.</summary>
+        public bool Cancelled
+        {
+            get => _cancelled;
+            set => _cancelled = value;
+        }
     }
 
-    // ---- WINWORD process tracking (for timeout-kill and zombie cleanup) ----
+    // ---- WINWORD process tracking (for the timeout kill and zombie cleanup) ----
 
     private static HashSet<int> SnapshotWordProcessIds()
     {
@@ -251,15 +437,18 @@ public sealed class WordComConverter : IPdfConverter
         return ids;
     }
 
-    /// <summary>Returns the first WINWORD process not present in <paramref name="beforePids"/>, disposing every other (unrelated, pre-existing) candidate this query returns.</summary>
-    private static Process? FindNewWordProcess(HashSet<int> beforePids)
+    /// <summary>
+    /// The one WINWORD process that is not in <paramref name="beforePids"/> and was launched by COM, or null
+    /// when there is none or more than one (see the class remarks). Disposes every other candidate.
+    /// </summary>
+    private static Process? FindSingleNewComLaunchedWordProcess(HashSet<int> beforePids)
     {
-        Process? found = null;
+        var matches = new List<Process>();
         foreach (var p in Process.GetProcessesByName("WINWORD"))
         {
-            if (found is null && !beforePids.Contains(p.Id))
+            if (!beforePids.Contains(p.Id) && WordProcessIdentity.IsComLaunched(WordProcessIdentity.TryReadCommandLine(p)))
             {
-                found = p;
+                matches.Add(p);
             }
             else
             {
@@ -267,7 +456,17 @@ public sealed class WordComConverter : IPdfConverter
             }
         }
 
-        return found;
+        if (matches.Count == 1)
+        {
+            return matches[0];
+        }
+
+        foreach (var p in matches)
+        {
+            p.Dispose();
+        }
+
+        return null;
     }
 
     private static void KillNow(Process? process)
@@ -321,26 +520,56 @@ public sealed class WordComConverter : IPdfConverter
         target.GetType().InvokeMember(name, BindingFlags.SetProperty, null, target, new[] { value }, CultureInfo.InvariantCulture);
 
     /// <summary>
+    /// Best-effort counterpart of <see cref="GetProperty"/>: null when the property is missing or refuses.
+    /// </summary>
+    private static object? TryGetProperty(object target, string name)
+    {
+        try
+        {
+            return GetProperty(target, name);
+        }
+        catch (Exception)
+        {
+            return null; // Deliberately broad - see TrySetProperty.
+        }
+    }
+
+    /// <summary>
     /// Best-effort counterpart of <see cref="SetProperty"/> for niceties some Word versions/builds may not
     /// expose or may refuse to set — never lets a missing optional property (e.g. <c>ScreenUpdating</c>)
     /// fail the whole conversion. Deliberately swallows every exception shape: late-bound COM property
     /// sets can fail as <see cref="MissingMethodException"/>, a wrapped <see cref="COMException"/>, or
-    /// otherwise, none of which are load-bearing here.
+    /// otherwise, none of which are load-bearing here. Returns whether the set succeeded.
     /// </summary>
-    private static void TrySetProperty(object target, string name, object? value)
+    private static bool TrySetProperty(object target, string name, object? value)
     {
         try
         {
             SetProperty(target, name, value);
+            return true;
         }
         catch (Exception)
         {
-            // Intentionally ignored — see summary.
+            return false; // Intentionally ignored — see summary.
         }
     }
 
     private static object? InvokeMethod(object target, string name, params object?[] args) =>
         target.GetType().InvokeMember(name, BindingFlags.InvokeMethod, null, target, args, CultureInfo.InvariantCulture);
+
+    /// <summary>Best-effort <see cref="InvokeMethod"/> for teardown calls (<c>Quit</c>) that must not mask the real outcome.</summary>
+    private static void TryInvokeMethod(object target, string name, params object?[] args)
+    {
+        try
+        {
+            InvokeMethod(target, name, args);
+        }
+        catch (Exception)
+        {
+            // Deliberately broad: a Word that already exited, or was killed by the timeout path, fails here
+            // with a COM disconnect; the conversion's own outcome is what gets reported.
+        }
+    }
 
     private static void ReleaseCom(object? comObject)
     {

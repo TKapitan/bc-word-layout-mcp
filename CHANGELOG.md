@@ -331,6 +331,22 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - decides "the same file" for `create_layout`'s refusal to overwrite its own `schemaSource` and
     for the preview merge's output check, so a junction spelling of `schemaSource` is refused too.
 
+- **`preview_layout` never kills a Word it did not start** (GitHub issue #103). The Word converter
+  took the first WINWORD.EXE that appeared while it was creating `Word.Application` as its own, and
+  force-killed it after every conversion, or at once on a timeout. When another server process
+  converted at the same moment (a second IDE window, or the test suite next to an agent's preview),
+  or the user opened Word in that window, it killed that Word instead, unsaved documents included,
+  and could leave its own instance running.
+  - **Positive identification:** the instance now gets a unique window caption, and only the
+    process owning that hidden window, started after the conversion began, counts as its own. A
+    Word that can't be identified that way is only asked to quit, never killed.
+  - **Word hanging at startup** (an invisible first-run, licensing or safe-mode prompt): the
+    timeout used to kill nothing and left that Word running. It now kills the one new WINWORD.EXE
+    that COM started (its command line carries `-Embedding`, which a Word the user starts never
+    does), and only when there is exactly one.
+  - **No late export:** a conversion that has timed out stops before opening or exporting the
+    document if Word recovers later, so it can no longer write a PDF the next preview may own.
+
 ### Security
 
 - **A crafted layout can no longer kill the server through the OpenXml SDK's own parse** (GitHub
