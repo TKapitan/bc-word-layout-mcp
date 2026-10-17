@@ -53,7 +53,7 @@ the table index the insert response returns. The whole recipe below rendered cor
 | # | Block | Calls | Verified shape |
 |---|---|---|---|
 | 1 | Title | (from `create_layout headingText`) | All-caps report/document name, bold heading paragraph |
-| 2 | Logo | `insert_picture` | `/…/CompanyPicture`, 35×18 mm |
+| 2 | Logo | `insert_picture` | `/…/CompanyPicture`, 35×18 mm. A Word save squares it to 18×18, so if the layout will be edited in Word, do that first |
 | 3 | Address block | `insert_table` 6×2, `columnWidths "4600,4600"`, then 12× `insert_field` (`tableCell`) | Borderless; company addresses down col 0, counterparty (customer/vendor) down col 1, one bound field per cell, filled row-major |
 | 4 | Info grid | `insert_table` 3×2, `columnWidths "2800,3000"`, then per row `insert_label` col 0 + `insert_field` col 1 | Caption **beside** value — see §4 for the caption-**above** stock alternative |
 | 5 | Section heading *(optional)* | `insert_text` | `bold=true, fontSizePoints=16` heading (e.g. `"ORDER LINES"`), plus a default-size note line [verified: P06] |
@@ -181,6 +181,9 @@ totals table, which is the BC-verified simpler shape [verified: P07]).
 - A blank build ships pinned Calibri 11 pt + `Normal`/`TableGrid` styles, BC-verified to render
   identically in Word and BC [verified: all three]. Don't fight it — layer `bold`/`fontSizePoints`
   where needed (a 16 pt bold section heading over the pinned base is verified [P06]).
+- Editing a stock layout: inline inserts take the run formatting of the text before them (#122), so a
+  field or separator added to a stock line already matches its `Strong` or Segoe UI 8 pt neighbours.
+  Pass `bold`/`fontSizePoints` only to differ from them.
 - Stock caption text is smaller and bolder than its values (9 pt bold captions over 11 pt values
   [1304, 1322]); totals amounts are bold everywhere [stock + verified].
 - Broad styling (colours, shading, other fonts) has no tool: use a branded `templatePath` shell or
@@ -206,7 +209,7 @@ totals table, which is the BC-verified simpler shape [verified: P07]).
 |---|---|---|
 | Page-position-CONDITIONAL content (`IF PAGE = NUMPAGES`) | Blocked on add-in-compatible OOXML evidence (#11); plain `PAGE`/`NUMPAGES` itself IS buildable — `insert_page_number` (§4 Chrome) | `templatePath` shell carrying the construct, or hand-edit + `validate_layout` |
 | Colour header bands / accent colours [stock: 1306] | No shading tool (#15) | Branded `templatePath` or hand-edit + validate |
-| Hide-if-empty add-in controls | Deferred, OOXML never captured (#8) | Reserve the rows/cells; stock layouts render empty lines too |
+| Hide-if-empty add-in controls | Row/table variants captured [stock: 115, SubcontractorDispatchList] but BC's "empty" rule unverified (#123); *Hide Field if Zero* never captured (#8) | Reserve the rows/cells; stock layouts render empty lines too |
 | Whole-body per-entity repeat with page breaks [stock: 1316] | Repeaters are tables only (#31) | Export the stock layout and edit; don't build from scratch |
 
 ## 6. Design-time mock caveats
