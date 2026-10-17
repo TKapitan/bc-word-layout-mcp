@@ -30,9 +30,11 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import sys
 import traceback
+import zipfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -654,6 +656,171 @@ def p07(b: Build):
            "1/2pt rule above")
 
 
+# ---------------------------------------------------------------- research probes (round 3)
+#
+# P08-P11 do not check a capability: each settles an open issue that is blocked on BC evidence. A
+# REJECTED upload is an answer too - record the exact message.
+
+def rewrite_parts(path: str, pattern: str, transform) -> list[str]:
+    """Rewrites every package part whose name matches `pattern` through `transform(xml) -> xml`, for the
+    one probe whose shape no tool emits (P11). Returns the rewritten part names."""
+    rewritten = []
+    tmp = path + ".tmp"
+    with zipfile.ZipFile(path) as zin, zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as zout:
+        for info in zin.infolist():
+            data = zin.read(info.filename)
+            if re.fullmatch(pattern, info.filename):
+                data = transform(data.decode("utf-8")).encode("utf-8")
+                rewritten.append(info.filename)
+            zout.writestr(info, data)
+    os.replace(tmp, path)
+    return rewritten
+
+
+@item(
+    id="p08", title="Bindings whose storeItemID names no part",
+    report="1306 - Standard Sales Invoice", base="StandardSalesInvoiceVatSpec.docx",
+    purpose="GitHub issue #102. validate_layout raises the same store-item-id ERROR whether a binding's "
+            "storeItemID names no part at all (Word re-binds it to the BC part) or names a different "
+            "existing part (genuinely broken). Microsoft's own StandardSalesInvoiceVatSpec ships two "
+            "bindings of the first kind (DocumentTitle_Lbl, DocumentNo) while its BC part HAS itemProps - "
+            "the case no sandbox round has tested. refresh_xml_part repairs their other defect (a foreign "
+            "Mini_Sales_Invoice namespace, which BC rejects on upload), so after it the ONLY finding left "
+            "is the two storeItemIDs.",
+    asks=[
+        "Does BC ACCEPT the upload? validate_layout still reports two store-item-id errors - if BC takes "
+        "it, a storeItemID that names no part is a warning, not an error (#102's suggested fix).",
+        "Do the two affected controls - the document title (DocumentTitle_Lbl) and the invoice number "
+        "(DocumentNo), top of page 1 - render WITH data?",
+        "If BC rejects the upload: the exact message, word for word.",
+    ],
+    bc_steps=[
+        "Posted sales invoice: Sales > Posted Sales Invoices, pick any.",
+        "Report Layouts > New layout for report 1306, upload this .docx, then Print the posted invoice "
+        "with it.",
+    ],
+)
+def p08(b: Build):
+    refresh = b.edit("refresh_xml_part",
+                     newSchemaSource=os.path.join(CORPUS_DIR, "StandardSalesInvoiceVatSpec.docx"))["data"]
+    repointed = [f"{x['alias']} ({x['previousNamespace']})" for x in refresh["repointedForeignBindings"]]
+    b.note("refresh_xml_part against the layout's own schema: re-pointed the foreign-namespace "
+           f"bindings {', '.join(repointed) or '(none)'}; their storeItemIDs still name no part")
+
+
+@item(
+    id="p09", title="Hide Empty Table Row as Microsoft ships it",
+    report="115 - Salesperson Commission", base="SalespersonCommission.docx",
+    purpose="GitHub issue #123: the BC add-in's 'Hide Table Row If Empty' control is captured (a "
+            "cell-level wrapper tagged #BC:HideTableRowIfEmpty), but not what BC treats as EMPTY. This is "
+            "the stock layout, unedited. The wrapper sits in each salesperson's group-header row, around "
+            "the cell bound to /Salesperson_Purchaser/Cust_Ledger_Entry/SalespersonPurchaser_Code - a "
+            "column of the salesperson's FIRST ledger entry, so it is empty exactly when that salesperson "
+            "has no entries in the filter.",
+    asks=[
+        "A salesperson with NO customer ledger entries in the filter: is their group-header row "
+        "(code, name, commission %) left out? Is anything else of their group printed?",
+        "A salesperson WITH entries: is the header row printed normally, code included?",
+        "Are any OTHER rows hidden - e.g. ledger-entry rows with blank cells? (Tells us whether the "
+        "test is on the wrapped cell only.)",
+    ],
+    bc_steps=[
+        "Search (Tell Me) for 'Salesperson Commission' (report 115). Filter Salesperson/Purchaser to "
+        "include at least one salesperson who HAS posted sales and one who has NONE in the posting-date "
+        "filter (any Cronus purchaser code works for the second).",
+        "Report Layouts > New layout for report 115, upload this .docx (it is the stock Word layout, "
+        "uploaded so the run is unambiguous), then run the report with it.",
+    ],
+)
+def p09(b: Build):
+    b.note("no edits: the stock layout with its #BC:HideTableRowIfEmpty wrapper, as Microsoft ships it")
+
+
+@item(
+    id="p10", title="Hide Empty Table as Microsoft ships it",
+    report="99000789 - Subcontractor Dispatch List", base="SubcontractorDispatchList.docx",
+    purpose="GitHub issue #123: the BC add-in's 'Hide Table If Empty' control is captured (tag "
+            "#BC:HideTableIfEmpty) but its semantics are not. This is the stock layout with one repair: "
+            "38 of its bindings name a superseded namespace (report 50030), which BC rejects on upload, so "
+            "refresh_xml_part re-points them first - nothing else changes. The wrapper sits around the 'Components needed' CAPTION cell inside each production-order-line "
+            "block - a cell whose own text is never empty - so the test must be on something else, most "
+            "likely the components table's data.",
+    asks=[
+        "A production order line with NO components: is the 'Components needed' caption left out? Its "
+        "component rows (there are none)? The whole surrounding table?",
+        "A line WITH components: are the caption and its component rows printed normally?",
+    ],
+    bc_steps=[
+        "Needs a released production order routed through a SUBCONTRACTOR work center (a work center "
+        "with a Subcontractor No.). If the sandbox has none, record 'not run' rather than building one.",
+        "Report Layouts > New layout for report 99000789, upload this .docx, then run Subcontractor - "
+        "Dispatch List for that vendor with it - ideally covering one line with components and one "
+        "without.",
+    ],
+)
+def p10(b: Build):
+    refresh = b.edit("refresh_xml_part",
+                     newSchemaSource=os.path.join(CORPUS_DIR, "SubcontractorDispatchList.docx"))["data"]
+    b.note(f"refresh_xml_part against the layout's own schema: re-pointed "
+           f"{len(refresh['repointedForeignBindings'])} bindings off the superseded report 50030 "
+           "namespace, which BC rejects on upload; the #BC:HideTableIfEmpty wrapper is untouched")
+
+
+# The nested IF PAGE = NUMPAGES construct, run for run as Word itself serializes it: opening this exact
+# paragraph in Word for Microsoft 365 and saving it back (2026-10-17) left every run unchanged. A nested
+# field's cached result sits inside the outer field's instruction, so it is a w:instrText, not a w:t.
+LAST_PAGE_TEXT = "LAST PAGE ONLY"
+
+
+def _fld(kind: str) -> str:
+    return f'<w:r><w:fldChar w:fldCharType="{kind}"/></w:r>'
+
+
+def _instr(text: str) -> str:
+    return f'<w:r><w:instrText xml:space="preserve">{text}</w:instrText></w:r>'
+
+
+def _nested(instruction: str) -> str:
+    return (_fld("begin") + _instr(instruction) + _fld("separate")
+            + "<w:r><w:instrText>1</w:instrText></w:r>" + _fld("end"))
+
+
+LAST_PAGE_PARAGRAPH = (
+    "<w:p>"
+    + _fld("begin") + _instr(" IF ") + _nested(" PAGE ") + _instr(" = ") + _nested(" NUMPAGES ")
+    + _instr(f' "{LAST_PAGE_TEXT}" "" ')
+    + _fld("separate") + f"<w:r><w:t>{LAST_PAGE_TEXT}</w:t></w:r>" + _fld("end")
+    + "</w:p>"
+)
+
+
+@item(
+    id="p11", title="Last-page-only footer text via IF PAGE = NUMPAGES",
+    report="1322 - Standard Purchase Order", base="StandardPurchaseOrder.docx",
+    purpose="GitHub issue #11: 'company name in the footer on the last page only' is a Word IF PAGE = "
+            "NUMPAGES field. No tool emits it and no corpus layout carries one, so this item adds it by "
+            "hand: a paragraph reading LAST PAGE ONLY, in every footer part, inside { IF { PAGE } = "
+            "{ NUMPAGES } \"LAST PAGE ONLY\" \"\" }. In Word (the mock preview) it shows on the last page "
+            "only; whether BC's renderer evaluates IF/PAGE/NUMPAGES per page is the open question.",
+    asks=[
+        "Does BC accept the upload?",
+        "A MULTI-page order: does LAST PAGE ONLY appear on the last page and on no other?",
+        "A ONE-page order: does it appear (page 1 is the last page)?",
+        "If it shows on every page or none: which, and does the stock 'Page X / Y' in the header still "
+        "count correctly on that render?",
+    ],
+    bc_steps=[
+        "Purchase order with enough lines for 3+ pages (the mock needed ~30 lines); add lines to an open "
+        "Cronus order if none is that long. Also pick a one-line order.",
+        "Report Layouts > New layout for report 1322, upload this .docx, then Print both orders with it.",
+    ],
+)
+def p11(b: Build):
+    parts = rewrite_parts(b.work, r"word/footer\d*\.xml",
+                          lambda xml: xml.replace("</w:ftr>", LAST_PAGE_PARAGRAPH + "</w:ftr>", 1))
+    b.note(f"hand-edited (no tool emits it): IF PAGE = NUMPAGES paragraph appended to {', '.join(parts)}")
+
+
 # ---------------------------------------------------------------- runner
 
 def build_item(entry: dict, out_dir: str) -> dict:
@@ -791,11 +958,14 @@ def write_pack_docs(records: list[dict]):
 {len(ok)} of {len(records)} layouts built. Each folder holds one layout to upload to a Business Central
 sandbox, this tool's own offline mock render of it, and a README saying what to look at.
 
-**Why:** only the real BC report engine can prove what this tool emits renders correctly. Round 1
-(2026-08-01) passed all five items and is recorded in `docs/FIDELITY-CHECKLIST.md`; re-running the pack
-whenever the tool surface changes is standing verification debt (GitHub issue #14). This round's
-headline question is TYPOGRAPHY: blank builds now pin Calibri 11pt in a scaffolded styles part
-(issue #3), and three items (P01, P06, P07) exist to prove the BC render now matches the mock's font.
+**Why:** only the real BC report engine can prove what this tool emits renders correctly. Rounds 1
+(2026-08-01, five items) and 2 (2026-08-02, seven items, typography) passed and are recorded in
+`docs/FIDELITY-CHECKLIST.md`; re-running P01-P07 whenever the tool surface changes is standing
+verification debt (GitHub issue #14).
+
+**Round 3 adds four research probes, P08-P11.** They don't check a capability: each settles an open
+issue that is blocked on what BC does - #102 (P08), #123 (P09, P10) and #11 (P11). For these, a
+REJECTED upload or a missing row is an answer, not a failure: write down exactly what happened.
 
 ## The layouts
 
