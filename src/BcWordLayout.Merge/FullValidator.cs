@@ -68,10 +68,8 @@ public static class FullValidator
         }
         finally
         {
-            if (File.Exists(tempOutput))
-            {
-                File.Delete(tempOutput);
-            }
+            // Best-effort (never throws): a cleanup failure must not replace the validation result.
+            ScratchFiles.Delete(tempOutput);
         }
 
         return new ValidationResult { Level = "full", Findings = findings };
@@ -80,9 +78,12 @@ public static class FullValidator
     /// <summary>
     /// Maps a <see cref="MergeWarning.Kind"/> to a validation severity. <c>unresolved-binding</c> (a
     /// binding that did not resolve against sample data) and <c>xpath-error</c> (a malformed XPath) are
-    /// Errors — both indicate the layout will render visibly wrong in BC. <c>xpath-fallback</c> (re-anchor
-    /// fell back to document-root evaluation), <c>content-write-failed</c> (resolved a value but had
-    /// nowhere to write it), <c>picture-no-blip</c> (picture control with no repointable image), and
+    /// Errors — both indicate the layout will render visibly wrong in BC. <c>xpath-fallback</c> (a binding
+    /// read from the document root that the merge cannot vouch for: a <c>//</c> path it cannot re-anchor,
+    /// or a field in another repeater's rows that shows the first of several records of its own repeating
+    /// item, e.g. a Line field in a ReportTotalsLine row, which no quick check catches; one finding per
+    /// binding, its message counting the evaluations), <c>content-write-failed</c> (resolved a value but
+    /// had nowhere to write it), <c>picture-no-blip</c> (picture control with no repointable image), and
     /// <c>row-cap</c> (a repeating section exceeded <see cref="MergeOptions.MaxRowsPerRepeater"/> and was
     /// capped) are Warnings — degraded but not necessarily broken; a capped preview in particular is a
     /// robustness measure on the MOCK render, not evidence the real layout is wrong.

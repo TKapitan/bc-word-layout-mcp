@@ -1,4 +1,5 @@
-﻿using BcWordLayout.Domain;
+﻿using System.Xml;
+using BcWordLayout.Domain;
 using BcWordLayout.Domain.Models;
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
@@ -136,7 +137,8 @@ internal static class ToolGuards
     private static void RetryTransientFileDenial(Action fileOperation) => TransientFileRetry.Run(fileOperation);
 
     private static ToolResponse GuardMutate<TResult>(
-        string layoutPath, Func<WordprocessingDocument, TResult> mutate, Func<TResult, ValidationResult, ToolResponse> onSuccess)
+        string layoutPath, Func<WordprocessingDocument, TResult> mutate, Func<TResult, ValidationResult, ToolResponse> onSuccess,
+        string? tool = null)
     {
         return Guard(() =>
         {
@@ -163,17 +165,24 @@ internal static class ToolGuards
                 }
 
                 // Best-effort orphan cleanup: runs on EVERY mutating call,
-                // scoped to layoutPath's OWN directory only — see SweepStaleStagingFiles's own remarks.
+                // scoped to layoutPath's OWN directory only — see SweepStaleStagingFiles's own remarks — plus
+                // this method's own %TEMP% working copies, at most hourly (see SweepStaleEditWorkingCopiesIfDue).
                 SweepStaleStagingFiles(layoutPath);
+                SweepStaleEditWorkingCopiesIfDue();
 
-                var workingCopy = Path.Combine(Path.GetTempPath(), $"bcwl-edit-{Guid.NewGuid():N}.docx");
-                RetryTransientFileDenial(() => File.Copy(layoutPath, workingCopy, overwrite: true));
+                // CopyWritable, not a bare File.Copy: a read-only layout (a TFVC/Perforce file that is not
+                // checked out) would otherwise yield a read-only working copy that can be neither opened for
+                // write below nor deleted afterwards - see ScratchFiles' own remarks (GitHub issue #94).
+                var workingCopy = Path.Combine(Path.GetTempPath(), $"{EditWorkingCopyPrefix}{Guid.NewGuid():N}.docx");
+                RetryTransientFileDenial(() => ScratchFiles.CopyWritable(layoutPath, workingCopy));
                 try
                 {
                     TResult mutateResult;
                     ValidationResult quick;
 
-                    using (var doc = LayoutPackage.Open(workingCopy, isEditable: true, autoSave: false))
+                    // callerPath: a layoutPath that is not a .docx package at all must be reported by ITS name,
+                    // not the private working copy's.
+                    using (var doc = LayoutPackage.Open(workingCopy, isEditable: true, autoSave: false, callerPath: layoutPath))
                     {
                         // Baseline BEFORE the edit: see the "does NOT reject" remark above.
                         var baselineErrors = new OpenXmlValidator(FileFormatVersions.Office2021).Validate(doc)
@@ -309,18 +318,24 @@ internal static class ToolGuards
                     var targetDir = Path.GetDirectoryName(Path.GetFullPath(layoutPath))
                         ?? throw new InvalidOperationException($"Could not determine the directory of '{layoutPath}'.");
                     var staged = Path.Combine(targetDir, $".bcwl-stage-{Guid.NewGuid():N}.docx");
-                    RetryTransientFileDenial(() => File.Copy(workingCopy, staged, overwrite: true));
                     try
                     {
+                        RetryTransientFileDenial(() => ScratchFiles.CopyWritable(workingCopy, staged));
                         RetryTransientFileDenial(() => File.Move(staged, layoutPath, overwrite: true));
+                    }
+                    catch (UnauthorizedAccessException ex)
+                    {
+                        // Access denied HERE can only be about layoutPath or its folder: the stage copy reads
+                        // this call's own working copy, and the move replaces layoutPath. Word holding the file
+                        // open, the read-only attribute, and a folder the account cannot write all fail this
+                        // way (not as a sharing-violation IOException), so this is the file_locked case - see
+                        // TargetFileNotWritableException. layoutPath is unchanged.
+                        ScratchFiles.Delete(staged);
+                        throw new TargetFileNotWritableException(Path.GetFullPath(layoutPath), ex);
                     }
                     catch
                     {
-                        if (File.Exists(staged))
-                        {
-                            File.Delete(staged);
-                        }
-
+                        ScratchFiles.Delete(staged);
                         throw;
                     }
 
@@ -328,53 +343,29 @@ internal static class ToolGuards
                 }
                 finally
                 {
-                    if (File.Exists(workingCopy))
-                    {
-                        File.Delete(workingCopy);
-                    }
+                    // Best-effort (never throws): see ScratchFiles.Delete for why a cleanup failure must not
+                    // replace this call's real outcome.
+                    ScratchFiles.Delete(workingCopy);
                 }
             }
-        }, layoutPath);
+        }, layoutPath, tool);
     }
 
     /// <summary>
-    /// Retention window for the orphan-staging-file sweep below: a crash between
-    /// <see cref="File.Copy(string, string, bool)"/> and <see cref="File.Move(string, string, bool)"/> in
-    /// the commit step above is normally over in microseconds, so any genuinely orphaned staging file is,
-    /// in practice, either brand new (another in-flight commit — this process or a different one entirely,
-    /// targeting a DIFFERENT layout in the same directory) or has been sitting untouched for a very long
-    /// time (a hard-killed process that never reached its own cleanup). One day comfortably clears any
-    /// plausible in-flight window (network share latency, an AV scan holding the handle, a slow disk)
-    /// while still being "soon" on human timescales, so an orphan left behind by a crash doesn't linger in
-    /// a source-controlled layout's directory indefinitely.
-    /// </summary>
-    /// <remarks>
-    /// AGE SIGNAL — <see cref="File.GetCreationTimeUtc(string)"/>, deliberately NOT
-    /// <see cref="File.GetLastWriteTimeUtc(string)"/> (a bug found and fixed during review of this exact
-    /// method): <see cref="File.Copy(string, string, bool)"/> copies the SOURCE's last-write time onto the
-    /// new file but resets its creation time to "now" (confirmed empirically on Windows/NTFS). The staged
-    /// file here is itself produced by a copy (of a working copy, itself copied from <c>layoutPath</c>) — if
-    /// <c>layoutPath</c> is an old, already-committed file (the common case: a real corpus/checked-in
-    /// layout), its last-write time can trivially be more than a day old, making a staging file created THIS
-    /// INSTANT already look "stale" by last-write time alone — exactly the failure mode that let a
-    /// concurrent sweep delete a live, mid-commit staging file out from under an in-progress edit. Creation
-    /// time reliably reflects how long THIS staging file has actually existed, regardless of its content's
-    /// own history.
-    /// </remarks>
-    private static readonly TimeSpan StageFileRetentionWindow = TimeSpan.FromDays(1);
-
-    /// <summary>
     /// Name shapes swept by <see cref="SweepStaleStagingFiles"/>: this class's own <c>.bcwl-stage-*.docx</c>
-    /// commit-step staging file, AND <c>BcWordLayout.Merge.MergeEngine</c>'s <c>.bcwl-merge-stage-*.docx</c>
-    /// merge-commit staging file (interaction). The two live in DIFFERENT
-    /// directories in the common case — this one in a layout's own directory, the merge one in whatever
-    /// directory a <c>preview_layout</c>/merge <c>outputDir</c> points at — so this sweep, which only ever
-    /// looks at a layout's own directory, is a complementary/opportunistic pass for the merge shape (the
-    /// primary defense for it is <c>MergeEngine.SweepStaleMergeStagingFiles</c>, scoped to the merge
-    /// output's own directory instead). Swept here too anyway, in case a caller happens to point a
-    /// merge/preview <c>outputDir</c> AT a layout's own directory, where nothing else would ever revisit it.
+    /// commit-step staging file, <c>BcWordLayout.Merge.MergeEngine</c>'s <c>.bcwl-merge-stage-*.docx</c>
+    /// merge-commit staging file, and <see cref="LayoutBuilder"/>'s <c>.bcwl-build-*.docx</c> build file. The
+    /// latter two live in DIFFERENT directories in the common case — the merge one in whatever directory a
+    /// <c>preview_layout</c>/merge <c>outputDir</c> points at, the build one next to a
+    /// <c>create_layout</c> <c>outputPath</c> — so this sweep, which only ever looks at a layout's own
+    /// directory, is a complementary pass for them (each one's primary defense is its owner's own sweep,
+    /// scoped to the directory it writes into: <c>MergeEngine.SweepStaleMergeStagingFiles</c> and
+    /// <see cref="LayoutBuilder.Create"/>'s build-file sweep). Swept here too because the directories often
+    /// coincide: layouts are created next to the layouts they are edited beside, and a caller may point a
+    /// merge/preview <c>outputDir</c> at a layout's own directory.
     /// </summary>
-    private static readonly string[] StagingFileGlobs = { ".bcwl-stage-*.docx", ".bcwl-merge-stage-*.docx" };
+    private static readonly string[] StagingFileGlobs =
+        { ".bcwl-stage-*.docx", ".bcwl-merge-stage-*.docx", ".bcwl-build-*.docx" };
 
     /// <summary>
     /// Best-effort age-based cleanup of orphaned staging files (see
@@ -391,9 +382,10 @@ internal static class ToolGuards
     /// </summary>
     /// <remarks>
     /// <para>
-    /// SAFE AGAINST A LIVE CONCURRENT COMMIT: only files older than <see cref="StageFileRetentionWindow"/>
-    /// are removed — comfortably longer than any plausible in-flight commit (see that field's own
-    /// remarks) — so a staging file another call (this process, serialized behind the very
+    /// SAFE AGAINST A LIVE CONCURRENT COMMIT: only files older than
+    /// <see cref="ScratchFiles.OrphanRetentionWindow"/> are removed — comfortably longer than any plausible
+    /// in-flight commit (see that field's own remarks, including why creation time is the age signal) — so a
+    /// staging file another call (this process, serialized behind the very
     /// <see cref="EditLockFor"/>/<see cref="CrossProcessLock"/> pair guarding this one, or a DIFFERENT
     /// process mutating a DIFFERENT layout that happens to share this directory) is actively mid-commit on
     /// can never be mistaken for an orphan and swept out from under it.
@@ -401,45 +393,109 @@ internal static class ToolGuards
     /// <para>
     /// BEST-EFFORT: every failure — a locked file (another process's antivirus scan, or the narrow window
     /// where a genuinely live commit is mid-<see cref="File.Move(string, string, bool)"/>), an inaccessible
-    /// directory, a candidate deleted by a concurrently-running sweep — is swallowed. A missed sweep simply
-    /// leaves the file for a later mutating call to retry; it must never fail the edit this cleanup
-    /// piggybacks on.
+    /// directory, a candidate deleted by a concurrently-running sweep — is swallowed by
+    /// <see cref="ScratchFiles.SweepStale"/>. A missed sweep simply leaves the file for a later mutating call
+    /// to retry; it must never fail the edit this cleanup piggybacks on. A READ-ONLY orphan (one a read-only
+    /// source left behind before GitHub issue #94 made every private copy writable) is removed too.
     /// </para>
     /// </remarks>
     private static void SweepStaleStagingFiles(string layoutPath)
     {
+        string? targetDir;
         try
         {
-            var targetDir = Path.GetDirectoryName(Path.GetFullPath(layoutPath));
-            if (string.IsNullOrEmpty(targetDir) || !Directory.Exists(targetDir))
-            {
-                return;
-            }
-
-            var cutoffUtc = DateTime.UtcNow - StageFileRetentionWindow;
-            foreach (var glob in StagingFileGlobs)
-            {
-                foreach (var candidate in Directory.EnumerateFiles(targetDir, glob))
-                {
-                    try
-                    {
-                        // CreationTimeUtc, not LastWriteTimeUtc — see StageFileRetentionWindow's remarks.
-                        if (File.GetCreationTimeUtc(candidate) < cutoffUtc)
-                        {
-                            File.Delete(candidate);
-                        }
-                    }
-                    catch
-                    {
-                        // Best-effort: leave this one candidate for a later sweep rather than failing the edit.
-                    }
-                }
-            }
+            targetDir = Path.GetDirectoryName(Path.GetFullPath(layoutPath));
         }
         catch
         {
-            // Best-effort: an inaccessible/unreadable directory must never fail the edit.
+            return; // Best-effort: a path-shape problem is reported by the edit itself, never by this sweep.
         }
+
+        if (string.IsNullOrEmpty(targetDir))
+        {
+            return;
+        }
+
+        foreach (var glob in StagingFileGlobs)
+        {
+            ScratchFiles.SweepStale(targetDir, glob);
+        }
+    }
+
+    /// <summary>The name prefix of <see cref="GuardMutate{TResult}"/>'s <c>%TEMP%</c> edit working copy.</summary>
+    private const string EditWorkingCopyPrefix = "bcwl-edit-";
+
+    /// <summary>
+    /// How often, at most, one host process sweeps <c>%TEMP%</c> for orphaned edit working copies (see
+    /// <see cref="SweepStaleEditWorkingCopiesIfDue"/>). The layout-directory sweep runs on every call because
+    /// that directory is small; <c>%TEMP%</c> is shared by every program on the machine and can hold tens of
+    /// thousands of entries, and an orphan only needs removing eventually, not on the next call.
+    /// </summary>
+    private static readonly TimeSpan EditWorkingCopySweepInterval = TimeSpan.FromHours(1);
+
+    /// <summary>UTC ticks before which <see cref="SweepStaleEditWorkingCopiesIfDue"/> skips its sweep.</summary>
+    private static long _nextEditWorkingCopySweepTicks;
+
+    /// <summary>
+    /// Runs <see cref="SweepStaleEditWorkingCopies"/> against <see cref="Path.GetTempPath"/> when
+    /// <see cref="EditWorkingCopySweepInterval"/> has elapsed since this process last did, so the first
+    /// mutating call of a fresh process always sweeps. Concurrent callers race on one
+    /// <see cref="Interlocked.CompareExchange(ref long, long, long)"/>, so exactly one of them sweeps per interval.
+    /// </summary>
+    private static void SweepStaleEditWorkingCopiesIfDue()
+    {
+        var nowTicks = DateTime.UtcNow.Ticks;
+        var dueTicks = Interlocked.Read(ref _nextEditWorkingCopySweepTicks);
+        if (nowTicks < dueTicks
+            || Interlocked.CompareExchange(
+                ref _nextEditWorkingCopySweepTicks, nowTicks + EditWorkingCopySweepInterval.Ticks, dueTicks) != dueTicks)
+        {
+            return;
+        }
+
+        SweepStaleEditWorkingCopies(Path.GetTempPath());
+    }
+
+    /// <summary>
+    /// Best-effort, age-based cleanup of orphaned <c>bcwl-edit-*.docx</c> working copies in
+    /// <paramref name="tempDir"/>. <see cref="GuardMutate{TResult}"/> creates one per call in
+    /// <see cref="Path.GetTempPath"/> and deletes it in its own <c>finally</c>; a hard-killed process skips
+    /// that, and before GitHub issue #94 a read-only source also left a read-only copy that the delete could
+    /// not remove. Nothing else ever revisited the family. Same age rule and best-effort contract as
+    /// <see cref="SweepStaleStagingFiles"/> (see <see cref="ScratchFiles.SweepStale"/>).
+    /// </summary>
+    /// <remarks>
+    /// <c>%TEMP%</c> is NOT tool-owned, unlike a layout's directory, where the dot-prefixed staging names are
+    /// distinctive. So a candidate must also match the exact shape this class generates
+    /// (<see cref="IsEditWorkingCopyName"/>: the prefix, a 32-character lowercase hex GUID, <c>.docx</c>), the
+    /// same restriction <c>LifecycleTools.SweepStalePreviewDirs</c> applies to its own shared root. Internal
+    /// rather than private, and taking the directory as a parameter, so a test can drive it against a private
+    /// folder instead of the machine's real <c>%TEMP%</c>.
+    /// </remarks>
+    internal static void SweepStaleEditWorkingCopies(string tempDir) =>
+        ScratchFiles.SweepStale(tempDir, EditWorkingCopyPrefix + "*.docx", IsEditWorkingCopyName);
+
+    /// <summary>True for exactly <c>bcwl-edit-&lt;32 lowercase hex&gt;.docx</c>, the name this class generates.</summary>
+    private static bool IsEditWorkingCopyName(string fileName)
+    {
+        const int GuidLength = 32;
+        const string Extension = ".docx";
+        if (fileName.Length != EditWorkingCopyPrefix.Length + GuidLength + Extension.Length
+            || !fileName.StartsWith(EditWorkingCopyPrefix, StringComparison.Ordinal)
+            || !fileName.EndsWith(Extension, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        for (var i = EditWorkingCopyPrefix.Length; i < EditWorkingCopyPrefix.Length + GuidLength; i++)
+        {
+            if (fileName[i] is not ((>= '0' and <= '9') or (>= 'a' and <= 'f')))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /// <summary>
@@ -562,9 +618,11 @@ internal static class ToolGuards
     /// post-edit QuickValidation guarantee as <see cref="GuardEdit"/>/<see cref="GuardCellEdit"/>, plus the
     /// <see cref="TableGridConsistencyGuard"/> backstop <see cref="GuardMutate{TResult}"/> now runs for every
     /// mutating tool — so a structural table edit that would desync a row's cells from the grid is rejected
-    /// with the file untouched.
+    /// with the file untouched. <paramref name="tool"/> is passed by a tool whose parameter names collide with
+    /// another tool's, so its <c>invalid_argument</c> hints key on both (see <see cref="ToolSpecificInvalidArgumentHint"/>).
     /// </summary>
-    internal static ToolResponse GuardTableEdit(string layoutPath, Func<WordprocessingDocument, TableEditResult> mutate) =>
+    internal static ToolResponse GuardTableEdit(
+        string layoutPath, Func<WordprocessingDocument, TableEditResult> mutate, string? tool = null) =>
         GuardMutate(layoutPath, mutate, (tableResult, quick) =>
         {
             var dto = new TableEditResultDto(
@@ -579,7 +637,7 @@ internal static class ToolGuards
                 new ValidationSummaryDto("quick", quick.Passed, quick.ErrorCount, quick.WarningCount));
 
             return ToolResponse.Success(dto);
-        });
+        }, tool);
 
     /// <summary>
     /// Thin <see cref="GuardMutate{TResult}"/> instantiation for <see cref="LifecycleTools"/>'s
@@ -611,7 +669,8 @@ internal static class ToolGuards
                     result.QuickValidation.Level,
                     result.QuickValidation.Passed,
                     result.QuickValidation.ErrorCount,
-                    result.QuickValidation.WarningCount));
+                    result.QuickValidation.WarningCount),
+                result.RepairedUnreadablePart);
 
             return ToolResponse.Success(dto);
         });
@@ -710,16 +769,22 @@ internal static class ToolGuards
     /// actually names a part present in THIS layout is a "does it resolve against this document" question,
     /// left to <see cref="LocationResolver.Resolve"/> too (surfaced as <c>not_found</c>, not
     /// <c>invalid_argument</c> — see <see cref="NotFoundHintFor"/>).
+    /// <para>
+    /// Both string parameters are nullable here even though the tools declare them non-null: the SDK binds an
+    /// explicit JSON <c>null</c> straight through. A null <paramref name="layoutPart"/> means its documented
+    /// default (<c>body</c>), like omitting it; a null <paramref name="locationType"/> (required, no default)
+    /// is refused as <c>invalid_argument</c> rather than crashing as a <see cref="NullReferenceException"/>.
+    /// </para>
     /// </summary>
     internal static Location BuildLocation(
-        string locationType, int? controlId, int? tableIndex, int? row, int? col, string? searchText,
-        string layoutPart = "body", string? partName = null)
+        string? locationType, int? controlId, int? tableIndex, int? row, int? col, string? searchText,
+        string? layoutPart = "body", string? partName = null)
     {
         if (!TryParseLocationKind(locationType, out var kind))
         {
             throw new ArgumentException(
-                $"Unknown locationType '{locationType}'. Use 'documentEnd', 'afterControl', 'tableCell', or "
-                + "'atText'.",
+                (locationType is null ? "locationType is required (got null)." : $"Unknown locationType '{locationType}'.")
+                + " Use 'documentEnd', 'afterControl', 'tableCell', or 'atText'.",
                 nameof(locationType));
         }
 
@@ -743,9 +808,9 @@ internal static class ToolGuards
         };
     }
 
-    private static bool TryParseLocationKind(string locationType, out LocationKind kind)
+    private static bool TryParseLocationKind(string? locationType, out LocationKind kind)
     {
-        switch (locationType.Trim().ToLowerInvariant())
+        switch (locationType?.Trim().ToLowerInvariant())
         {
             case "documentend":
                 kind = LocationKind.DocumentEnd;
@@ -769,11 +834,13 @@ internal static class ToolGuards
     /// Parses a <see cref="LayoutPart"/> from a tool's flat string parameter (case-insensitive). Internal
     /// rather than private: shared by <see cref="BuildLocation"/> here and by <see cref="TableTools"/>'s own
     /// <c>ParseLayoutPartOrThrow</c> (the table-structure tools address a table directly by
-    /// <see cref="LayoutPart"/> rather than building a full <see cref="Location"/>).
+    /// <see cref="LayoutPart"/> rather than building a full <see cref="Location"/>). A null
+    /// <paramref name="layoutPart"/> — an explicit JSON <c>null</c>, which the SDK binds straight through — is
+    /// the documented default, <c>body</c>, exactly as if the argument had been omitted.
     /// </summary>
-    internal static bool TryParseLayoutPart(string layoutPart, out LayoutPart part)
+    internal static bool TryParseLayoutPart(string? layoutPart, out LayoutPart part)
     {
-        switch (layoutPart.Trim().ToLowerInvariant())
+        switch ((layoutPart ?? "body").Trim().ToLowerInvariant())
         {
             case "body":
                 part = LayoutPart.Body;
@@ -867,7 +934,12 @@ internal static class ToolGuards
                     cell.Alias,
                     cell.XPath,
                     cell.Text,
-                    cell.InnerControlIds)).ToList())).ToList());
+                    cell.InnerControlIds,
+                    cell.GridColumn,
+                    cell.GridSpan)).ToList(),
+                r.GridBefore,
+                r.GridAfter,
+                r.RepeaterControlId)).ToList());
 
     /// <summary>
     /// SECURITY: recurses once per <see cref="DataItem"/>
@@ -920,17 +992,33 @@ internal static class ToolGuards
     /// dataset part/wrong namespace" one, again keyed off the TYPE rather than any <c>ex.Message</c> text.
     /// </para>
     /// <para>
-    /// <c>file_locked</c> is produced two ways: (1) below, by catching
+    /// A caller file that is not the kind of file its parameter takes - not a <c>.docx</c> package at all, or
+    /// not well-formed XML (GitHub issue #95) - reaches <c>invalid_layout</c> through
+    /// <see cref="InvalidInputFileException"/>, which the throw site that knows the file wraps around the BCL's
+    /// <see cref="FileFormatException"/>/<see cref="XmlException"/>, so the hint can name that file and the
+    /// line/position. A bare <see cref="XmlException"/> is caught too, as the fallback for a damaged part the
+    /// SDK parses lazily (see that branch). <see cref="FileFormatException"/> itself is deliberately NOT
+    /// mapped: <see cref="LayoutBuilder"/>'s internal-bug gate has its own type now
+    /// (<see cref="BuildSelfCheckFailedException"/>), but a stray one from anywhere else is still not
+    /// evidence the caller's input was wrong. A <c>dataOverridesPath</c> file that cannot be used is an
+    /// <see cref="ArgumentException"/> for that parameter instead, so it reports <c>invalid_argument</c>.
+    /// </para>
+    /// <para>
+    /// <c>file_locked</c> is produced three ways: (1) below, by catching
     /// <see cref="IOException"/> and checking <see cref="Exception.HResult"/> for a Windows sharing/lock
     /// violation (<c>ERROR_SHARING_VIOLATION</c> 0x80070020 / <c>ERROR_LOCK_VIOLATION</c> 0x80070021) - the
-    /// "this layout is open in Word (or another program) right now" case, where opening/copying the file
-    /// itself fails; and (2) not through this method at all, but as a plain <see cref="ToolResponse.Failure"/>
+    /// "this layout is open in Word (or another program) right now" case, where opening the file itself
+    /// fails; (2) below, by catching <see cref="TargetFileNotWritableException"/> - the commit that REPLACES
+    /// the caller's target was refused with access denied, which is how Word holding the file open, the
+    /// read-only attribute and a missing write permission all surface at a rename (GitHub issue #94; reads
+    /// and copies of a file Word holds still succeed, so the denial only shows at the commit); and (3) not
+    /// through this method at all, but as a plain <see cref="ToolResponse.Failure"/>
     /// returned directly by <see cref="CrossProcessLockTimeoutFailure"/> when the cross-process/in-process
     /// edit-lock WAIT itself times out (see <see cref="GuardMutate{TResult}"/>, <see cref="GuardRead"/>, and
     /// <c>LifecycleTools.PreviewLayout</c>/<c>CreateLayout</c>) - the "another process/thread is currently
     /// editing this same layout" case, which is not an exception at all and so never reaches this catch chain.
-    /// Both land on the identical <c>file_locked</c> code so a caller need only branch on one value regardless
-    /// of which of the two actually happened. An <see cref="IOException"/> whose <see cref="Exception.HResult"/>
+    /// All land on the identical <c>file_locked</c> code so a caller need only branch on one value regardless
+    /// of which actually happened. An <see cref="IOException"/> whose <see cref="Exception.HResult"/>
     /// does NOT match either code (e.g. a genuinely corrupt/unreadable file, or - on a non-Windows OS - any
     /// I/O failure at all, since these specific HRESULT values are a Windows convention) falls through to the
     /// generic <c>catch (Exception)</c> below exactly as before this change, keeping today's <c>internal_error</c>
@@ -945,8 +1033,14 @@ internal static class ToolGuards
     /// <see cref="InvalidDataException"/>/<c>catch (Exception)</c> branches, exactly like
     /// <see cref="ResourceLimitExceededException"/> above - keyed off the TYPE, never <c>ex.Message</c> text.
     /// </para>
+    /// <para>
+    /// A <see cref="LayoutDefectException"/> - the package carries a defect no argument can get past, e.g. a
+    /// BC dataset part that is there but does not parse - is <c>invalid_layout</c> too, with a hint chosen by
+    /// its typed <see cref="LayoutDefectException.Defect"/> (<see cref="LayoutDefectHintFor"/>) that names the
+    /// repair, rather than the generic "confirm the file contains a dataset part" one.
+    /// </para>
     /// </remarks>
-    internal static ToolResponse Guard(Func<ToolResponse> body, string path)
+    internal static ToolResponse Guard(Func<ToolResponse> body, string path, string? tool = null)
     {
         try
         {
@@ -973,14 +1067,30 @@ internal static class ToolGuards
         catch (IOException ex) when (IsSharingOrLockViolation(ex))
         {
             // "This layout is open in Word (or another program) right now" - the
-            // sharing-violation half of the file_locked story (see this method's own remarks above for the
-            // other half - a timed-out edit-lock WAIT, which never reaches this catch chain at all).
+            // sharing-violation part of the file_locked story (see this method's own remarks above for the
+            // other two - a refused write of the target, and a timed-out edit-lock WAIT).
             return ToolResponse.Failure(
                 "file_locked",
                 ex.Message,
                 "This file is open in another program (typically Word) or is being read/written by another "
                 + "process right now - close it there (or wait for that other operation to finish) and retry; "
                 + "the layout on disk is unaffected by this failure.");
+        }
+        catch (TargetFileNotWritableException ex)
+        {
+            // The commit that replaces the caller's target file was refused with access denied (GitHub issue
+            // #94) - see the exception type's own remarks for why each of the three causes below fails this
+            // way rather than as a sharing violation. Keyed on the TYPE, which only a throw site writing the
+            // target constructs; a bare UnauthorizedAccessException (e.g. a source file that cannot be read)
+            // still reports internal_error.
+            return ToolResponse.Failure(
+                "file_locked",
+                ex.Message,
+                $"'{ex.FilePath}' could not be replaced. The likely causes, most common first: (1) it is open "
+                + "in Word or another program - close it there and retry; (2) it is read-only, e.g. a "
+                + "TFVC/Perforce workspace file that is not checked out - check it out or clear its read-only "
+                + "attribute, then retry; (3) your account has no write permission on the file or its folder - "
+                + "fix the permission, or write to a folder you own. The file itself is unchanged.");
         }
         catch (ResourceLimitExceededException ex)
         {
@@ -999,6 +1109,33 @@ internal static class ToolGuards
                 + "schema file too large, too many parts, or schema/document nesting too deep) - "
                 + "it is likely malformed or a maliciously crafted file rather than a real Business Central "
                 + "layout/schema. This is not something to retry with the same file.");
+        }
+        catch (InvalidInputFileException ex)
+        {
+            // A caller's layout/template/schema file that is not a .docx package or not well-formed XML
+            // (GitHub issue #95) - wrapped at the throw site that knows WHICH file it was reading, so the hint
+            // can name it (see the exception type's own remarks for why the BCL types are not mapped wholesale).
+            return ToolResponse.Failure(
+                "invalid_layout",
+                ex.Message,
+                InvalidInputFileHint(ex.Problem, ex.FilePath, ex.LineNumber, ex.LinePosition));
+        }
+        catch (XmlException ex)
+        {
+            // Fallback for the one XmlException source no throw site can wrap: the OpenXML SDK parses a
+            // package's parts LAZILY, at first access anywhere in a tool body, so a damaged part inside an
+            // otherwise valid .docx surfaces here. Every XML this codebase reads comes from a caller's file
+            // (dataset paths are evaluated as XPath, which throws XPathException, not this type), and every
+            // tool's lazily-parsed package is the file `path` names - an edit's or preview's private copy is
+            // a copy OF it, and create_layout's template is wrapped at its own source.
+            return ToolResponse.Failure(
+                "invalid_layout",
+                $"'{path}' contains an XML part that is not well-formed: {ex.Message}",
+                InvalidInputFileHint(
+                    InputFileProblem.MalformedPackagePart,
+                    path,
+                    ex.LineNumber > 0 ? ex.LineNumber : null,
+                    ex.LineNumber > 0 ? ex.LinePosition : null));
         }
         catch (InvalidDataException ex)
         {
@@ -1029,9 +1166,19 @@ internal static class ToolGuards
                 + "controls with remove_control (repeat for every control get_layout_info lists) or supply a "
                 + "genuinely unbound template, then retry.");
         }
+        catch (LayoutDefectException ex)
+        {
+            // The package itself carries a defect this call cannot work around (see LayoutDefectException's
+            // own remarks for why that is not just InvalidDataException's generic invalid_layout hint):
+            // keyed off the typed Defect, never ex.Message, exactly like NotFoundException's TargetKind.
+            return ToolResponse.Failure("invalid_layout", ex.Message, LayoutDefectHintFor(ex.Defect));
+        }
         catch (ArgumentException ex)
         {
-            return ToolResponse.Failure("invalid_argument", ex.Message, InvalidArgumentHint(ex.ParamName));
+            return ToolResponse.Failure(
+                "invalid_argument",
+                ex.Message,
+                ToolSpecificInvalidArgumentHint(tool, ex.ParamName) ?? InvalidArgumentHint(ex.ParamName));
         }
         catch (NotFoundException ex)
         {
@@ -1071,11 +1218,83 @@ internal static class ToolGuards
     }
 
     /// <summary>
+    /// Builds the <c>invalid_layout</c> hint for a caller file that could not be read as what its parameter
+    /// takes (see <see cref="InputFileProblem"/>), naming <paramref name="filePath"/> and, for XML, the line
+    /// and position the reader stopped at. Keyed off the typed problem, never the exception's message text.
+    /// </summary>
+    /// <remarks>
+    /// The <see cref="InputFileProblem.NotAWordPackage"/> hint explains the <c>.docx</c>-versus-schema-<c>.xml</c>
+    /// split because that is the usual mistake behind it: every tool that takes either kind of file decides by
+    /// EXTENSION (a path ending in <c>.docx</c> is opened as a package, anything else is read as a schema
+    /// <c>.xml</c>), so a schema saved under a <c>.docx</c> name, or a layout under any other name, lands on
+    /// the wrong reader. The <see cref="InputFileProblem.MalformedXmlFile"/> hint states the reverse case.
+    /// </remarks>
+    private static string InvalidInputFileHint(InputFileProblem problem, string filePath, int? line, int? position)
+    {
+        var where = line is > 0 ? $" (line {line}, position {position})" : "";
+        return problem switch
+        {
+            InputFileProblem.NotAWordPackage =>
+                $"'{filePath}' is not a Word .docx package, or is too damaged to open. A .docx (or .dotx) is a "
+                + "zip container, so a schema .xml or a text file renamed to .docx, an empty (0-byte) file, or a "
+                + "truncated copy or download cannot be opened as one. Pass the real BC Word layout (saved by Word "
+                + "or exported from Business Central); if Word offers to repair this file, save the repaired copy "
+                + "and pass that. A standalone exported schema .xml is accepted only as create_layout's "
+                + "schemaSource, refresh_xml_part's newSchemaSource or list_dataset_fields' source, and only "
+                + "under its .xml extension: a path ending in .docx is always opened as a layout package.",
+
+            InputFileProblem.MalformedXmlFile =>
+                $"'{filePath}' is not well-formed XML{where}, so it cannot be read as a report dataset schema. "
+                + "Typical causes: a truncated copy, an encoding declaration that does not match the bytes (e.g. "
+                + "encoding=\"utf-16\" on a file saved as UTF-8), or a DOCTYPE/DTD, which is refused for "
+                + "security. Re-export the schema .xml from Business Central rather than editing it by hand. A "
+                + "path that does not end in .docx is always read as a schema .xml, so if this file is really a "
+                + ".docx layout, give it its .docx extension.",
+
+            _ =>
+                $"'{filePath}' opened as a Word package, but an XML part inside it is not well-formed{where}: the "
+                + "package is damaged (e.g. a part was hand-edited or truncated). Open it in Word - if Word "
+                + "repairs it, save the repaired copy and retry with that; otherwise restore the file from "
+                + "source control.",
+        };
+    }
+
+    /// <summary>
+    /// The <c>invalid_argument</c> hint for a parameter whose NAME means different things on different tools,
+    /// keyed by tool + parameter; null when the pair has no tool-specific hint, so <see cref="InvalidArgumentHint"/>'s
+    /// name-only map applies. It exists because a name-only key cannot tell <c>insert_table</c>'s integer
+    /// <c>columns</c> (a column COUNT) from <c>insert_repeater_table</c>'s comma-separated list of column NAMES,
+    /// or <c>insert_table</c>'s <c>rows</c> from <c>preview_layout</c>'s sample-row count — the hint used to
+    /// describe the wrong tool's parameter (GitHub issue #98). The tool name arrives through
+    /// <see cref="Guard"/>'s <c>tool</c> argument, which only the tools that own one of these colliding names
+    /// pass; every other call keeps the name-only hint. Each pair is pinned through the real server pipeline by
+    /// <c>McpHostPipelineTests</c>.
+    /// </summary>
+    private static string? ToolSpecificInvalidArgumentHint(string? tool, string? paramName) =>
+        (tool, paramName?.ToLowerInvariant()) switch
+        {
+            ("insert_table", "rows") =>
+                "insert_table's rows is how many rows the new table has: an integer from 1 to 100.",
+
+            ("insert_table", "columns") =>
+                "insert_table's columns is how many columns the new table has: an integer from 1 to 30 (not a "
+                + "list of column names - that is insert_repeater_table's columns). Size them with columnWidths, "
+                + "one width in twips per column.",
+
+            ("preview_layout", "rows") =>
+                "preview_layout's rows is how many sample rows to generate per repeating section: 1 or more "
+                + "(default 3). Values above the internal cap of 100 are capped with a row-cap warning. To preview "
+                + "real records instead of sample rows, pass an exported dataset via dataOverridesPath.",
+
+            _ => null,
+        };
+
+    /// <summary>
     /// Builds an <c>invalid_argument</c> hint tailored to the specific argument that failed, keyed off
     /// <see cref="ArgumentException.ParamName"/> (populated via <c>nameof(...)</c> at every throw site across
     /// this tool surface - <c>ToolGuards</c>/the tool-family classes themselves, <c>SdtFactory</c>,
     /// <c>LayoutEditor</c>, <c>Location.Validate</c>, <c>LocationResolver</c>, <c>TableStructureEditor</c>,
-    /// <c>CellTextEditor</c>, <c>LayoutBuilder</c>, and <c>LayoutRefresher</c>): names that argument's valid
+    /// <c>CellTextEditor</c>, <c>LayoutBuilder</c>, <c>LayoutRefresher</c>, and <c>SampleDataGenerator</c>): names that argument's valid
     /// values/shape and, where useful, the inspection tool that reports them, rather than one generic
     /// sentence for every <c>invalid_argument</c> failure regardless of which argument actually caused it.
     /// Falls back to a hint covering every possibility when <paramref name="paramName"/> is null (not every
@@ -1154,16 +1373,28 @@ internal static class ToolGuards
 
         "columnwidths" or "options" =>
             "columnWidths, if supplied, must be a comma-separated list of integers with exactly one width "
-            + "(in twips) per column, matching the column count exactly - omit it entirely for an even "
-            + "default width per column instead.",
+            + $"(in twips, each 1 to {TableTools.MaxColumnWidthTwips}) per column, matching the column count "
+            + "exactly - omit it entirely for an even default width per column instead.",
 
         "widths" =>
-            "set_column_widths' widths must be a non-empty comma-separated list of integers (twips), exactly "
-            + "one per GRID column - the count must equal the table's columnCount from get_layout_info.",
+            "set_column_widths' widths must be a non-empty comma-separated list of integers (twips, each 1 to "
+            + $"{TableTools.MaxColumnWidthTwips}), exactly one per GRID column - the count must equal the table's "
+            + "columnCount from get_layout_info (a cell's own columns are positions "
+            + "gridColumn..gridColumn+gridSpan-1 in that list).",
+
+        "cells" =>
+            "cells is a comma-separated list of cell specs, one per cell of the new row: '-' is an empty spacer, "
+            + "a name is a bound cell (insert_repeater_row: a leaf column of the child data item; "
+            + "insert_table_row/insert_subtotal_row: a FULL dataset path), 'a+b' chains several in one cell, and "
+            + $"an optional 'N:' prefix spans N grid columns (1 to {TableTools.MaxCellSpan}). The spans must sum to "
+            + "the table's columnCount (get_layout_info's tables[]), e.g. '4:-,3:/Header/Totals/TotalText,"
+            + "/Header/Totals/TotalAmount' on an 8-column table.",
 
         "atcolumn" =>
             "insert_column's atColumn is the 0-based GRID position for the new column (0..columnCount from "
-            + "get_layout_info; columnCount, or omitting it, appends at the far-right edge). An INTERIOR "
+            + "get_layout_info; columnCount, or omitting it, appends at the far-right edge): a cell's "
+            + "gridColumn in get_layout_info's tables[] inserts before that cell, gridColumn+gridSpan after "
+            + "it - not its colIndex, the physical position in the row. An INTERIOR "
             + "position must land on a cell boundary in every row that carries the new column's content (a "
             + "header row, and the bound data row) - if it falls inside a spanned cell there, split that "
             + "cell first with split_cells or pick a different position.",
@@ -1175,7 +1406,8 @@ internal static class ToolGuards
             + "columns. Omit it for an equal share, and use set_column_widths afterwards for any other split.",
 
         "gridcolumn" =>
-            "remove_column's column is a 0-based GRID column index (0..columnCount-1 from get_layout_info); "
+            "remove_column's column is a 0-based GRID column index (0..columnCount-1 from get_layout_info) - "
+            + "the gridColumn get_layout_info's tables[] report for the column's cells, not their colIndex; "
             + "the last remaining column cannot be removed, nor a column that is some row's ONLY cell (a row "
             + "otherwise made of w:gridBefore/w:gridAfter skipped columns - Word cannot open a row with no "
             + "cells), nor any column of a table none of whose rows matches its w:tblGrid (repair the grid "
@@ -1243,9 +1475,11 @@ internal static class ToolGuards
             + "otherwise leave the control in place.",
 
         "schema" =>
-            "Build the schema via SchemaProvider.FromLayout against a .docx layout (not FromSchemaXml "
-            + "against a standalone schema .xml) so a real storeItemID is available to bind against; see the "
-            + "message above for exactly what was rejected.",
+            "A bound control must name the storeItemID of the layout's dataset part, and every insert tool "
+            + "resolves one from the layout itself before building the control (from the part's itemProps, or "
+            + "from the storeItemID its existing bindings agree on - refusing with invalid_layout when there is "
+            + "neither), so reaching this message indicates a tool bug rather than a mistake in your call; "
+            + "please report it with the message above.",
 
         "schemasource" =>
             "create_layout's schemaSource must be a non-empty absolute path to an existing .docx layout "
@@ -1266,7 +1500,19 @@ internal static class ToolGuards
 
         "outputpath" =>
             "The output path must be a non-empty absolute path (create_layout's outputPath is where the new "
-            + "layout .docx is written); see the message above for exactly what was rejected about it.",
+            + "layout .docx is written); see the message above for exactly what was rejected about it. It "
+            + "must not be schemaSource itself while that file is an authored layout with bound controls: "
+            + "create_layout keeps only the dataset part. To bind an existing layout to a new or changed "
+            + "schema in place, call refresh_xml_part on it instead (layoutPath = that layout, newSchemaSource "
+            + "= the new schema); to start a new layout from its schema, pass a different outputPath.",
+
+        "dataoverridespath" =>
+            "preview_layout's dataOverridesPath must be a well-formed XML file in one of the two shapes Business "
+            + "Central produces for THIS layout's report: the layout's own data-store part (root "
+            + "'NavWordReportXmlPart' in the 'urn:microsoft-dynamics-nav/reports/<ReportName>/<id>/' namespace "
+            + "get_layout_info reports), or the report's Send to > XML export (root 'ReportDataSet', whose id "
+            + "must be this layout's report id). See the message above for the file and what was rejected; "
+            + "omit dataOverridesPath to preview with generated sample data instead.",
 
         _ =>
             "Check the argument named in the message above against this tool's own parameter descriptions: "
@@ -1326,5 +1572,54 @@ internal static class ToolGuards
             "The referenced control id, table location, or search text does not exist in this layout; "
             + "call get_layout_info to inspect the current control inventory and document structure before "
             + "retrying.",
+    };
+
+    /// <summary>
+    /// Builds the <c>invalid_layout</c> hint for a <see cref="LayoutDefectException"/>, keyed off its typed
+    /// <see cref="LayoutDefectException.Defect"/> (the <see cref="NotFoundHintFor"/> pattern): each names the
+    /// repair the PACKAGE needs, since no change to the call's own arguments can get past these.
+    /// </summary>
+    private static string LayoutDefectHintFor(LayoutDefect defect) => defect switch
+    {
+        LayoutDefect.UnreadableDatasetPart =>
+            "The layout's BC dataset part is present but is not well-formed XML (the message names the part and "
+            + "the parser's error) - typically an encoding declaration that no longer matches its bytes after a "
+            + "re-save in a text editor, an unescaped '&', or a truncated file. refresh_xml_part repairs it in "
+            + "place: pass this layout as layoutPath and an intact copy of the same report's layout (or its "
+            + "exported schema .xml) as newSchemaSource; the part keeps its storeItemID, so every binding stays "
+            + "linked. If the broken file was passed as a schema SOURCE (schemaSource/newSchemaSource), pass an "
+            + "intact copy instead.",
+
+        LayoutDefect.SeveralDatasetParts =>
+            "A layout carries exactly one BC dataset part; this one carries several (the message lists them and "
+            + "names the one its bindings use - normally the one to keep). Remove the extra part from the .docx "
+            + "package: delete its customXml/itemN.xml, the matching customXml/itemPropsN.xml and "
+            + "customXml/_rels/itemN.xml.rels, its relationship in word/_rels/document.xml.rels and its overrides "
+            + "in [Content_Types].xml, then retry. get_layout_info and validate_layout still read the file (its "
+            + "single-bc-part finding lists the parts too). If the file was passed as a schema SOURCE "
+            + "(schemaSource/newSchemaSource), pass a layout with a single dataset part instead.",
+
+        LayoutDefect.DuplicateControlId =>
+            "Content-control ids must be unique for id addressing to mean anything (validate_layout's "
+            + "duplicate-control-id warning lists every shared id). No tool here renumbers a control: for an "
+            + "insert, address the spot another way (tableCell or atText instead of afterControl); to fix the "
+            + "package, give all but one of the controls the message names a new w:sdtPr/w:id value (any integer "
+            + "no other control uses), or open the layout in Word and save it - the spec (ECMA-376 Part 1, "
+            + "17.5.2.18) has a consumer keep the first and assign fresh ids to later duplicates when it loads the "
+            + "document. Then call get_layout_info for the ids as they now are.",
+
+        LayoutDefect.NoStoreItemId =>
+            "A new bound control must name the storeItemID of the layout's dataset part. When that part carries "
+            + "no itemProps (stock layouts such as StandardStatement ship that way) the tools reuse the "
+            + "storeItemID every existing dataset binding names - and this layout offers neither. Business "
+            + "Central re-attaches the store item when a layout is uploaded (see validate_layout's single-bc-part "
+            + "warning), so one way out is to upload the layout to Business Central and export it back, then "
+            + "edit the exported copy, whose dataset part should carry one; another is to work on a copy of the "
+            + "layout whose existing bindings all name the same storeItemID. A new itemProps is deliberately not "
+            + "invented here: every existing binding would then name a store item the package does not have.",
+
+        _ =>
+            "The layout package carries a defect this call cannot work around (see the message above); run "
+            + "validate_layout on it for the full list of findings and their repairs.",
     };
 }

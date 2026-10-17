@@ -87,7 +87,11 @@ public static class LifecycleTools
                  + "assuming Ok=true means every possible issue was surfaced as data (a successful call is "
                  + "guaranteed free of the stale-binding damage above, but a template's pre-existing content "
                  + "can still carry its own warning-level finding). outputPath is overwritten if it already "
-                 + "exists; its parent directory is created if missing; the write is atomic (built in a temp "
+                 + "exists - except schemaSource itself while that file carries bound controls, which is "
+                 + "refused with invalid_argument because the new layout keeps only its dataset part (re-bind "
+                 + "an existing layout to a new schema with refresh_xml_part instead; scaffolding a "
+                 + "compiler-generated layout that has no controls yet in place is fine); its parent "
+                 + "directory is created if missing; the write is atomic (built in a temp "
                  + "file next to outputPath first, so a failure - including the template_not_unbound refusal "
                  + "- never leaves outputPath partially written or written at all). "
                  + "CONCURRENCY: outputPath is locked (the same in-process + cross-process lock pair every "
@@ -189,7 +193,12 @@ public static class LifecycleTools
                  + "names no BC namespace at all is left untouched. The "
                  + "XPath element-name steps themselves are never rewritten - that is the 'remap where "
                  + "element names match' - so a foreign binding whose XPath ALSO names a column this report "
-                 + "lacks is re-pointed AND reported as an orphan. STRUCTURAL GATE ONLY: like every mutating tool, the write is "
+                 + "lacks is re-pointed AND reported as an orphan. REPAIR: when the layout's BC dataset part is "
+                 + "present but is not well-formed XML (validate_layout's schema-parse finding names the part "
+                 + "and the parser error), this tool replaces that part's content all the same - it is the one "
+                 + "tool that can - keeping its storeItemID; repairedUnreadablePart then describes the part "
+                 + "that was replaced, and newUnboundFields is empty, there being no readable old schema to "
+                 + "diff against. STRUCTURAL GATE ONLY: like every mutating tool, the write is "
                  + "rejected only if it would introduce a NEW OpenXmlValidator structural error (leaving the "
                  + "file untouched) - orphaned bindings are quick-validation (semantic) findings, always "
                  + "ALLOWED and reported, never blocked. quickValidation therefore commonly carries "
@@ -243,7 +252,7 @@ public static class LifecycleTools
                  + "image blocks.")]
     public static ToolResponse PreviewLayout(
         [Description("Absolute path to the .docx layout file.")] string layoutPath,
-        [Description("Number of sample rows to generate per repeating section. Default 3. Bounded per "
+        [Description("Number of sample rows to generate per repeating section: 1 or more, default 3. Bounded per "
                      + "repeater/data item by an internal safeguard (default cap 100): a value above the "
                      + "cap never generates or merges more than the cap's worth of rows for any single "
                      + "repeating section, reported via a row-cap warning rather than silently ignored.")]
@@ -258,23 +267,41 @@ public static class LifecycleTools
                      + "column carrying a decimalformatter attribute holds a raw number and is formatted "
                      + "with the export's formatRegion culture, matching what BC itself renders; an export "
                      + "from a DIFFERENT report than the layout's dataset is rejected with an error naming "
-                     + "both report ids.")] string? dataOverridesPath = null,
+                     + "both report ids. A dataset printed for SEVERAL documents (several top-level records "
+                     + "the layout does not repeat itself) previews the first only, reported as a "
+                     + "multiple-top-level-records warning naming the count - BC would render the body once "
+                     + "per record; pass a dataset holding just the record you want to see.")] string? dataOverridesPath = null,
         [Description("Optional absolute output directory for the merged .docx and preview .pdf. Defaults to "
                      + "a per-layout folder under the system temp directory, named "
                      + "'<layout-basename>-<hash>' where hash is derived from the layout's full path — so "
                      + "two DIFFERENT layouts that merely share a file name (e.g. 'C:\\appA\\Invoice.docx' vs "
                      + "'C:\\appB\\Invoice.docx') never collide, while re-previewing the SAME layout always "
-                     + "reuses the same folder (merged.docx/preview.pdf are refreshed in place). When "
-                     + "outputDir IS supplied, that same hash is instead embedded in the FILE names "
-                     + "('merged-<hash>.docx' / 'preview-<hash>.pdf') so two different layouts previewed "
-                     + "into the SAME caller-chosen folder still can't collide; files always land inside the "
-                     + "folder you pass. Either way, read the actual paths back from the result rather than "
-                     + "assuming fixed names. When you supply outputDir yourself, YOU own its lifetime — the "
-                     + "tool never sweeps or deletes anything inside it (see RETENTION above); clean it up "
-                     + "yourself if it may hold real data.")] string? outputDir = null)
+                     + "reuses the same folder (merged.docx and preview-<hash>.pdf are refreshed in place). "
+                     + "When outputDir IS supplied, the merged copy is named 'merged-<hash>.docx' too, so two "
+                     + "different layouts previewed into the SAME caller-chosen folder still can't collide; "
+                     + "files always land inside the folder you pass. The PDF is 'preview-<hash>.pdf' either "
+                     + "way, so render_preview_pages' PNGs (named after the PDF) never collide across "
+                     + "layouts. The previous PDF is deleted before each conversion: when conversion fails, "
+                     + "no PDF is left at that path (pdfPath is null), never a stale render of an earlier "
+                     + "version. Read the actual paths back from the result rather than assuming fixed "
+                     + "names. When you supply outputDir yourself, YOU own its lifetime — the tool never "
+                     + "sweeps anything inside it (see RETENTION above) and deletes only this layout's own "
+                     + "previous PDF; clean it up yourself if it may hold real data.")] string? outputDir = null)
     {
         return Guard(() =>
         {
+            // Checked first, before the file is even looked at: a zero/negative count used to "succeed" with an
+            // empty body plus unresolved-binding warnings caused only by the row count, which reads as a broken
+            // layout rather than a bad argument (GitHub issue #98). Nothing in the merge intends a zero-row
+            // preview, so it is refused rather than documented as one.
+            if (rows < 1)
+            {
+                throw new ArgumentException(
+                    $"rows must be 1 or more (got {rows}): it is the number of sample rows generated per "
+                    + "repeating section.",
+                    nameof(rows));
+            }
+
             if (!File.Exists(layoutPath))
             {
                 throw new FileNotFoundException("layoutPath does not point to an existing file.", layoutPath);
@@ -336,18 +363,18 @@ public static class LifecycleTools
                 SweepStalePreviewDirs(DefaultPreviewRoot(), resolvedOutputDir);
 
                 // An explicit outputDir is caller-chosen and may be shared across unrelated layouts (they
-                // don't share a lock key merely by sharing a folder), so the merged/pdf FILE names
-                // themselves are also keyed by this layout's hash there. The DEFAULT folder above is
-                // already unique per layout (its own name embeds the hash), so plain "merged.docx"/
-                // "preview.pdf" inside it is unambiguous — keeping the common case's paths short and
-                // stable across repeated previews of the same layout.
+                // don't share a lock key merely by sharing a folder), so the merged FILE name itself is
+                // also keyed by this layout's hash there. The DEFAULT folder above is already unique per
+                // layout (its own name embeds the hash), so plain "merged.docx" inside it is unambiguous.
+                // The PDF embeds the hash in BOTH cases: render_preview_pages names the PNGs it writes
+                // after the PDF's basename, so a default "preview.pdf" made two layouts' pages rendered into
+                // one folder overwrite each other ("preview-page01.png" twice, the first layout's returned
+                // path then showing the second layout's page - GitHub issue #106).
                 var hash = PreviewPathHash(layoutPath);
                 var mergedDocxPath = outputDir is null
                     ? Path.Combine(resolvedOutputDir, "merged.docx")
                     : Path.Combine(resolvedOutputDir, $"merged-{hash}.docx");
-                var pdfPath = outputDir is null
-                    ? Path.Combine(resolvedOutputDir, "preview.pdf")
-                    : Path.Combine(resolvedOutputDir, $"preview-{hash}.pdf");
+                var pdfPath = Path.Combine(resolvedOutputDir, $"preview-{hash}.pdf");
 
                 var mergeResult = MergeEngine.Merge(layoutPath, mergedDocxPath, new MergeOptions
                 {
@@ -369,8 +396,23 @@ public static class LifecycleTools
                     StripExternalReferences = true,
                 });
 
+                // The PDF at pdfPath must be THIS call's render or nothing: the converters never delete an
+                // existing destination, so a failed re-conversion (Word timeout, LibreOffice missing) used to
+                // leave the previous render in place - an agent reusing the earlier pdfPath, or a human
+                // opening the folder, saw the pre-edit layout (GitHub issue #106). Removed under this
+                // preview's lock pair, so no concurrent preview/edit of the same layout can interleave.
                 var pdfConverter = SelectConverter(kind);
-                var conversion = pdfConverter.Convert(mergedDocxPath, pdfPath);
+                var removalError = RemovePreviousPreviewPdf(pdfPath, outputDir is null ? resolvedOutputDir : null);
+                var conversion = removalError is null
+                    ? pdfConverter.Convert(mergedDocxPath, pdfPath)
+                    : PdfConversionResult.Failure(pdfConverter.Name, removalError);
+                if (!conversion.Ok)
+                {
+                    // Whatever a failed attempt left behind (Word killed mid-export, an output that failed
+                    // the %PDF check) is not a render this call vouches for either.
+                    TryDeleteFile(pdfPath);
+                }
+
                 var quick = LayoutValidator.Quick(layoutPath);
 
                 var dto = new PreviewResultDto(
@@ -392,10 +434,60 @@ public static class LifecycleTools
 
                 return ToolResponse.Success(dto);
             }
-        }, layoutPath);
+        }, layoutPath, tool: "preview_layout"); // rows means something else on insert_table - see ToolGuards.ToolSpecificInvalidArgumentHint
     }
 
     // ---- preview_layout helpers ----
+
+    /// <summary>
+    /// The fixed PDF name earlier versions gave every DEFAULT-folder preview, before the PDF name took the
+    /// layout's hash (see <c>PreviewLayout</c>). A default folder is reused across versions, so a
+    /// <c>preview.pdf</c> rendered by an older server would otherwise sit beside the current render forever:
+    /// the folder is touched on every preview, so the age-sweep never removes it.
+    /// </summary>
+    private const string LegacyDefaultPreviewPdfName = "preview.pdf";
+
+    /// <summary>
+    /// Deletes the PDF a previous preview left at <paramref name="pdfPath"/>, before this call converts
+    /// into it, and returns null — or, when the file cannot be deleted (a PDF viewer holding it open is the
+    /// common cause), returns the <c>conversionError</c> text and the caller does not convert at all: the
+    /// converter could not overwrite that file either, and the stale render must not come back as this
+    /// call's <c>pdfPath</c>. <paramref name="defaultPreviewDir"/> is the tool's own default folder when this
+    /// preview uses it (null for a caller-supplied <c>outputDir</c>); only there is the pre-hash
+    /// <see cref="LegacyDefaultPreviewPdfName"/> also removed, best-effort, because only that folder is the
+    /// tool's to clean — a caller's <c>outputDir</c> may hold a <c>preview.pdf</c> of the caller's own.
+    /// </summary>
+    private static string? RemovePreviousPreviewPdf(string pdfPath, string? defaultPreviewDir)
+    {
+        if (defaultPreviewDir is not null)
+        {
+            TryDeleteFile(Path.Combine(defaultPreviewDir, LegacyDefaultPreviewPdfName));
+        }
+
+        try
+        {
+            File.Delete(pdfPath);
+            return null;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return $"The previous preview PDF '{Path.GetFullPath(pdfPath)}' could not be removed, so no new PDF "
+                + $"was rendered ({ex.Message}). Close any viewer that has it open, then preview again.";
+        }
+    }
+
+    /// <summary>Best-effort <see cref="File.Delete"/>: a failure leaves the file in place and never fails the preview.</summary>
+    private static void TryDeleteFile(string path)
+    {
+        try
+        {
+            File.Delete(path);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Best-effort - see summary.
+        }
+    }
 
     /// <summary>Fixed "mock render" banner returned in every <c>preview_layout</c> response.</summary>
     private const string PreviewDisclaimer =
@@ -595,10 +687,11 @@ public static class LifecycleTools
     /// layout that gets re-previewed regularly is never treated as stale by
     /// <see cref="SweepStalePreviewDirs"/>. This is NOT redundant with the filesystem's own behavior: a
     /// re-preview of the SAME layout reuses this exact folder and overwrites its two files
-    /// (<c>merged.docx</c>/<c>preview.pdf</c>) IN PLACE via <see cref="File.Copy(string, string, bool)"/> and
-    /// equivalent converter writes — which updates each FILE's own timestamp but, confirmed empirically on
-    /// NTFS, does NOT bump the PARENT DIRECTORY's own <c>LastWriteTime</c> (that only moves when an entry is
-    /// added/removed/renamed, not when an existing entry's content is merely overwritten). Without this
+    /// (<c>merged.docx</c>/<c>preview-&lt;hash&gt;.pdf</c>) IN PLACE via
+    /// <see cref="File.Copy(string, string, bool)"/> and equivalent converter writes — which updates each
+    /// FILE's own timestamp but, confirmed empirically on NTFS, does NOT bump the PARENT DIRECTORY's own
+    /// <c>LastWriteTime</c> (that only moves when an entry is added/removed/renamed, not when an existing
+    /// entry's content is merely overwritten). Without this
     /// explicit stamp, a layout previewed daily forever would still eventually cross
     /// <see cref="PreviewRetentionWindow"/> and be swept alive by <see cref="SweepStalePreviewDirs"/>, purely
     /// because its folder's own timestamp never moved past its original creation time — silently destroying
@@ -619,9 +712,14 @@ public static class LifecycleTools
         }
     }
 
-    private static bool TryParseConverterKind(string converter, out PdfConverterKind kind)
+    /// <summary>
+    /// Parses <c>preview_layout</c>'s <c>converter</c> (case-insensitive). An explicit JSON <c>null</c>, which
+    /// the SDK binds straight through, is the documented default <c>auto</c>, as if it had been omitted.
+    /// Internal so a test can pin that without running a conversion.
+    /// </summary>
+    internal static bool TryParseConverterKind(string? converter, out PdfConverterKind kind)
     {
-        switch (converter.Trim().ToLowerInvariant())
+        switch ((converter ?? "auto").Trim().ToLowerInvariant())
         {
             case "auto":
                 kind = PdfConverterKind.Auto;
@@ -689,10 +787,10 @@ public static class LifecycleTools
     /// <c>C:\appA\SalesInvoice.docx</c> vs. <c>C:\appB\SalesInvoice.docx</c> - resolve to different
     /// folders, while the SAME layout re-previewed - regardless of
     /// case or of a relative-vs-absolute spelling, anything <see cref="Path.GetFullPath(string)"/>
-    /// normalizes away - always resolves to the SAME folder, so its <c>merged.docx</c>/<c>preview.pdf</c>
-    /// are simply refreshed in place rather than accumulating stale copies under an ever-growing set of
-    /// directories. The basename prefix is kept purely so the folder stays human-recognizable in a
-    /// directory listing; only the hash suffix is load-bearing for uniqueness.
+    /// normalizes away - always resolves to the SAME folder, so its <c>merged.docx</c> and
+    /// <c>preview-&lt;hash&gt;.pdf</c> are simply refreshed in place rather than accumulating stale copies
+    /// under an ever-growing set of directories. The basename prefix is kept purely so the folder stays
+    /// human-recognizable in a directory listing; only the hash suffix is load-bearing for uniqueness.
     /// </para>
     /// </summary>
     internal static string DefaultPreviewOutputDirName(string layoutPath) =>
@@ -710,9 +808,10 @@ public static class LifecycleTools
     /// No lock pair is taken: this reads ONE scratch file (the preview PDF) into memory in a single
     /// <see cref="File.ReadAllBytes"/> and never touches the layout itself — there is no layoutPath here
     /// to key a lock on, and the worst a concurrent re-preview of the same layout can do is make that
-    /// read fail (sharing violation → clean failure envelope) or hand us the OLD complete PDF (converters
-    /// write to the final path only on success). A torn read cannot produce a half-corrupt image: PDFium
-    /// operates on the in-memory snapshot and rejects a truncated document as a whole.
+    /// read fail: the re-preview deletes the old PDF before converting (file_not_found), or the new one is
+    /// mid-write (a sharing violation, or a truncated document — both a clean failure envelope). Either way
+    /// the agent re-runs preview_layout. A torn read cannot produce a half-corrupt image: PDFium operates
+    /// on the in-memory snapshot and rejects a truncated document as a whole.
     /// </para>
     /// </summary>
     [McpServerTool(Name = "render_preview_pages")]
@@ -732,8 +831,8 @@ public static class LifecycleTools
     public static CallToolResult RenderPreviewPages(
         [Description("Absolute path to the PDF to render — typically the PdfPath returned by a preceding "
                      + "preview_layout call.")] string pdfPath,
-        [Description("1-based page number to start rendering from. Default 1.")] int firstPage = 1,
-        [Description("How many pages to return, starting at firstPage. Default 3, hard cap 10 per call — "
+        [Description("1-based page number to start rendering from (1 or more). Default 1.")] int firstPage = 1,
+        [Description("How many pages to return, starting at firstPage (1 or more). Default 3, hard cap 10 per call — "
                      + "the JSON envelope's 'truncated' flag tells you when the document has more pages "
                      + "than were returned.")] int maxPages = 3,
         [Description("Render resolution in DPI, clamped to 36–300. Default 120 (an A4 page comes out "
@@ -742,8 +841,11 @@ public static class LifecycleTools
                      + "larger than that at this DPI is rendered smaller, keeping its aspect ratio, and "
                      + "flagged downscaled=true on pages[].")] int dpi = 120,
         [Description("Optional absolute directory to ALSO write each rendered page into, as "
-                     + "'<pdf-basename>-pageNN.png' (the paths are returned on pages[].path). The directory "
-                     + "is created if missing. Omit to return the images inline only. YOU own the "
+                     + "'<pdf-basename>-pageNN.png' (the paths are returned on pages[].path). A "
+                     + "preview_layout PDF's basename carries its layout's hash, so pages of different "
+                     + "layouts rendered into one directory never overwrite each other; any other two PDFs "
+                     + "that share a basename would. The directory is created if missing. Omit to return "
+                     + "the images inline only. YOU own the "
                      + "directory's lifetime - nothing here ever sweeps or deletes it, and a preview "
                      + "rendered from real data produces PNGs of that data, so clean it up yourself if it "
                      + "may hold anything sensitive.")] string? outputDir = null,
@@ -763,6 +865,21 @@ public static class LifecycleTools
                 + "pages[].path), or leave inlineImages at its default of true."));
         }
 
+        // Pages are numbered from 1 and at least one must be asked for. The rasterizer clamps anything lower
+        // to 1, so firstPage=0 or -3 used to render page 1 while the response echoed the value that was sent
+        // (GitHub issue #98) - refused here instead of silently corrected. maxPages' documented cap of 10 is
+        // still a clamp: asking for more is not a mistake, just more than one call returns.
+        if (firstPage < 1 || maxPages < 1)
+        {
+            var (name, value) = firstPage < 1 ? (nameof(firstPage), firstPage) : (nameof(maxPages), maxPages);
+            return EnvelopeOnly(ToolResponse.Failure(
+                "invalid_argument",
+                $"{name} must be 1 or more (got {value}).",
+                "firstPage is the 1-based page to start from (default 1) and maxPages how many pages to render "
+                + "from there (default 3, at most 10 per call); the response's pageCount tells you how many pages "
+                + "the document has."));
+        }
+
         // File-existence gets its own code (and the shared file_not_found hint style Guard uses) rather
         // than the rasterizer's generic error string, so an agent that cached a stale PdfPath (e.g. the
         // preview was re-run or age-swept) is told exactly how to recover: preview again, then re-render.
@@ -772,8 +889,9 @@ public static class LifecycleTools
                 "file_not_found",
                 $"pdfPath does not point to an existing file. Path checked: '{pdfPath}'.",
                 "Pass the PdfPath returned by a preview_layout call. Preview outputs are refreshed in "
-                + "place on re-preview and age-swept after long disuse, so a stale path from an old call "
-                + "may be gone — run preview_layout again and use the PdfPath it returns."));
+                + "place on re-preview (one whose conversion failed removes the old PDF and leaves none) "
+                + "and age-swept after long disuse, so a stale path from an old call may be gone — run "
+                + "preview_layout again and use the PdfPath it returns."));
         }
 
         var result = PdfRasterizer.Rasterize(pdfPath, new PdfRasterizeOptions
@@ -849,10 +967,13 @@ public static class LifecycleTools
     /// in the same order as <paramref name="pages"/>.
     /// </summary>
     /// <remarks>
-    /// The name is derived from the PDF's own basename — which for a <c>preview_layout</c> output already
-    /// carries that call's per-layout hash (<c>preview-&lt;hash&gt;.pdf</c>) — so rendering two different
-    /// layouts' previews into ONE caller-chosen folder cannot collide, the same property
-    /// <c>preview_layout</c>'s own caller-supplied-outputDir naming has. The page number, not the loop
+    /// The name is derived from the PDF's own basename — which for every <c>preview_layout</c> output,
+    /// default folder or caller-supplied <c>outputDir</c> alike, carries that layout's hash
+    /// (<c>preview-&lt;hash&gt;.pdf</c>) — so rendering two different layouts' previews into ONE folder
+    /// cannot collide. That holds only because <c>preview_layout</c> names its PDFs that way (default
+    /// previews were once all <c>preview.pdf</c>, and wrote <c>preview-page01.png</c> over each other —
+    /// GitHub issue #106); two arbitrary PDFs that share a basename still would, which is the caller's
+    /// naming, not something this tool renames. The page number, not the loop
     /// index, is what goes in the name: rendering pages 4-6 writes <c>…-page04.png</c>…<c>…-page06.png</c>,
     /// so paging through a long document produces a set that sorts and reads correctly.
     /// </remarks>

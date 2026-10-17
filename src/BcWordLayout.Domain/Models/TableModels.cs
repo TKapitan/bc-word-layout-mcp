@@ -46,7 +46,11 @@ public sealed class TableStructure
     /// <summary>0-based, per-part, document-order table index — the same index <c>tableCell</c> addressing uses.</summary>
     public required int TableIndex { get; init; }
 
-    /// <summary>Number of rows (plain <c>w:tr</c> plus any row-level control rows).</summary>
+    /// <summary>
+    /// Number of rows: every <c>w:tr</c> of the table, including the rows nested inside row-level controls at
+    /// any depth (each row of a multi-row repeater item, each nested detail repeater's row), plus one for a
+    /// row-level control that holds no <c>w:tr</c> at all.
+    /// </summary>
     public required int RowCount { get; init; }
 
     /// <summary>Number of grid columns declared by the table's <c>w:tblGrid</c>.</summary>
@@ -60,6 +64,13 @@ public sealed class TableStructure
 }
 
 /// <summary>One row of a <see cref="TableStructure"/>.</summary>
+/// <remarks>
+/// ONE ROW PER <c>w:tr</c>. A repeater item that holds several rows — its line row, the rows of a detail
+/// repeater nested in it, its subtotal and spacer rows — lists each of them, in document order, every one
+/// tagged with the repeater it belongs to (<see cref="RepeaterControlId"/>). Until GitHub issue #80 a
+/// repeater counted as ONE row (its first <c>w:tr</c>), so the other rows had no index at all, and the
+/// indexes of the rows after such an item were one or more lower than they are now.
+/// </remarks>
 public sealed class TableRowInfo
 {
     /// <summary>0-based row index within its table.</summary>
@@ -72,18 +83,61 @@ public sealed class TableRowInfo
     /// </summary>
     public required bool IsControlRow { get; init; }
 
-    /// <summary>The row-level control's <c>w:id</c>, when <see cref="IsControlRow"/> is true; else null.</summary>
+    /// <summary>
+    /// The <c>w:id</c> of the OUTERMOST row-level control around the row, when <see cref="IsControlRow"/> is
+    /// true; else null — the same id for every row that control holds, and the one whose removal takes them all.
+    /// </summary>
     public int? ControlId { get; init; }
+
+    /// <summary>
+    /// The <c>w:id</c> of the INNERMOST repeating section around the row — the repeater it is cloned with,
+    /// one per data row — or null when no repeater wraps it. In a stock statement's lines table the item's own
+    /// rows carry the outer <c>CurrencyLoop</c> repeater's id and the nested detail row its
+    /// <c>DtldCustLedgEntries</c> repeater's, while <see cref="ControlId"/> is the outer one's for all of them.
+    /// </summary>
+    public int? RepeaterControlId { get; init; }
+
+    /// <summary>
+    /// Grid columns the row skips BEFORE its first cell (<c>w:trPr/w:gridBefore</c>, 0 when absent) — so its
+    /// first cell starts at this grid column, not 0. With <see cref="GridAfter"/> and the cells'
+    /// <see cref="TableCellInfo.GridSpan"/>s it accounts for the whole grid:
+    /// <c>GridBefore + ΣGridSpan + GridAfter = ColumnCount</c> on a well-formed row.
+    /// </summary>
+    public required int GridBefore { get; init; }
+
+    /// <summary>Grid columns the row skips AFTER its last cell (<c>w:trPr/w:gridAfter</c>, 0 when absent).</summary>
+    public required int GridAfter { get; init; }
 
     /// <summary>The cells in document order.</summary>
     public required IReadOnlyList<TableCellInfo> Cells { get; init; }
 }
 
 /// <summary>One cell of a <see cref="TableRowInfo"/>.</summary>
+/// <remarks>
+/// TWO COORDINATES, ONE PER KIND OF TOOL. <see cref="ColIndex"/> is the cell's PHYSICAL position in its row
+/// — what the cell tools take (<c>tableCell</c> locations, <c>set_cell_text</c>, <c>merge_cells</c>,
+/// <c>split_cells</c>, <c>set_cell_borders</c>'s <c>col</c>). <see cref="GridColumn"/>/<see cref="GridSpan"/>
+/// are where the cell sits on the table's <c>w:tblGrid</c> — what the column tools take
+/// (<c>insert_column</c>'s <c>atColumn</c>, <c>remove_column</c>, <c>set_column_widths</c>' list order).
+/// They differ on almost every real BC table, which is <c>gridSpan</c>-pervasive: on the stock VAT-spec
+/// invoice's lines table, Line Amount is physical cell 7 in both its header and data rows but grid column 9,
+/// and <c>remove_column</c> with the physical index removed a grid column inside the VAT % cells instead
+/// (GitHub issue #81). Before <see cref="GridColumn"/> was reported, nothing in <c>get_layout_info</c> let a
+/// caller convert one to the other.
+/// </remarks>
 public sealed class TableCellInfo
 {
     /// <summary>0-based column index within its row (counts every cell, whether or not it is a control cell).</summary>
     public required int ColIndex { get; init; }
+
+    /// <summary>
+    /// 0-based GRID column the cell starts at — its row's <see cref="TableRowInfo.GridBefore"/> plus the
+    /// <see cref="GridSpan"/>s of the cells before it. The index to pass to the column tools.
+    /// </summary>
+    public required int GridColumn { get; init; }
+
+    /// <summary>How many grid columns the cell covers (<c>w:gridSpan</c>, 1 when absent): grid columns <see cref="GridColumn"/>..<see cref="GridColumn"/>+<see cref="GridSpan"/>-1.</summary>
+    public required int GridSpan { get; init; }
 
     /// <summary>
     /// True when the cell itself is wrapped by a cell-level content control (<c>SdtCell</c>) — e.g. the BC
@@ -92,7 +146,13 @@ public sealed class TableCellInfo
     /// </summary>
     public required bool IsControlCell { get; init; }
 
-    /// <summary>The cell-level control's <c>w:id</c>, when <see cref="IsControlCell"/> is true; else null.</summary>
+    /// <summary>
+    /// The cell-level control's <c>w:id</c>, when <see cref="IsControlCell"/> is true; else null. When the cell
+    /// is wrapped in a CHAIN of cell-level controls (the Business Central Word add-in's "Hide Table Row If
+    /// Empty" wrapper around a bound field's own cell-level control), this — and <see cref="ControlKind"/>/
+    /// <see cref="Alias"/>/<see cref="XPath"/> — describe the INNERMOST one, the control directly around the
+    /// <c>w:tc</c>; the outer wrappers are in the control inventory at this cell's coordinate.
+    /// </summary>
     public int? ControlId { get; init; }
 
     /// <summary>The cell-level control's kind (e.g. <c>Field</c>/<c>Label</c>), when <see cref="IsControlCell"/> is true.</summary>

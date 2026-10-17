@@ -10,7 +10,9 @@ namespace BcWordLayout.Merge;
 /// context node turns the absolute XPath into the correct relative remainder to evaluate against it —
 /// PROVIDED those leading steps actually describe the same element path as the enclosing repeater's own
 /// binding (see <see cref="Remainder"/>'s <c>contextXPath</c> parameter); a step COUNT match alone is not
-/// enough, since an equal-depth sibling binding has the right count but names different elements.
+/// enough, since an equal-depth sibling binding has the right count but names different elements. This
+/// class judges ONE context at a time; <see cref="MergeEngine"/> tries it against every enclosing repeater
+/// row, innermost first, so a binding to an outer row's column re-anchors to that outer row.
 /// </summary>
 internal static class XPathReanchor
 {
@@ -38,8 +40,9 @@ internal static class XPathReanchor
     /// the context node itself), or null when re-anchoring is not possible: a <c>//</c> axis, a step count
     /// that is negative or exceeds the path's own length, or — when <paramref name="contextXPath"/> is
     /// supplied — a STRUCTURAL mismatch between the dropped prefix and the path <paramref name="contextXPath"/>
-    /// itself describes (see <see cref="StructuralPrefixMatches"/>). Callers should treat null as "fall back
-    /// to evaluating the original absolute XPath from the document root" and raise a warning.
+    /// itself describes (see <see cref="StructuralPrefixMatches"/>). Callers treat null as "this context
+    /// does not hold the binding": <see cref="MergeEngine"/> then tries the next enclosing repeater row out,
+    /// and only after the outermost one evaluates the binding from the document root.
     /// </summary>
     /// <param name="xpath">The (fully absolute) binding XPath to re-anchor.</param>
     /// <param name="consumedSteps">

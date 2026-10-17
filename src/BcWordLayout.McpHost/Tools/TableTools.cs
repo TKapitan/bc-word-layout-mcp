@@ -27,6 +27,22 @@ namespace BcWordLayout.McpHost.Tools;
 [McpServerToolType]
 public static class TableTools
 {
+    /// <summary>
+    /// Upper bound for any single column width these tools accept, in twips: 22 inches (31680 twips), Word's
+    /// maximum page width — no column wider than the widest page Word can lay out can render. The lower bound
+    /// is 1: a negative <c>w:gridCol/@w:w</c> is schema-invalid (it surfaced as <c>edit_would_corrupt</c>, a
+    /// "bug in the tool" refusal, for what is a mistake in the call) and a zero one writes a column Word
+    /// collapses to nothing (GitHub issue #98). Checked when the argument is parsed, naming the argument.
+    /// </summary>
+    internal const int MaxColumnWidthTwips = 22 * 1440;
+
+    /// <summary>
+    /// Upper bound for a cells-DSL <c>N:</c> span: 63, Word's maximum number of columns in a table, so no
+    /// cell can span more grid columns than a table can have. The lower bound is 1 — a zero or negative span
+    /// used to reach the domain layer and fail there as a sum mismatch or an index-out-of-range crash.
+    /// </summary>
+    internal const int MaxCellSpan = 63;
+
     [McpServerTool(Name = "insert_repeater_table")]
     [Description("Insert a complete repeater TABLE bound to a repeating data item (e.g. '/Header/Line', as "
                  + "reported by list_dataset_fields): a header row (label controls where a label column "
@@ -69,7 +85,7 @@ public static class TableTools
         bool headerFromLabels = true,
         [Description("Optional Word table style name to reference via w:tblStyle, e.g. 'TableGrid'.")]
         string? tableStyle = null,
-        [Description("Optional comma-separated column widths in twips (1/20 pt), one per column; count must "
+        [Description("Optional comma-separated column widths in twips (1/20 pt, each 1-31680), one per column; count must "
                      + "match the number of columns. Omit for an even split of the document's content width "
                      + "(page width minus margins; for a table placed inside a cell, that cell's width), so "
                      + "the table always fits the page however many columns it has. The widths "
@@ -142,7 +158,7 @@ public static class TableTools
                      + "'/Header/Line/AssemblyLine' (see list_dataset_fields).")] string dataItem,
         [Description("Comma-separated cell specs laying the detail row on the parent grid: '-' = empty "
                      + "spacer, 'Name' = one bound column, 'a+b' = several columns inline in one cell, "
-                     + "optional 'N:' span prefix. Spans must sum to the parent table's columnCount.")]
+                     + "optional 'N:' span prefix (N from 1 to 63). Spans must sum to the parent table's columnCount.")]
         string cells,
         [Description("Optional comma-separated per-cell alignments ('left'/'center'/'right', or '-' to keep "
                      + "the default), one per cell spec.")] string? alignments = null)
@@ -176,7 +192,7 @@ public static class TableTools
                      + "get_layout_info).")] int parentControlId,
         [Description("Comma-separated cell specs laying the row on the parent table's grid: '-' = empty "
                      + "spacer, a FULL dataset path = one bound cell, 'a+b' = several paths inline in one "
-                     + "cell, optional 'N:' span prefix. Spans must sum to the parent table's columnCount.")]
+                     + "cell, optional 'N:' span prefix (N from 1 to 63). Spans must sum to the parent table's columnCount.")]
         string cells,
         [Description("Optional comma-separated per-cell alignments ('left'/'center'/'right', or '-' to keep "
                      + "the default), one per cell spec - subtotal amounts are right-aligned in the corpus.")]
@@ -237,6 +253,14 @@ public static class TableTools
                         nameof(cells));
                 }
 
+                if (span is < 1 or > MaxCellSpan)
+                {
+                    throw new ArgumentException(
+                        $"cells entry '{spec}' spans {span} grid column(s); a span must be between 1 and "
+                        + $"{MaxCellSpan} (omit the 'N:' prefix for a single column).",
+                        nameof(cells));
+                }
+
                 spec = spec[(colonAt + 1)..].Trim();
             }
 
@@ -267,9 +291,12 @@ public static class TableTools
                  + "optional 'N:' prefix makes the cell span N grid columns (e.g. "
                  + "'4:-,3:/Header/Totals/TotalIncludingVATText,/Header/Totals/TotalAmountIncludingVAT'). "
                  + "The spans MUST sum to the table's columnCount. atRow is the 0-based row position to "
-                 + "insert at (a repeater's whole repeating section counts as ONE row - the same numbering "
-                 + "get_layout_info's tables[] uses); omit it to append after the last row, where a totals "
-                 + "row goes. The row renders exactly ONCE - it is never part of a repeating section (for "
+                 + "insert at, in get_layout_info's tables[] numbering (one row per w:tr, a repeater's rows "
+                 + "included); a position BETWEEN two rows of the same repeater is refused, since a static "
+                 + "row cannot sit inside a repeating item - use the index of the repeater's first row "
+                 + "(before it) or of the row after its last (after it). Omit atRow to append after the "
+                 + "last row, where a totals row goes. The row renders exactly ONCE - it is never part of a "
+                 + "repeating section (for "
                  + "per-group subtotal rows inside a repeater's item, use insert_subtotal_row). Use bold=true "
                  + "for the stock grand-total look and alignments for right-anchored amounts, then "
                  + "set_cell_borders for the rule and set_cell_text for any literal caption. REJECTED for "
@@ -280,9 +307,10 @@ public static class TableTools
         [Description("0-based table index in document order (see get_layout_info's tables[]).")] int tableIndex,
         [Description("Comma-separated cell specs laying the row on the table's grid: '-' = empty spacer, "
                      + "a FULL dataset path = one bound cell, 'a+b' = several paths inline in one cell, "
-                     + "optional 'N:' span prefix. Spans must sum to the table's columnCount.")] string cells,
-        [Description("Optional 0-based row position (0..rowCount). Omit, or pass the table's rowCount, to "
-                     + "append after the last row - where a totals row goes.")] int? atRow = null,
+                     + "optional 'N:' span prefix (N from 1 to 63). Spans must sum to the table's columnCount.")] string cells,
+        [Description("Optional 0-based row position (0..rowCount), not inside a repeater (see this tool's "
+                     + "description). Omit, or pass the table's rowCount, to append after the last row - where "
+                     + "a totals row goes.")] int? atRow = null,
         [Description("Optional comma-separated per-cell alignments ('left'/'center'/'right', or '-' to keep "
                      + "the default), one per cell spec - amounts in a BC totals row are right-aligned.")]
         string? alignments = null,
@@ -325,7 +353,8 @@ public static class TableTools
     public static ToolResponse InsertTable(
         [Description("Absolute path to the .docx layout file.")] string layoutPath,
         [Description("Number of rows (1-100).")] int rows,
-        [Description("Number of columns (1-30).")] int columns,
+        [Description("Number of columns (1-30) - a count, unlike insert_repeater_table's list of column names.")]
+        int columns,
         [Description("Where to insert: 'documentEnd', 'afterControl', 'tableCell', or 'atText' "
                      + "(case-insensitive).")] string locationType,
         [Description("Required for 'afterControl': the w:id of the control to insert after.")] int? controlId = null,
@@ -334,7 +363,7 @@ public static class TableTools
         [Description("Required for 'tableCell': 0-based cell/column index within the row.")] int? col = null,
         [Description("Required for 'atText': substring to search for in existing run text (ordinal match).")]
         string? searchText = null,
-        [Description("Optional comma-separated column widths in twips, one per column; omit for an even "
+        [Description("Optional comma-separated column widths in twips (each 1-31680), one per column; omit for an even "
                      + "split of the full content width (10206 twips). The widths are BINDING, not "
                      + "advisory: the table is emitted with w:tblLayout='fixed' and a w:tblW total equal to "
                      + "their sum, so Word renders the grid as specified instead of autofitting the columns "
@@ -359,14 +388,17 @@ public static class TableTools
                 : SplitCommaList(columnAlignments);
             return LayoutEditor.InsertPlainTable(
                 doc, rows, columns, location, ParseColumnWidths(columnWidths), alignments, withBorders);
-        });
+        }, tool: "insert_table"); // rows/columns mean something else on other tools - see ToolSpecificInvalidArgumentHint
     }
 
     [McpServerTool(Name = "set_column_widths")]
     [Description("Set the column widths of a table, addressed by its 0-based table index (the SAME index "
                  + "get_layout_info reports in its tables[] section). widths is a comma-separated list of "
                  + "twips (1/20 pt), ONE PER GRID COLUMN - the count must equal the table's columnCount from "
-                 + "get_layout_info. Each grid column's w:gridCol width is set, and every cell's width (w:tcW) "
+                 + "get_layout_info, and a cell's own columns are list positions gridColumn..gridColumn+"
+                 + "gridSpan-1 (get_layout_info's tables[].rows[].cells[] report both; colIndex is the "
+                 + "physical position in the row, not a grid column). Each grid column's w:gridCol width is "
+                 + "set, and every cell's width (w:tcW) "
                  + "is set to the sum of the grid-column widths it spans, so a cell that spans multiple columns "
                  + "(w:gridSpan - pervasive in real BC tables) stays as wide as the columns beneath it. If the "
                  + "table has a fixed total width (w:tblW type dxa) it is kept in sync with the new grid. "
@@ -379,7 +411,7 @@ public static class TableTools
     public static ToolResponse SetColumnWidths(
         [Description("Absolute path to the .docx layout file.")] string layoutPath,
         [Description("0-based table index in document order (see get_layout_info's tables[]).")] int tableIndex,
-        [Description("Comma-separated column widths in twips, exactly one per GRID column (must match the "
+        [Description("Comma-separated column widths in twips (each 1-31680), exactly one per GRID column (must match the "
                      + "table's columnCount).")] string widths,
         [Description("Which OOXML part the table is in: 'body' (default), 'header', or 'footer'.")] string layoutPart = "body",
         [Description("Only used when layoutPart is 'header'/'footer': a specific part file name (e.g. "
@@ -403,7 +435,10 @@ public static class TableTools
                  + "look with its amounts still on the table's right edge. "
                  + "atColumn is the 0-based GRID position for the new column: omit it (or pass the table's "
                  + "columnCount) to append at the far-right edge, or give an INTERIOR position to insert "
-                 + "between existing columns. An interior position must land on a cell BOUNDARY in every row "
+                 + "between existing columns - a cell's gridColumn in get_layout_info's tables[] puts the new "
+                 + "column just before that cell, its gridColumn+gridSpan just after it (colIndex is the "
+                 + "physical position in the row, not a grid position). An interior position must land on a "
+                 + "cell BOUNDARY in every row "
                  + "that carries the new column's content (a header row, and the bound data row); a row with "
                  + "nothing there - a spacer, or a totals block's leading empty run - has its spanning cell "
                  + "widened instead of gaining a cell, so the block stays put. If it falls INSIDE a spanned "
@@ -415,7 +450,11 @@ public static class TableTools
                  + "empty cells). In a line-items table the bound control goes ONLY into the rows of the "
                  + "repeater whose data item contains dataPath (a /Header/Line field into the Line row, never "
                  + "into a ReportTotalsLine row of the same table, which is treated like any other non-content "
-                 + "row); a parent/Header field is accepted only when the table has a single repeater, and a "
+                 + "row) - and into ONE row per repeater item: an item with several rows (spacer, field, "
+                 + "nested detail, subtotal rows) gets it in the first row that already holds a field of "
+                 + "dataPath's data item, else its first row; every other row gets filler. A parent/Header "
+                 + "field is accepted only when the table has a single repeater (detail repeaters nested in "
+                 + "it do not count), and a "
                  + "dataPath matching none of the table's repeaters is refused. In a table with no repeater it "
                  + "goes into every non-header row. Header rows get a header cell (bind headerLabelPath, else "
                  + "headerText, else a humanized column name): rows marked w:tblHeader, else the first row of "
@@ -443,9 +482,11 @@ public static class TableTools
         [Description("Optional: bind the header cell to this label-column dataset path (by default a "
                      + "'*Lbl'/'*_Lbl' path - see list_dataset_fields's isLabel flag) instead of static text.")]
         string? headerLabelPath = null,
-        [Description("Optional 0-based GRID position for the new column (0..columnCount). Omit, or pass the "
-                     + "table's columnCount, to append at the far-right edge; an interior value inserts "
-                     + "between existing columns (see this tool's description for the spanned-cell rule).")]
+        [Description("Optional 0-based GRID position for the new column (0..columnCount) - a cell's gridColumn "
+                     + "(before it) or gridColumn+gridSpan (after it) from get_layout_info's tables[], never "
+                     + "its colIndex. Omit, or pass the table's columnCount, to append at the far-right edge; "
+                     + "an interior value inserts between existing columns (see this tool's description for "
+                     + "the spanned-cell rule).")]
         int? atColumn = null,
         [Description("Optional width of the NEW column in twips, taken proportionally from the existing "
                      + "columns (the table's total width does not change), so it must be positive and less "
@@ -466,7 +507,9 @@ public static class TableTools
                 DataPath = string.IsNullOrWhiteSpace(dataPath) ? null : dataPath,
                 HeaderText = string.IsNullOrWhiteSpace(headerText) ? null : headerText,
                 HeaderLabelPath = string.IsNullOrWhiteSpace(headerLabelPath) ? null : headerLabelPath,
-                Width = width,
+                // The upper bound only bites where the domain cannot check against the table's own total
+                // (a grid whose widths do not parse); "smaller than that total" stays the domain's rule.
+                Width = width is { } w ? CheckColumnWidth(w, $"width {w}", nameof(width)) : null,
             };
             return TableStructureEditor.InsertColumn(doc, part, partName, tableIndex, atColumn, options);
         });
@@ -474,7 +517,12 @@ public static class TableTools
 
     [McpServerTool(Name = "remove_column")]
     [Description("Remove a whole column from a table, addressed by its 0-based table index and 0-based GRID "
-                 + "column index (see get_layout_info's tables[]). The matching w:gridCol is removed, and in "
+                 + "column index: the gridColumn get_layout_info's tables[].rows[].cells[] report for the "
+                 + "column's cells - NOT their colIndex, which is the cell's physical position in its row and "
+                 + "names a different column on any row with spanned cells (pervasive in real BC tables). The "
+                 + "summary says, per row, whether a cell was deleted, a spanned cell narrowed, or a skipped "
+                 + "run shrunk, and warns when no row had a cell of its own there. The matching w:gridCol is "
+                 + "removed, and in "
                  + "every row the cell covering that grid column is deleted when it spans only that column - "
                  + "including a bound field/label cell, whose binding is dropped with it (UNLIKE remove_control, "
                  + "which preserves the cell) - or has its w:gridSpan decremented when it spans more. Repeater "
@@ -492,7 +540,8 @@ public static class TableTools
     public static ToolResponse RemoveColumn(
         [Description("Absolute path to the .docx layout file.")] string layoutPath,
         [Description("0-based table index in document order (see get_layout_info's tables[]).")] int tableIndex,
-        [Description("0-based GRID column index to remove (0..columnCount-1 from get_layout_info).")] int column,
+        [Description("0-based GRID column index to remove (0..columnCount-1): a cell's gridColumn from "
+                     + "get_layout_info's tables[], not its colIndex.")] int column,
         [Description("Which OOXML part the table is in: 'body' (default), 'header', or 'footer'.")] string layoutPart = "body",
         [Description("Only used when layoutPart is 'header'/'footer': a specific part file name (e.g. "
                      + "'header2.xml'); omit to target the DEFAULT header/footer part (see get_layout_info's "
@@ -508,7 +557,8 @@ public static class TableTools
     [McpServerTool(Name = "merge_cells")]
     [Description("Horizontally merge a run of adjacent cells in ONE row into a single cell, addressed by the "
                  + "0-based table index, row index, and the 0-based physical cell indices fromColumn..toColumn "
-                 + "(inclusive) within that row - the SAME table/row/cell indices get_layout_info reports. The "
+                 + "(inclusive) within that row - the SAME table/row indices and cell colIndex get_layout_info "
+                 + "reports (the result's columnIndex is the merged cell's GRID column). The "
                  + "first cell is KEPT (its content and any binding survive) and widened to span all the merged "
                  + "columns (w:gridSpan); the rest are deleted. The table grid is unchanged. REJECTED if any "
                  + "absorbed (non-first) cell holds a bound field/label control (merging would silently drop "
@@ -535,7 +585,8 @@ public static class TableTools
     [McpServerTool(Name = "split_cells")]
     [Description("Horizontally split ONE spanned cell back into one cell per grid column it spans, addressed "
                  + "by the 0-based table index, row index, and 0-based physical cell index within that row "
-                 + "(the SAME indices get_layout_info reports). The cell's w:gridSpan is reset to 1 (keeping "
+                 + "(the SAME table/row indices and cell colIndex get_layout_info reports). The cell's "
+                 + "w:gridSpan is reset to 1 (keeping "
                  + "its content in the first resulting cell) and empty single-column cells are inserted after "
                  + "it for the remaining columns. The table grid is unchanged. REJECTED if the cell is not "
                  + "spanned (gridSpan 1 - nothing to split), or if the table uses w:vMerge. "
@@ -565,7 +616,8 @@ public static class TableTools
                  + "is the tool for the rest of them: 'put a line above the totals row', 'underline the "
                  + "grand-total cell'. Addressed by 0-based table index and row index (the SAME indices "
                  + "get_layout_info reports); omit col to apply to EVERY cell in the row (the usual case - a "
-                 + "rule spans the whole row), or pass a 0-based PHYSICAL cell index to target one cell. "
+                 + "rule spans the whole row), or pass a 0-based PHYSICAL cell index (the cell's colIndex) to "
+                 + "target one cell - the result's columnIndex is then that cell's GRID column. "
                  + "edges is a comma-separated list of 'top','bottom','left','right' (or 'all'); "
                  + "style='single' (default) draws a line, style='none' clears those edges explicitly (they "
                  + "stay clear even in a table that declares its own border grid). Edges you do NOT name are "
@@ -601,12 +653,13 @@ public static class TableTools
     // repeater-table author tool above) ----
 
     /// <summary>Splits a comma-separated, agent-supplied list, trimming whitespace and dropping empty entries.</summary>
-    private static string[] SplitCommaList(string value) =>
+    private static string[] SplitCommaList(string? value) =>
         (value ?? string.Empty).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
     /// <summary>
-    /// Parses <c>insert_repeater_table</c>'s optional comma-separated column-widths string into ints, or
-    /// null when not supplied. A malformed entry throws <see cref="ArgumentException"/> (mapped to
+    /// Parses <c>insert_repeater_table</c>'s/<c>insert_table</c>'s optional comma-separated column-widths string
+    /// into ints, or null when not supplied. A malformed or out-of-range entry (see
+    /// <see cref="MaxColumnWidthTwips"/>) throws <see cref="ArgumentException"/> (mapped to
     /// <c>invalid_argument</c> by <see cref="ToolGuards.Guard"/>, same as every other bad-input path here); the
     /// actual count-matches-columns check is left to <see cref="LayoutEditor.InsertRepeaterTable"/>/
     /// <see cref="SdtFactory.BuildRepeaterTable"/>, which already validate it against the resolved column list.
@@ -621,13 +674,16 @@ public static class TableTools
         return columnWidths
             .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Select(w => int.TryParse(w, NumberStyles.Integer, CultureInfo.InvariantCulture, out var n)
-                ? n
+                ? CheckColumnWidth(n, $"columnWidths entry '{w}'", nameof(columnWidths))
                 : throw new ArgumentException(
                     $"columnWidths entry '{w}' is not a valid integer.", nameof(columnWidths)))
             .ToList();
     }
 
-    /// <summary>Parses a required comma-separated integer list (e.g. <c>set_column_widths</c>' twips), rejecting an empty list.</summary>
+    /// <summary>
+    /// Parses a required comma-separated list of column widths in twips (<c>set_column_widths</c>' widths),
+    /// rejecting an empty list, a non-integer entry, and an entry outside 1..<see cref="MaxColumnWidthTwips"/>.
+    /// </summary>
     private static List<int> ParseIntListOrThrow(string value, string paramName)
     {
         var parts = (value ?? string.Empty).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
@@ -639,18 +695,32 @@ public static class TableTools
 
         return parts
             .Select(p => int.TryParse(p, NumberStyles.Integer, CultureInfo.InvariantCulture, out var n)
-                ? n
+                ? CheckColumnWidth(n, $"{paramName} entry '{p}'", paramName)
                 : throw new ArgumentException($"{paramName} entry '{p}' is not a valid integer.", paramName))
             .ToList();
     }
 
     /// <summary>
+    /// Returns <paramref name="twips"/> when it is a usable column width (1..<see cref="MaxColumnWidthTwips"/>),
+    /// else throws an <see cref="ArgumentException"/> naming <paramref name="what"/> and keyed on
+    /// <paramref name="paramName"/>, so the refusal carries that argument's own hint.
+    /// </summary>
+    private static int CheckColumnWidth(int twips, string what, string paramName) =>
+        twips is >= 1 and <= MaxColumnWidthTwips
+            ? twips
+            : throw new ArgumentException(
+                $"{what} is out of range: a column width must be between 1 and {MaxColumnWidthTwips} twips "
+                + "(22 in, Word's maximum page width).",
+                paramName);
+
+    /// <summary>
     /// Parses a <see cref="LayoutPart"/> from a tool's flat string parameter, throwing <see cref="ArgumentException"/>
     /// on an unknown value. Delegates to <see cref="ToolGuards.TryParseLayoutPart"/> (shared with
     /// <see cref="ToolGuards.BuildLocation"/>) since these five tools address a table directly by
-    /// <see cref="LayoutPart"/> rather than building a full <see cref="Location"/>.
+    /// <see cref="LayoutPart"/> rather than building a full <see cref="Location"/>. Null is the default
+    /// (<c>body</c>) — see <see cref="ToolGuards.TryParseLayoutPart"/>.
     /// </summary>
-    private static LayoutPart ParseLayoutPartOrThrow(string layoutPart)
+    private static LayoutPart ParseLayoutPartOrThrow(string? layoutPart)
     {
         if (!TryParseLayoutPart(layoutPart, out var part))
         {
@@ -661,8 +731,12 @@ public static class TableTools
         return part;
     }
 
-    /// <summary>Parses a <see cref="TableBorderLook"/> from <c>insert_repeater_table</c>'s <c>look</c> parameter (case-insensitive).</summary>
-    private static TableBorderLook ParseTableBorderLookOrThrow(string look) => look.Trim().ToLowerInvariant() switch
+    /// <summary>
+    /// Parses a <see cref="TableBorderLook"/> from <c>insert_repeater_table</c>'s <c>look</c> parameter
+    /// (case-insensitive). An explicit JSON <c>null</c> (bound straight through by the SDK) is the documented
+    /// default, <c>bc</c>, as if the argument had been omitted.
+    /// </summary>
+    private static TableBorderLook ParseTableBorderLookOrThrow(string? look) => (look ?? "bc").Trim().ToLowerInvariant() switch
     {
         "bc" => TableBorderLook.Bc,
         "grid" => TableBorderLook.Grid,
@@ -676,11 +750,12 @@ public static class TableTools
     /// <see cref="CellBorderOptions"/>. The "no edge selected"/"size out of range" rejections belong to
     /// <see cref="TableStructureEditor.SetCellBorders"/> (they are domain rules, checked there for every
     /// caller); this only rejects what the flat string form itself can get wrong — an unknown edge name or
-    /// style.
+    /// style. A null <paramref name="style"/> (an explicit JSON <c>null</c>) is the documented default,
+    /// <c>single</c>; a null <paramref name="edges"/> selects no edge and is refused by the domain rule.
     /// </summary>
-    private static CellBorderOptions ParseCellBorderOptionsOrThrow(string edges, string style, int size)
+    private static CellBorderOptions ParseCellBorderOptionsOrThrow(string? edges, string? style, int size)
     {
-        var remove = style.Trim().ToLowerInvariant() switch
+        var remove = (style ?? "single").Trim().ToLowerInvariant() switch
         {
             "single" or "" => false,
             "none" or "nil" => true,
@@ -708,13 +783,18 @@ public static class TableTools
         return options;
     }
 
-    /// <summary>Parses an <see cref="InsertColumnMode"/> from <c>insert_column</c>'s <c>mode</c> parameter (case-insensitive).</summary>
-    private static InsertColumnMode ParseInsertColumnModeOrThrow(string mode) => mode.Trim().ToLowerInvariant() switch
+    /// <summary>
+    /// Parses an <see cref="InsertColumnMode"/> from <c>insert_column</c>'s <c>mode</c> parameter
+    /// (case-insensitive). <c>mode</c> is required with no default, so an explicit JSON <c>null</c> is
+    /// refused as <c>invalid_argument</c> rather than guessed.
+    /// </summary>
+    private static InsertColumnMode ParseInsertColumnModeOrThrow(string? mode) => mode?.Trim().ToLowerInvariant() switch
     {
         "field" => InsertColumnMode.Field,
         "label" => InsertColumnMode.Label,
         "plaintext" or "plain_text" or "text" => InsertColumnMode.PlainText,
         _ => throw new ArgumentException(
-            $"Unknown mode '{mode}'. Use 'field', 'label', or 'plainText'.", nameof(mode)),
+            (mode is null ? "mode is required (got null)." : $"Unknown mode '{mode}'.")
+            + " Use 'field', 'label', or 'plainText'.", nameof(mode)),
     };
 }

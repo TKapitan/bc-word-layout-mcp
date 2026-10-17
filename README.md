@@ -163,16 +163,17 @@ not a support claim).
 
 **Neither Word nor LibreOffice is required** to use the server. Without a converter,
 `preview_layout` still merges the sample data and returns the merged `.docx` path — it reports
-`conversionOk: false` with a `conversionError` explaining why, instead of failing the call. Every
+`conversionOk: false` with a `conversionError` explaining why, instead of failing the call (and
+removes the PDF an earlier preview left, so no stale render remains next to the new merge). Every
 other tool is conversion-free and works everywhere the server runs.
 
 ## Tools
 
 | Tool | Purpose |
 |---|---|
-| `get_layout_info` | Inspect a layout: report name/id, dataset namespace, `storeItemID`, the full control inventory (kind, alias, tag, xpath, part, parent repeater), per-part details (kind, header/footer role `default`/`first`/`even`, and which part a `partName`-less header/footer edit targets) plus a `hasTitlePage` flag, and a quick validation summary. |
+| `get_layout_info` | Inspect a layout: report name/id, dataset namespace, `storeItemID`, the full control inventory (kind, alias, tag, xpath, part, parent repeater), per-part details (kind, header/footer role `default`/`first`/`even`, and which part a `partName`-less header/footer edit targets) plus a `hasTitlePage` flag, every table's rows (one per `w:tr`, so each row of a multi-row repeater item is addressable, tagged with the repeater it repeats with) and cells — each cell with both its physical `colIndex` (what the cell tools take) and its `gridColumn`/`gridSpan` (what the column tools take; they differ on any spanned row), each row with its `gridBefore`/`gridAfter` — and a quick validation summary. |
 | `list_dataset_fields` | List the dataset hierarchy (data items + columns) from a `.docx` layout or a standalone schema `.xml`; flags labels and, for a layout, bound/unbound columns. |
-| `validate_layout` | Validate a layout: `level=quick` (structural + binding checks, including a `repeater-downgraded` error for a repeater a Word save turned into a plain content control, a `top-level-repeater-group` error for a block-level repeater over the top-level data item without the `w:group` wrapper Business Central needs to print it and a warning when a layout containing repeaters declares a Word compatibility mode below 15) or `level=full` (adds a dry-run merge that surfaces every unresolved binding as a finding). |
+| `validate_layout` | Validate a layout: `level=quick` (structural + binding checks, including a `repeater-downgraded` error for a repeater a Word save turned into a plain content control, a `top-level-repeater-group` error for a block-level repeater over the top-level data item without the `w:group` wrapper Business Central needs to print it, a warning when a layout containing repeaters declares a Word compatibility mode below 15, and a `duplicate-control-id` warning when two content controls share a `w:id`) or `level=full` (adds a dry-run merge that surfaces every unresolved binding as a finding). |
 | `preview_layout` | Mock preview: merges deterministic (or supplied) sample data into a working copy and converts it to PDF via Word COM or LibreOffice. |
 | `render_preview_pages` | Render pages of a preview PDF (the `pdfPath` from `preview_layout`) as PNG images returned inline as MCP image content blocks, so the calling agent can visually inspect the preview (default 3 pages, cap 10 per call; page onward via `firstPage`; each page capped at 5000 px a side and 20 MP, a larger one rendered smaller and flagged `downscaled`). Pass `outputDir` to also write each page as a `.png` a human can open — optionally with `inlineImages=false` to skip the token cost of the inline copies. |
 | `create_layout` | Create a new blank layout `.docx` from a schema, optionally starting from a branded/styled (unbound) template. A blank build ships deterministic default typography (Calibri 11 pt via a scaffolded styles part) so it renders with the same font in Word and in BC, plus a settings part declaring `compatibilityMode` 15 so its repeaters survive being opened and saved in Word. |
@@ -191,11 +192,11 @@ other tool is conversion-free and works everywhere the server runs.
 | `insert_table_row` | Insert ONE STATIC (non-repeating) row into an existing table — the stock BC shape for the totals block INSIDE the line-items table (spacer cells, a spanned bound caption cell, a right-aligned bound amount cell). Cells bind FULL dataset paths; the row renders exactly once, never per data row. |
 | `set_column_widths` | Set a table's column widths (one twip value per grid column); `gridSpan`-aware — each cell is resized to the sum of the columns it spans. |
 | `insert_column` | Add a new column at any grid position (append by default) — a bound field/label cell (as `insert_field`/`insert_label`) or a plain-text column. Adds the `w:gridCol` and one cell per row; a spanned cell in a row with no content there is widened instead. The table keeps its total width: the new column's width comes out of the existing columns. |
-| `remove_column` | Remove a whole grid column: drops each row's covering cell (a bound cell too) or decrements its `gridSpan`, and removes the `w:gridCol`. |
+| `remove_column` | Remove a whole grid column — addressed by the `gridColumn` `get_layout_info` reports for its cells, not their `colIndex`: drops each row's covering cell (a bound cell too) or decrements its `gridSpan`, and removes the `w:gridCol`. The summary says per row which of the two happened. |
 | `merge_cells` | Horizontally merge a run of adjacent cells in one row into a single `gridSpan` cell (keeps the first cell's content). |
 | `split_cells` | Horizontally split one spanned cell back into single-column cells. |
 | `set_cell_borders` | Draw (or clear) the per-cell rules a BC document's look is actually made of — a line above a totals row, an underline on one cell — on a whole row or one cell. |
-| `refresh_xml_part` | Update a layout's BC dataset XML part to a new schema in place; remaps/orphans bindings, re-points any binding left naming a foreign report's namespace (which BC refuses to upload), and reports newly-unbound fields. |
+| `refresh_xml_part` | Update a layout's BC dataset XML part to a new schema in place; remaps/orphans bindings, re-points any binding left naming a foreign report's namespace (which BC refuses to upload), and reports newly-unbound fields. Also the repair for a dataset part that no longer parses (`validate_layout` names the part and the parser error). |
 
 ### Response envelope
 
@@ -222,19 +223,29 @@ untouched) any edit leaving a row's cells inconsistent with its `w:tblGrid` — 
 `OpenXmlValidator` accepts silently. Every successful mutating response also carries a fresh post-edit
 `quickValidation` summary.
 
-**Envelope boundary: argument binding happens before a tool body runs.** The guarantee above is "every
-tool body that executes returns the envelope" — it does not (and, per the MCP C# SDK's own design,
-cannot) extend to the SDK's own argument-binding step, which runs *before* any of this server's code is
-invoked. A call with a malformed/wrong-typed argument (a string where `tableIndex` expects an integer,
-a required parameter omitted, malformed JSON-RPC params, …) never reaches the tool's C# method: the SDK
-itself converts the binding failure into an MCP `isError: true` tool result whose content is a generic,
-non-enveloped message (verified against `ModelContextProtocol` 1.4.1: e.g. `"An error occurred invoking
-'insert_field'."`, with no `code`/`hint`) — not this server's `{ok:false,error:{code,message,hint}}`
-shape. A completely unknown tool NAME behaves differently again (a client-visible protocol-level error),
-since it never matches an entry in the SDK's tool collection at all. Calling agents should treat an
-`isError: true` result whose content is **not** parseable as the `{ok,data,error}` envelope as exactly
-this boundary case — a malformed call, not a tool-level failure — and correct the argument's type/
-presence rather than looking for a `code`/`hint` that will not be there.
+**Envelope boundary: malformed calls get the envelope too.** The SDK looks the tool up and binds the
+JSON arguments onto its typed parameters before any tool body runs. The server's call-tool filter wraps
+that step, so a call that never reaches a body still returns `isError: true` with the same
+`{ok:false,error:{code,message,hint}}` shape:
+
+- **Unknown tool name:** `invalid_argument` naming the tool; the hint points at `tools/list`.
+- **Missing required argument:** `invalid_argument` naming it; the hint lists the tool's required
+  parameters.
+- **Wrong JSON type** (`"abc"` or `1.5` for an integer, `"true"` for a boolean, `null` for a number or
+  boolean): `invalid_argument` naming the parameter, the type it needs, and what the call sent.
+- **Unknown argument name:** refused with `invalid_argument` rather than ignored, naming the closest
+  real parameter (`layoutpart` → `layoutPart`; names are case-sensitive) and listing them all. An
+  ignored misspelling would silently fall back to the parameter's default.
+- **Relative path:** every path parameter must be absolute; a relative one (or a drive- or
+  root-relative one like `C:Report.docx`) is refused with `invalid_argument` naming the parameter,
+  instead of resolving against the server's working directory.
+- **Explicit `null` for a string:** an optional enum-like string (`layoutPart`, `look`, `style`,
+  `converter`, `level`) takes its documented default, exactly as if it were omitted; a required one
+  (`locationType`, `mode`) is refused with `invalid_argument`.
+
+Only a request too malformed for the SDK to parse as a tool call at all (no tool `name`, or `arguments`
+that is not a JSON object) fails earlier, as a JSON-RPC error with no tool result; MCP client libraries
+do not produce that shape.
 
 ## Mock preview: not a substitute for a sandbox render
 
@@ -244,7 +255,9 @@ and the export's `decimalformatter` columns are formatted the way BC itself rend
 a working copy of the layout and converts it to PDF **entirely offline** — never through the real
 Business Central report engine. That's good enough to catch structural and binding mistakes on every
 edit, but captions, fonts, and exact pagination can differ from a genuine BC render. Every
-`preview_layout` response repeats this as a `disclaimer` string.
+`preview_layout` response repeats this as a `disclaimer` string. A dataset printed for several
+documents previews only the first, and a `multiple-top-level-records` warning says so: BC renders the
+report body once per top-level record, the mock does not.
 
 **Final sign-off on any layout is always a real Business Central sandbox render** (AL build → publish
 to dev sandbox → run the report), never this tool's PDF alone.
@@ -270,10 +283,10 @@ Error `message`/`hint` texts are not part of the contract — never parse them.
   a long-stable BC format, so the tools are *expected* to work with any BC version that supports
   Word layouts — reports of issues on other versions are welcome — but the compatibility commitment
   extends only to versions a validation has actually covered.
-- **MCP SDK cadence:** the server pins the official `ModelContextProtocol` C# SDK (currently 1.4.1)
+- **MCP SDK cadence:** the server pins the official `ModelContextProtocol` C# SDK (currently 2.2.0)
   and upgrades it in **minor** releases, with any behavioral consequence called out in the
-  changelog. The documented SDK argument-binding boundary (above) is re-verified on every such
-  upgrade.
+  changelog. The envelope boundary above is pinned by a host-level test that runs the real server
+  pipeline over the SDK's own transport, so an upgrade that changes it fails the suite.
 
 ## Not in v1 / deferred
 

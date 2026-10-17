@@ -68,8 +68,9 @@ public class FullValidatorTests
         // deeper than the enclosing Header/Line repeater but branching off a DIFFERENT element — used to
         // have its remainder evaluated against the wrong context node (the Line row), typically resolving
         // nothing and reporting a FALSE "unresolved-binding" ERROR at validate_layout level=full for a
-        // layout BC itself renders fine. After the fix, the value resolves correctly via a document-root
-        // fallback: only the (Warning-severity) xpath-fallback finding should appear, never the Error.
+        // layout BC itself renders fine. After the fix, the value resolves correctly from the document root,
+        // and with no finding at all: Header/Totals lies outside the Line repeater, so an absolute read is
+        // what BC does too (GitHub issue #104 - it used to raise one xpath-fallback warning per row).
         const string RepeaterXPath = "/ns0:NavWordReportXmlPart[1]/ns0:Header[1]/ns0:Line";
         const string FieldXPath = "/ns0:NavWordReportXmlPart[1]/ns0:Header[1]/ns0:Totals[1]/ns0:Amount[1]";
         var schemaXml =
@@ -94,12 +95,7 @@ public class FullValidatorTests
                 "expected pass; errors: "
                 + string.Join(" | ", result.Findings.Where(f => f.Severity == FindingSeverity.Error).Select(f => f.Message)));
 
-            // FullValidator's dry-run merge uses the default MergeOptions.Rows (3), so the repeater clones
-            // three times and the structurally-divergent field falls back independently in each clone —
-            // one xpath-fallback finding per row, every one a Warning, never an Error.
-            var fallbacks = result.Findings.Where(f => f.Check == "xpath-fallback").ToList();
-            Assert.NotEmpty(fallbacks);
-            Assert.All(fallbacks, f => Assert.Equal(FindingSeverity.Warning, f.Severity));
+            Assert.DoesNotContain(result.Findings, f => f.Check == "xpath-fallback");
         }
         finally
         {

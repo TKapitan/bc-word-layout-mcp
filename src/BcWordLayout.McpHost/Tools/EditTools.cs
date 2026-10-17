@@ -257,7 +257,9 @@ public static class EditTools
                  + "longer deletes its column. (To truly drop a column you must remove its cell from every "
                  + "row and adjust the grid, which is out of scope for a single-control edit.) keepText=true "
                  + "is REJECTED on a repeater, and on the unbound w:group control between a block-level "
-                 + "top-level repeater and its item: unwrapping either leaves a shape BC cannot print. Same write/"
+                 + "top-level repeater and its item: unwrapping either leaves a shape BC cannot print. An id "
+                 + "that more than one control in the layout carries is REFUSED (invalid_layout) rather than "
+                 + "resolved to the first match - validate_layout reports it as duplicate-control-id. Same write/"
                  + "validate/save-or-reject safety as insert_field.")]
     public static ToolResponse RemoveControl(
         [Description("Absolute path to the .docx layout file.")] string layoutPath,

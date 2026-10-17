@@ -34,8 +34,9 @@ public static class LayoutValidator
 
         CheckOpenXmlStructure(doc, findings);
         CheckDocumentContentType(main, findings);
-        var bcPartItemId = CheckSingleBcPart(main, findings);
-        DatasetTree? schema = TryBuildSchema(main, findings);
+        var scan = SchemaProvider.Scan(main);
+        var bcPartItemId = CheckSingleBcPart(scan, findings);
+        DatasetTree? schema = TryBuildSchema(main, scan, findings);
 
         var inventory = LayoutReader.Read(doc);
         CheckStoreItemIds(inventory, bcPartItemId, findings);
@@ -49,6 +50,7 @@ public static class LayoutValidator
         CheckCompatibilityMode(main, inventory, findings);
         CheckAttachedTemplate(main, findings);
         CheckTableStylesResolve(main, findings);
+        CheckControlIdsUnique(main, findings);
 
         return new ValidationResult { Level = "quick", Findings = findings };
     }
@@ -133,11 +135,20 @@ public static class LayoutValidator
 
     // 2. Exactly one custom XML part in the BC namespace, and that part carries a DataStoreItem for its
     //    bindings to name. Returns the BC part's item ID (or null when there is none to return).
-    private static string? CheckSingleBcPart(MainDocumentPart main, List<ValidationFinding> findings)
+    //
+    //    A BC part that is there but does not parse is NOT "no BC part": it draws no finding here, because
+    //    schema-parse (TryBuildSchema) reports it with the part's name, the parser's error and the repair
+    //    (GitHub issue #96). Before, the swallowed parse error made this check say "No BC dataset custom XML
+    //    part found" beside a schema-parse finding that said the same - two findings, neither naming the cause.
+    //
+    //    SEVERAL BC parts (readable or not) stay an ERROR, but everything else is now measured against the
+    //    part the layout's bindings use (SchemaProvider.ChooseBcPart), and this finding names it, the reason,
+    //    and every part (GitHub issue #101). It used to measure against "the first", which is relationship
+    //    order: one hand-added part listed first turned JobQuote's 1 finding into 124 bogus ones, all against
+    //    the foreign part, with nothing saying so.
+    private static string? CheckSingleBcPart(BcPartScan scan, List<ValidationFinding> findings)
     {
-        var bcParts = SchemaProvider.FindBcParts(main);
-
-        if (bcParts.Count == 0)
+        if (scan.Count == 0)
         {
             findings.Add(new ValidationFinding
             {
@@ -149,17 +160,33 @@ public static class LayoutValidator
             return null;
         }
 
-        if (bcParts.Count > 1)
+        if (scan.Count > 1)
         {
             findings.Add(new ValidationFinding
             {
                 Check = "single-bc-part",
                 Severity = FindingSeverity.Error,
-                Message = $"Found {bcParts.Count} BC dataset custom XML parts; exactly one is expected.",
+                Message = $"Found {scan.Count} BC dataset custom XML parts; exactly one is expected: "
+                          + $"{scan.DescribeParts()}. "
+                          + (scan.Chosen is { } measured
+                              ? $"The other checks measure the layout against '{measured.Name}'"
+                                + (scan.ChoiceReason is { } reason ? $": {reason}. " : ". ")
+                              : string.Empty)
+                          + "refresh_xml_part and every tool that writes a new binding refuse this layout rather "
+                          + "than guess which part is meant. To repair it, remove the extra part from the package: "
+                          + "delete its customXml/itemN.xml, the matching customXml/itemPropsN.xml and "
+                          + "customXml/_rels/itemN.xml.rels, its relationship in word/_rels/document.xml.rels and "
+                          + "its overrides in [Content_Types].xml.",
+                Location = string.Join(", ", scan.Parts.Select(p => p.Name).Concat(scan.Unreadable.Select(u => u.Name))),
             });
         }
 
-        var itemId = bcParts[0].CustomXmlPropertiesPart?.DataStoreItem?.ItemId?.Value;
+        if (scan.Chosen is not { } chosen)
+        {
+            return null; // Every BC part is unreadable: schema-parse reports it, with its cause.
+        }
+
+        var itemId = chosen.ItemId;
         if (itemId is null)
         {
             // The BC part exists but has no CustomXmlPropertiesPart/DataStoreItem, so there is no item ID for
@@ -182,7 +209,7 @@ public static class LayoutValidator
         return itemId;
     }
 
-    private static DatasetTree? TryBuildSchema(MainDocumentPart main, List<ValidationFinding> findings)
+    private static DatasetTree? TryBuildSchema(MainDocumentPart main, BcPartScan scan, List<ValidationFinding> findings)
     {
         try
         {
@@ -194,11 +221,26 @@ public static class LayoutValidator
             {
                 Check = "schema-parse",
                 Severity = FindingSeverity.Error,
-                Message = $"Could not parse the BC dataset schema: {ex.Message}",
+                Message = $"Could not parse the BC dataset schema: {ex.Message}"
+                          + (ex is LayoutDefectException { Defect: LayoutDefect.UnreadableDatasetPart }
+                              ? " " + UnreadablePartRepair
+                              : string.Empty),
+                Location = scan.Parts.Count == 0 && scan.Unreadable.Count > 0
+                    ? string.Join(", ", scan.Unreadable.Select(u => u.Name))
+                    : null,
             });
             return null;
         }
     }
+
+    /// <summary>
+    /// How to repair a BC dataset part that is there but cannot be parsed. refresh_xml_part is the one tool
+    /// that can: it replaces the part's content in place and keeps its storeItemID, so no binding is lost.
+    /// </summary>
+    private const string UnreadablePartRepair =
+        "To repair it, run refresh_xml_part with this layout as layoutPath and an intact copy of the same "
+        + "report's layout (or its exported schema .xml) as newSchemaSource: it replaces the part's content in "
+        + "place and keeps its storeItemID, so every existing binding stays linked to it.";
 
     // 3. Every binding's storeItemID matches the BC part's actual item ID.
     private static void CheckStoreItemIds(LayoutInventory inventory, string? bcPartItemId, List<ValidationFinding> findings)
@@ -890,6 +932,40 @@ public static class LayoutValidator
         }
     }
 
+    // 9. Every content control's w:sdtPr/w:id is unique across the body, headers and footers.
+    //
+    //    Nothing else here noticed a shared id (GitHub issue #101): on a copy of JobQuote.docx whose header2
+    //    control had been given a body control's id, quick validation reported 0 errors and 0 warnings, and
+    //    remove_control on that id deleted the body control. The id-addressed tools now refuse a shared id
+    //    (see ControlIds); this is the finding that tells the caller BEFORE one of them does.
+    //
+    //    WARNING, not an error. The file is not broken for Word or Business Central: OpenXmlValidator does
+    //    not flag a shared id, ECMA-376 Part 1 (17.5.2.18) has a consumer keep the first and assign new ids to
+    //    later duplicates when it loads the document, and nothing in the binding model depends on the id. It
+    //    is the "unusual, not broken" case validation reports as a warning (SOLUTION-DESIGN §6, principle 4);
+    //    what it breaks is id addressing in THIS tool set, which the warning names. No tool here produces the
+    //    shape (every generated id is checked against the whole package) and no corpus layout carries one.
+    private static void CheckControlIdsUnique(MainDocumentPart main, List<ValidationFinding> findings)
+    {
+        foreach (var (id, carriers) in ControlIds.Duplicates(main))
+        {
+            findings.Add(new ValidationFinding
+            {
+                Check = "duplicate-control-id",
+                Severity = FindingSeverity.Warning,
+                Message = $"Content-control id {id.ToString(System.Globalization.CultureInfo.InvariantCulture)} is "
+                          + $"used by {carriers.Count} controls ({ControlIds.Describe(carriers)}). The file is still "
+                          + "valid OOXML and no binding depends on the id (the spec has a consumer give later "
+                          + "duplicates new ids on load), but every tool here that addresses a control by id - remove_control, "
+                          + "an afterControl location, insert_repeater_row/insert_subtotal_row's parentRepeaterId - "
+                          + "refuses this id rather than act on whichever control comes first. To make it unique, "
+                          + "give all but one of these controls a new w:sdtPr/w:id value in the package XML, or open "
+                          + "the layout in Word and save it.",
+                Location = string.Join(", ", carriers.Select(c => c.Part).Distinct(StringComparer.Ordinal)),
+            });
+        }
+    }
+
     // ---- helpers ----
 
     private static IEnumerable<(OpenXmlPartRootElement Root, string PartName)> EnumerateContentParts(MainDocumentPart main) =>
@@ -967,9 +1043,5 @@ public static class LayoutValidator
         }
     }
 
-    private static bool GuidEquals(string a, string b)
-    {
-        static string Norm(string s) => s.Trim().Trim('{', '}').ToLowerInvariant();
-        return Norm(a) == Norm(b);
-    }
+    private static bool GuidEquals(string a, string b) => SchemaProvider.SameItemId(a, b);
 }

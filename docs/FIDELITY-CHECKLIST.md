@@ -143,7 +143,8 @@ For each of the 3 corpus layouts — `SalesInvoiceForSubscriptionBilling.docx`, 
 
    (Deliverable 2 below — regenerates fresh artifacts under `fidelity-output/<LayoutName>/`) or call
    the `preview_layout` MCP tool directly against the same corpus file. Open `merged.docx` /
-   `preview.pdf`.
+   `preview.pdf` (the harness's names; `preview_layout` returns its own files as `mergedDocxPath` /
+   `pdfPath`).
 2. **Render the same report from a BC sandbox.** Publish/run the corresponding AL report against a real
    Business Central sandbox environment with comparable sample data, and export/print to PDF.
 3. **Compare side by side**, dimension by dimension, using the table above as the checklist — the

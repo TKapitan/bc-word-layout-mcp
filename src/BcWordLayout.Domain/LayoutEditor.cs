@@ -224,7 +224,7 @@ public static class LayoutEditor
             throw new ArgumentException($"heightMm must be between 1 and 500 (got {heightMm}).", nameof(heightMm));
         }
 
-        var schema = SchemaProvider.FromLayout(doc);
+        var schema = SchemaProvider.FromLayoutForBinding(doc);
         var id = GenerateUniqueId(doc);
         var drawingId = NextDrawingId(doc);
 
@@ -350,7 +350,7 @@ public static class LayoutEditor
                 nameof(location));
         }
 
-        var schema = SchemaProvider.FromLayout(doc);
+        var schema = SchemaProvider.FromLayoutForBinding(doc);
         var nextId = MakeIdGenerator(doc);
 
         // Resolved before the build (Resolve only reads) because an omitted columnWidths is split across
@@ -483,7 +483,7 @@ public static class LayoutEditor
 
         var widths = ComputeCellWidthsFromGrid(context.GridColumns, cells);
 
-        var schema = SchemaProvider.FromLayout(doc);
+        var schema = SchemaProvider.FromLayoutForBinding(doc);
         var nextId = MakeIdGenerator(doc);
         var detailRow = SdtFactory.BuildDetailRepeaterRow(schema, normalizedChild, cells, widths, nextId);
         context.ItemContent.AppendChild(detailRow);
@@ -553,7 +553,7 @@ public static class LayoutEditor
         var context = ResolveRepeaterItem(doc, parentRepeaterId, cells, rowNoun: "a subtotal row");
         var widths = ComputeCellWidthsFromGrid(context.GridColumns, cells);
 
-        var schema = SchemaProvider.FromLayout(doc);
+        var schema = SchemaForRow(doc, cells);
         var nextId = MakeIdGenerator(doc);
         var row = SdtFactory.BuildStaticRow(schema, cells, widths, nextId);
 
@@ -605,6 +605,10 @@ public static class LayoutEditor
     {
         var body = doc.MainDocumentPart?.Document?.Body
             ?? throw new InvalidDataException("Layout has no document body.");
+
+        // An id several controls carry anywhere in the package does not say which repeater is meant
+        // (GitHub issue #101) - refused before the body-only search below could settle on the first.
+        ControlIds.EnsureUnique(doc.MainDocumentPart, parentRepeaterId);
 
         var parent = body.Descendants<SdtRow>()
                 .FirstOrDefault(s => SdtInspector.ReadControlId(s) == parentRepeaterId)
@@ -663,6 +667,16 @@ public static class LayoutEditor
 
         return new RepeaterItemContext(parent, itemContent, table, gridColumns, tableIndex);
     }
+
+    /// <summary>
+    /// The schema a static row of <paramref name="cells"/> is built against: the binding schema
+    /// (<see cref="SchemaProvider.FromLayoutForBinding"/>, which refuses a layout with several BC dataset parts)
+    /// when any cell binds a column, else the read schema — an all-spacer row writes no binding, so which
+    /// dataset part is meant cannot matter to it, and it must not start failing over a question it never asks.
+    /// Shared by <see cref="InsertSubtotalRow"/> and <see cref="TableStructureEditor.InsertStaticRow"/>.
+    /// </summary>
+    internal static DatasetTree SchemaForRow(WordprocessingDocument doc, IReadOnlyList<RepeaterRowCell> cells) =>
+        cells.Any(c => c.Columns.Count > 0) ? SchemaProvider.FromLayoutForBinding(doc) : SchemaProvider.FromLayout(doc);
 
     /// <summary>
     /// Each cell's <c>w:tcW</c> for a row laid out on an existing table's grid: the sum of the grid-column
@@ -1048,7 +1062,7 @@ public static class LayoutEditor
         ArgumentNullException.ThrowIfNull(doc);
         ArgumentNullException.ThrowIfNull(location);
 
-        var schema = SchemaProvider.FromLayout(doc);
+        var schema = SchemaProvider.FromLayoutForBinding(doc);
         var id = GenerateUniqueId(doc);
 
         var sdt = isLabel
@@ -1159,6 +1173,9 @@ public static class LayoutEditor
     /// the grid — deliberately out of scope for a single-control edit.
     /// </remarks>
     /// <exception cref="NotFoundException">No control with <paramref name="controlId"/> was found.</exception>
+    /// <exception cref="LayoutDefectException">
+    /// More than one control carries <paramref name="controlId"/> (<see cref="LayoutDefect.DuplicateControlId"/>).
+    /// </exception>
     /// <exception cref="ArgumentException">
     /// <paramref name="keepText"/> is true and the target is a repeating-section control, or the
     /// <c>w:group</c> control between a block-level top-level repeater and its item (unwrapping either breaks
@@ -1448,21 +1465,25 @@ public static class LayoutEditor
 
     // ---- control lookup across document.xml + headers + footers ----
 
+    /// <summary>
+    /// The one control carrying <paramref name="controlId"/> anywhere in the package, or null when none does.
+    /// An id carried by SEVERAL controls is refused (<see cref="ControlIds"/>), never resolved to the first in
+    /// part order — which is how remove_control used to delete a body control whose id a header control
+    /// shared, without a word (GitHub issue #101).
+    /// </summary>
+    /// <exception cref="LayoutDefectException">More than one control carries the id.</exception>
     private static (SdtElement Target, string Part)? FindControlById(WordprocessingDocument doc, int controlId)
     {
         var main = doc.MainDocumentPart
             ?? throw new InvalidDataException("Layout has no main document part.");
 
-        foreach (var (root, partName) in PartWalker.ContentParts(main))
+        var carriers = ControlIds.FindAll(main, controlId);
+        return carriers.Count switch
         {
-            var match = root.Descendants<SdtElement>().FirstOrDefault(s => SdtInspector.ReadControlId(s) == controlId);
-            if (match is not null)
-            {
-                return (match, partName);
-            }
-        }
-
-        return null;
+            0 => null,
+            1 => carriers[0],
+            _ => throw ControlIds.DuplicateDefect(controlId, carriers),
+        };
     }
 
     // ---- keepText unwrap: generic across all five concrete Sdt*/SdtContent* kinds ----

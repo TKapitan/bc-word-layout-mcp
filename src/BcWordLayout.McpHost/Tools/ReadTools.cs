@@ -29,8 +29,16 @@ public static class ReadTools
                  + "storeItemID, the full control inventory (kind, alias, tag, xpath, storeItemID, part, "
                  + "parent repeater, and for each control its structural LEVEL - run/block/cell/row/runRuby - "
                  + "plus its tableIndex/rowIndex/colIndex when it sits in a table), a TABLES section "
-                 + "describing every table's grid (rowCount, columnCount, gridColumnWidths) and, per row and "
-                 + "cell, which control owns it and the cell's visible text, a PART DETAILS section giving "
+                 + "describing every table's grid (rowCount, columnCount, gridColumnWidths) and its rows - ONE "
+                 + "PER w:tr, so each row of a multi-row repeater item (line, nested detail, subtotal, spacer "
+                 + "rows) has its own rowIndex, tagged with the innermost repeater it repeats with "
+                 + "(repeaterControlId) - and, per row and "
+                 + "cell, which control owns it and the cell's visible text, plus BOTH cell coordinates: "
+                 + "colIndex (the physical position in the row - what set_cell_text/merge_cells/split_cells/"
+                 + "set_cell_borders and tableCell locations take) and gridColumn/gridSpan (where the cell "
+                 + "sits on the table grid - what remove_column/insert_column/set_column_widths take; the "
+                 + "two differ on any row with spanned cells), with each row's gridBefore/gridAfter skipped "
+                 + "columns, a PART DETAILS section giving "
                  + "each OOXML part's kind and header/footer ROLE (default/first/even - plus isDefaultTarget, "
                  + "the part a header/footer edit with no partName lands in) alongside hasTitlePage (whether "
                  + "page 1 renders the 'first'-role parts INSTEAD of the default ones), and a quick "
@@ -134,7 +142,10 @@ public static class ReadTools
     [McpServerTool(Name = "validate_layout")]
     [Description("Validate a BC Word layout. level='quick' runs structural + binding checks (OpenXML "
                  + "validity, a document-content-type ERROR when the main part is typed as a Word template or "
-                 + "macro-enabled file - which Word refuses to open as a .docx, single BC XML part, storeItemID match, binding dataset-namespace match, a "
+                 + "macro-enabled file - which Word refuses to open as a .docx, single BC XML part (with several, "
+                 + "the finding lists them and the other checks measure against the one the bindings name by "
+                 + "storeItemID; refresh_xml_part and the tools that write a binding refuse such a layout), "
+                 + "storeItemID match, binding dataset-namespace match, a "
                  + "binding-prefix-mapping ERROR when a dataset binding's w:prefixMappings does not declare "
                  + "every prefix its XPath uses as the layout's own namespace (a wrong or misspelled namespace, "
                  + "or a prefix the mappings never declare - Word cannot map such a control; a bare URI that "
@@ -147,7 +158,9 @@ public static class ReadTools
                  + "one per record; and a top-level-repeater-group ERROR when a block-level repeating "
                  + "section repeats the top-level data item without a w:group around its item - Business "
                  + "Central prints such a layout as an empty document while preview and the full merge fill "
-                 + "it normally). One structural complaint is reported as a WARNING rather than an error:"
+                 + "it normally), and a duplicate-control-id WARNING when two content controls share a w:id - the "
+                 + "file still opens, but remove_control, afterControl and parentRepeaterId refuse that id "
+                 + "rather than act on the first match. One structural complaint is reported as a WARNING rather than an error:"
                  + "w:rPr/w:w=0, the character scaling Word writes into a content control's placeholder run, which"
                  + "renders correctly in Word and BC and cannot be edited by any tool here. level='full'"
                  + "additionally runs a real dry-run merge (sample data fill + repeater expansion) against"
@@ -157,6 +170,9 @@ public static class ReadTools
         [Description("Absolute path to the .docx layout file.")] string layoutPath,
         [Description("Validation level: 'quick' or 'full'. Default 'quick'.")] string level = "quick")
     {
+        // An explicit JSON null is bound straight through by the SDK; like every other optional enum-like
+        // string on this surface, it means the documented default rather than an unknown level.
+        level ??= "quick";
         if (!string.Equals(level, "full", StringComparison.OrdinalIgnoreCase)
             && !string.Equals(level, "quick", StringComparison.OrdinalIgnoreCase))
         {

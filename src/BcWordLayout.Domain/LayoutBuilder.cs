@@ -41,7 +41,9 @@ public static class LayoutBuilder
     /// </param>
     /// <param name="outputPath">
     /// Absolute path to write the new layout to. Overwritten if it already exists; its parent directory is
-    /// created if missing.
+    /// created if missing. It may name <paramref name="schemaSource"/> itself only while that file carries no
+    /// bound controls (scaffolding a compiler-generated layout in place); over an authored one it is refused,
+    /// since the build would keep nothing but the dataset part.
     /// </param>
     /// <param name="templatePath">
     /// Optional absolute path to a <c>.docx</c> to start from instead of a blank document. This should be an
@@ -59,8 +61,11 @@ public static class LayoutBuilder
     /// macro-enabled one is refused (see <see cref="EnsureDocumentPackage"/>).
     /// </param>
     /// <exception cref="ArgumentException">
-    /// A path argument is empty, or <paramref name="templatePath"/> is a macro-enabled Word package
-    /// (<c>.dotm</c>/<c>.docm</c>). <paramref name="outputPath"/> is never touched when this is thrown.
+    /// A path argument is empty; <paramref name="templatePath"/> is a macro-enabled Word package
+    /// (<c>.dotm</c>/<c>.docm</c>); or <paramref name="outputPath"/> resolves to <paramref name="schemaSource"/>
+    /// (and not also to <paramref name="templatePath"/>) while that file carries bound content controls
+    /// (<see cref="ArgumentException.ParamName"/> <c>outputPath</c>). <paramref name="outputPath"/> is never
+    /// touched when this is thrown.
     /// </exception>
     /// <exception cref="FileNotFoundException">
     /// <paramref name="schemaSource"/> or <paramref name="templatePath"/> does not exist.
@@ -76,10 +81,20 @@ public static class LayoutBuilder
     /// — see that type's own remarks for why this refuses rather than reports a warning.
     /// <paramref name="outputPath"/> is never touched when this is thrown.
     /// </exception>
-    /// <exception cref="FileFormatException">
+    /// <exception cref="InvalidInputFileException">
+    /// <paramref name="schemaSource"/> or <paramref name="templatePath"/> is not a <c>.docx</c> package, is a
+    /// schema <c>.xml</c> that is not well-formed XML, or (a template) has a damaged XML part.
+    /// <paramref name="outputPath"/> is never touched when this is thrown.
+    /// </exception>
+    /// <exception cref="BuildSelfCheckFailedException">
     /// The assembled layout failed <see cref="OpenXmlValidator"/> — an internal bug, not expected to be
     /// reachable in practice (see <see cref="AttachEverything"/>'s remarks). <paramref name="outputPath"/> is
     /// never touched when this is thrown.
+    /// </exception>
+    /// <exception cref="TargetFileNotWritableException">
+    /// The final rename onto <paramref name="outputPath"/> was refused with access denied: the existing file
+    /// is open in Word or another program, is read-only, or is not writable by this account.
+    /// <paramref name="outputPath"/> is unchanged when this is thrown.
     /// </exception>
     public static CreateResult Create(string schemaSource, string outputPath, string? templatePath = null, string? headingText = null)
     {
@@ -105,19 +120,52 @@ public static class LayoutBuilder
 
         // Read schemaSource to completion into memory BEFORE outputPath (or the temp file below) is ever
         // touched - this, combined with never opening outputPath itself until the final atomic move, is what
-        // makes schemaSource/templatePath/outputPath all safely aliasable (e.g. outputPath == templatePath,
-        // "refresh this layout from itself").
+        // makes schemaSource/templatePath/outputPath all safely aliasable without a torn or half-read file
+        // (e.g. outputPath == templatePath, "rebuild this shell in place"). Safe to alias is not the same as
+        // sensible to alias, though: see the refusal right below.
         var (datasetBytes, identity) = LoadDatasetSource(schemaSource);
+
+        var fullOutputPath = Path.GetFullPath(outputPath);
+
+        // REFUSE rather than destroy (ADR-0003, GitHub issue #89): the new layout keeps only schemaSource's
+        // dataset part, so building it over schemaSource itself replaces whatever was authored there - and an
+        // agent "re-creating" the compiler-generated .docx it has been authoring into is a realistic mistake
+        // that used to return ok:true with every control gone. Keyed on bound controls, so the one aliasing
+        // this method supports on purpose still works: scaffolding a compiler-generated layout that carries
+        // the dataset part but no controls yet. When templatePath is that same file too, its body IS the
+        // output's body (nothing authored is dropped) and the template rules below decide instead
+        // (TemplateNotUnboundException refuses a template whose own controls would go stale).
+        if (SamePath(fullOutputPath, schemaSource)
+            && !(templatePath is not null && SamePath(fullOutputPath, templatePath)))
+        {
+            var boundControls = CountBoundControls(schemaSource);
+            if (boundControls > 0)
+            {
+                throw new ArgumentException(
+                    $"outputPath names the same file as schemaSource ('{fullOutputPath}'), which is an authored "
+                    + $"layout with {boundControls} bound content control(s). create_layout builds a NEW layout "
+                    + "that keeps only schemaSource's dataset part, so writing it over its own source would "
+                    + "replace that layout with one that has none of its controls or content. Nothing was "
+                    + "written.",
+                    nameof(outputPath));
+            }
+        }
 
         // Path.GetDirectoryName returns null only for a bare root (e.g. "C:\") - an edge case in path
         // shape, not "this path does not exist in the layout"; left as a plain InvalidOperationException
         // (→ internal_error), not NotFoundException.
-        var fullOutputPath = Path.GetFullPath(outputPath);
         var targetDir = Path.GetDirectoryName(fullOutputPath)
             ?? throw new InvalidOperationException($"Could not determine the directory of '{outputPath}'.");
         Directory.CreateDirectory(targetDir);
 
         var usedTemplate = templatePath is not null;
+
+        // Best-effort orphan cleanup of THIS method's own build files in the directory it is about to write
+        // into: a hard kill before the finally below leaves a .bcwl-build-*.docx next to outputPath - often
+        // inside a source-controlled repo, where it shows up in git status and nothing else ever revisits it.
+        // Same age rule as every other private-copy family (see ScratchFiles.SweepStale), so another call's
+        // live build file in this directory is never touched.
+        ScratchFiles.SweepStale(targetDir, ".bcwl-build-*.docx");
 
         // Build into a private temp file in outputPath's OWN directory (guaranteeing the commit below is a
         // same-volume rename) rather than outputPath itself, so a failure at any point - a template with no
@@ -133,15 +181,35 @@ public static class LayoutBuilder
 
             if (usedTemplate)
             {
-                TransientFileRetry.Run(() => File.Copy(templatePath!, tempPath, overwrite: true));
+                // CopyWritable, not a bare File.Copy: a read-only template (a checked-in letterhead that is
+                // not checked out) would otherwise yield a read-only build file that can be neither opened
+                // for write below nor deleted afterwards - see ScratchFiles' own remarks (GitHub issue #94).
+                TransientFileRetry.Run(() => ScratchFiles.CopyWritable(templatePath!, tempPath));
 
-                using var doc = LayoutPackage.Open(tempPath, isEditable: true);
-                _ = doc.MainDocumentPart
-                    ?? throw new InvalidDataException($"Template '{templatePath}' has no main document part.");
-                EnsureDocumentPackage(doc, templatePath!);
+                try
+                {
+                    // callerPath: a templatePath that is not a .docx package must be reported by ITS name,
+                    // not the private build file's.
+                    using var doc = LayoutPackage.Open(tempPath, isEditable: true, callerPath: templatePath);
+                    _ = doc.MainDocumentPart
+                        ?? throw new InvalidDataException($"Template '{templatePath}' has no main document part.");
+                    EnsureDocumentPackage(doc, templatePath!);
 
-                (storeItemId, replacedExistingBcPart, quick) =
-                    AttachEverything(doc, datasetBytes, identity, headingText, scaffoldBlankDefaults: false);
+                    (storeItemId, replacedExistingBcPart, quick) =
+                        AttachEverything(doc, datasetBytes, identity, headingText, scaffoldBlankDefaults: false);
+                }
+                catch (System.Xml.XmlException ex)
+                {
+                    // The SDK parses the template's parts lazily, inside the attach sequence above; every XML
+                    // read there is the template's own (the dataset bytes already parsed cleanly when loaded),
+                    // so a malformed one is the template's damage, reported by templatePath - not by
+                    // create_layout's Guard path, which is schemaSource (GitHub issue #95).
+                    throw new InvalidInputFileException(
+                        templatePath!,
+                        InputFileProblem.MalformedPackagePart,
+                        $"templatePath '{templatePath}' contains an XML part that is not well-formed: {ex.Message}",
+                        ex);
+                }
             }
             else
             {
@@ -182,8 +250,16 @@ public static class LayoutBuilder
             // Only now - once the built layout has passed OpenXmlValidator (inside AttachEverything) and the
             // stale-controls refusal above did not fire - does outputPath itself get touched, and via a
             // same-volume rename rather than a truncate-and-stream copy, so it can never end up partially
-            // written.
-            TransientFileRetry.Run(() => File.Move(tempPath, fullOutputPath, overwrite: true));
+            // written. Access denied here is about outputPath itself (open in Word, read-only, or not writable
+            // by this account), so it is reported as such rather than as an internal error.
+            try
+            {
+                TransientFileRetry.Run(() => File.Move(tempPath, fullOutputPath, overwrite: true));
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                throw new TargetFileNotWritableException(fullOutputPath, ex);
+            }
 
             return new CreateResult
             {
@@ -199,11 +275,43 @@ public static class LayoutBuilder
         }
         finally
         {
-            if (File.Exists(tempPath))
-            {
-                File.Delete(tempPath);
-            }
+            // Best-effort (never throws): see ScratchFiles.Delete for why a cleanup failure must not replace
+            // this call's real outcome.
+            ScratchFiles.Delete(tempPath);
         }
+    }
+
+    // ---- outputPath aliasing schemaSource (GitHub issue #89) ----
+
+    /// <summary>
+    /// True when <paramref name="fullPath"/> (already full) and <paramref name="otherPath"/> resolve to the
+    /// same full path, compared case-insensitively.
+    /// </summary>
+    /// <remarks>
+    /// Case-insensitive on every OS, matching <c>MergeEngine.Merge</c>'s own outputPath-vs-layoutPath check
+    /// and the per-path edit lock's key: Windows (the supported platform) and macOS file systems ignore case,
+    /// and on a case-sensitive one this can only over-refuse, which costs a different outputPath, never a
+    /// destroyed layout. Spellings that <see cref="Path.GetFullPath(string)"/> does not normalize (an 8.3 short
+    /// name, a junction or symlink) are not recognized as the same file.
+    /// </remarks>
+    private static bool SamePath(string fullPath, string otherPath) =>
+        string.Equals(fullPath, Path.GetFullPath(otherPath), StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Counts the data-bound content controls (any kind with a binding XPath: field, label, repeater, picture -
+    /// the same notion <see cref="RefreshResult.RemappedCount"/> uses) in <paramref name="schemaSource"/>,
+    /// across its body, headers and footers. A standalone schema <c>.xml</c> has none. Only called when
+    /// outputPath aliases schemaSource, so the extra read-only open costs nothing on the common path.
+    /// </summary>
+    private static int CountBoundControls(string schemaSource)
+    {
+        if (!schemaSource.EndsWith(".docx", StringComparison.OrdinalIgnoreCase))
+        {
+            return 0;
+        }
+
+        using var doc = LayoutPackage.Open(schemaSource, isEditable: false);
+        return LayoutReader.Read(doc).Controls.Count(c => c.XPath is not null);
     }
 
     // ---- template package type: a .dotx shell becomes a document, a macro-enabled one is refused ----
@@ -266,7 +374,7 @@ public static class LayoutBuilder
     /// to the caller's real output path), then runs <see cref="OpenXmlValidator"/> against it as a hard gate
     /// — <see cref="SdtFactory"/> and this type are both engineered to only ever emit/leave valid OOXML, so a
     /// structural error here would mean an internal bug; rather than write a broken file,
-    /// <see cref="LayoutBuilder.Create"/> throws <see cref="FileFormatException"/> and leaves the caller's
+    /// <see cref="LayoutBuilder.Create"/> throws <see cref="BuildSelfCheckFailedException"/> and leaves the caller's
     /// output path untouched (this path is not expected to be reachable in practice and is deliberately not
     /// force-tested — there is no honest way to trigger it from the public surface without fabricating an
     /// internal bug to order, mirroring <c>BcWordLayout.McpHost.Tools.ToolGuards.GuardEdit</c>'s own
@@ -314,7 +422,7 @@ public static class LayoutBuilder
         if (openXmlErrors.Count > 0)
         {
             var preview = string.Join(" | ", openXmlErrors.Take(5).Select(e => $"{e.Path?.XPath}: {e.Description}"));
-            throw new FileFormatException(
+            throw new BuildSelfCheckFailedException(
                 $"The layout LayoutBuilder.Create just built failed OpenXmlValidator with {openXmlErrors.Count} "
                 + "structural error(s); this indicates an internal bug (SdtFactory/LayoutBuilder are engineered "
                 + $"to only ever emit valid OOXML), so nothing was written. First error(s): {preview}");

@@ -191,6 +191,13 @@ public static class LocationResolver
         ArgumentNullException.ThrowIfNull(doc);
         location.Validate();
 
+        // An afterControl id that several controls carry, in ANY part, is refused before the part-scoped
+        // lookup below could settle on one of them (GitHub issue #101; see ControlIds for why package-wide).
+        if (location.Type == LocationKind.AfterControl && doc.MainDocumentPart is { } main)
+        {
+            ControlIds.EnsureUnique(main, location.ControlId!.Value);
+        }
+
         var (root, partName) = ResolvePartRoot(location, doc);
         var partDescription = DescribePart(partName);
 
@@ -484,8 +491,9 @@ public static class LocationResolver
     //  - Paragraph (an inline SdtRun): keep that paragraph so InsertInline lands right after the control
     //    in the same run flow; a same-parent InsertBlock is impossible there (paragraphs cannot host
     //    block content), so block inserts are promoted to immediately after the enclosing paragraph.
-    //  - TableRow (a cell-level SdtCell — e.g. the real corpus label YourReference_Lbl, whose sdtContent
-    //    wraps a whole <w:tc>): a <w:tr> only ever accepts <w:tc>/an sdtCell/customXml as direct children,
+    //  - TableRow or SdtContentCell (a cell-level SdtCell — e.g. the real corpus label YourReference_Lbl,
+    //    whose sdtContent wraps a whole <w:tc>, or either level of a two-level cell-level chain): a <w:tr>
+    //    only ever accepts <w:tc>/an sdtCell/customXml as direct children,
     //    so "same parent" would try to insert a paragraph/block sdt straight into the row — invalid
     //    OOXML. Anchor INSIDE that control's own cell content instead (same placement rule TableCell
     //    addressing uses). For a BOUND control (every real BC field/label is one) that inside IS the
@@ -523,7 +531,7 @@ public static class LocationResolver
                 partName: partName);
         }
 
-        if (target.Parent is TableRow)
+        if (target.Parent is TableRow or SdtContentCell)
         {
             if (target is not SdtCell sdtCell)
             {
@@ -534,7 +542,11 @@ public static class LocationResolver
                     NotFoundTarget.AfterControlPosition);
             }
 
-            var cell = sdtCell.SdtContentCell?.GetFirstChild<TableCell>()
+            // Any level of a nested cell-level chain (a BC add-in conditional wrapper around a bound field's
+            // own cell-level control — GitHub issue #85) anchors in the same innermost w:tc: the outer level's
+            // content holds the inner control, not a w:tc, and the inner level's parent is the outer level's
+            // content rather than the w:tr.
+            var cell = TableGridNavigator.ResolveCellWrapperChain(sdtCell).InnerCell
                 ?? throw new NotFoundException(
                     $"Control {controlId} is a cell-level control but its content has no table cell to insert into.",
                     NotFoundTarget.AfterControlPosition);
@@ -577,8 +589,8 @@ public static class LocationResolver
     //   - a "row" is a w:tr OR a row-level sdt (SdtRow, e.g. a BC repeater's repeatingSection) sitting where
     //     a w:tr would; a targeted SdtRow is descended to the inner w:tr it ultimately wraps.
     //   - a "cell" is a w:tc OR a cell-level sdt (SdtCell, e.g. a BC header address/label field, whose
-    //     sdtContent wraps a whole w:tc) sitting where a w:tc would; a targeted SdtCell is descended to the
-    //     inner w:tc it wraps.
+    //     sdtContent wraps a whole w:tc) sitting where a w:tc would; a targeted SdtCell is descended —
+    //     through every level of a nested cell-level chain — to the innermost w:tc it wraps.
     // Counting only bare w:tr/w:tc (root.Elements<TableRow>()/row.Elements<TableCell>()) would UNDER-count
     // any row/table that uses these control wrappers — e.g. a BC header row of three address fields is
     // [SdtCell, w:tc, SdtCell], which has one bare w:tc, so col 1/2 would wrongly read as out of range even

@@ -7,31 +7,16 @@
 /// This keeps failures deterministic and machine-actionable for the calling agent.
 /// </summary>
 /// <remarks>
-/// <para>
-/// ENVELOPE BOUNDARY. "Tools never throw" describes every tool BODY that actually
-/// runs — it is a guarantee about <c>Tools.ToolGuards.Guard</c>/<c>GuardMutate</c>'s exception mapping,
-/// which only executes once the MCP C# SDK has already bound the incoming JSON-RPC arguments onto the
-/// tool method's typed parameters. That binding step happens INSIDE the SDK, before any of this
-/// assembly's code runs, and is NOT covered: a caller passing a wrong-typed argument (e.g. a string where
-/// an <c>int</c> parameter is expected), omitting a required parameter, or sending malformed params never
-/// reaches a <see cref="ToolResponse"/> at all. Verified empirically against `ModelContextProtocol`
-/// 1.4.1: such a call returns an MCP <c>CallToolResult</c> with <c>IsError = true</c> whose content is a
-/// generic SDK-generated message (e.g. <c>"An error occurred invoking 'insert_field'."</c>) with no
-/// <c>code</c>/<c>hint</c> — never this type's JSON shape. This is distinct from calling an entirely
-/// unregistered tool NAME, which the SDK instead surfaces as a client-visible protocol-level error.
-/// </para>
-/// <para>
-/// No proportionate code fix exists for this SDK version: <c>McpServerOptions.Filters.Request.CallToolFilters</c>
-/// only wraps calls to a tool name that is NOT in the server's <c>ToolCollection</c> (i.e. never fires for
-/// any of this server's registered tools, which are always found there first); the message-level
-/// <c>Filters.Message.IncomingFilters</c>/<c>OutgoingFilters</c> only ever see the already-formed,
-/// non-exceptional <c>isError:true</c> result — nothing throws through them either, so there is no
-/// exception to catch-and-rewrap, only a generic response body that would have to be pattern-matched by
-/// its (undocumented, SDK-internal, version-fragile) message text to be reshaped into this envelope. That
-/// trade — hand-parsing an internal SDK string to recover a `code`/`hint` we have no real information for
-/// — was judged worse than documenting the boundary plainly here and in README.md's "Response envelope"
-/// section. Revisit if a future SDK version exposes a binding-failure hook.
-/// </para>
+/// ENVELOPE BOUNDARY. "Tools never throw" has two halves. Every tool BODY that runs returns this envelope
+/// through <c>Tools.ToolGuards.Guard</c>/<c>GuardMutate</c>'s exception mapping. A call that never reaches
+/// a body — an unknown tool name, or arguments the MCP SDK cannot bind onto the method's typed parameters
+/// (a missing required one, a wrong JSON type) — fails inside the SDK first, and <see cref="ToolCallBoundary"/>'s
+/// call-tool filter, which wraps the SDK's tool lookup and binding, turns that failure into the same envelope
+/// (<c>invalid_argument</c> naming the tool or parameter), keyed on the exception TYPE the SDK throws, never
+/// its message text. The same filter refuses two calls the SDK would let through — an argument name the
+/// tool's schema does not have, and a relative path — before binding. Its remarks list each case, and
+/// <c>McpHostPipelineTests</c> pins them through the real pipeline. Only a JSON-RPC request too malformed to
+/// parse as a tool call (no <c>name</c>, <c>arguments</c> not an object) stays a protocol-level error.
 /// </remarks>
 /// <remarks>
 /// Structural guarantee: <see cref="Hint"/> is a non-nullable <see cref="string"/>, and
@@ -94,7 +79,15 @@ public sealed record ControlDto(
 
 public sealed record ControlSummaryDto(int Field, int Label, int Repeater, int Picture, int Unbound, int Total);
 
-/// <summary>One cell of a <see cref="TableDto"/> — its column index, the control that owns it (if any), and its visible text.</summary>
+/// <summary>
+/// One cell of a <see cref="TableDto"/> — its column index, the control that owns it (if any), and its
+/// visible text. <see cref="ColIndex"/> is the cell's PHYSICAL position in its row (the <c>col</c>/
+/// <c>fromColumn</c>/<c>cellIndex</c> the cell tools take); <see cref="GridColumn"/> is the GRID column it
+/// starts at, gridBefore offset included, and <see cref="GridSpan"/> how many grid columns it covers — the
+/// coordinate the column tools take (<c>remove_column</c>'s <c>column</c>, <c>insert_column</c>'s
+/// <c>atColumn</c>, the position in <c>set_column_widths</c>' list). The two differ on almost every real BC
+/// table (GitHub issue #81). Both grid fields were added at the end so the shape stays additive.
+/// </summary>
 public sealed record TableCellDto(
     int ColIndex,
     bool IsControlCell,
@@ -103,14 +96,28 @@ public sealed record TableCellDto(
     string? Alias,
     string? XPath,
     string Text,
-    IReadOnlyList<int> InnerControlIds);
+    IReadOnlyList<int> InnerControlIds,
+    int GridColumn,
+    int GridSpan);
 
-/// <summary>One row of a <see cref="TableDto"/>. <see cref="IsControlRow"/> marks a row wrapped by a row-level control (e.g. a repeater).</summary>
+/// <summary>
+/// One row of a <see cref="TableDto"/> — one per <c>w:tr</c>, so every row of a multi-row repeater item
+/// (its line row, a nested detail repeater's row, subtotal and spacer rows) is listed and addressable on its
+/// own (GitHub issue #80). <see cref="IsControlRow"/> marks a row wrapped by a row-level control (e.g. a
+/// repeater) and <see cref="ControlId"/> is the OUTERMOST such control's id; <see cref="RepeaterControlId"/>
+/// is the INNERMOST repeater's — the one the row repeats with (null outside every repeater).
+/// <see cref="GridBefore"/>/<see cref="GridAfter"/> are the grid columns the row skips before its first and
+/// after its last cell (<c>w:gridBefore</c>/<c>w:gridAfter</c>, 0 when absent); with the cells'
+/// <see cref="TableCellDto.GridSpan"/>s they sum to the table's <c>columnCount</c>.
+/// </summary>
 public sealed record TableRowDto(
     int RowIndex,
     bool IsControlRow,
     int? ControlId,
-    IReadOnlyList<TableCellDto> Cells);
+    IReadOnlyList<TableCellDto> Cells,
+    int GridBefore,
+    int GridAfter,
+    int? RepeaterControlId);
 
 /// <summary>
 /// One table, described structurally. <see cref="TableIndex"/> is the 0-based, per-part, document-order
@@ -263,8 +270,10 @@ public sealed record CellEditResultDto(
 /// <summary>
 /// Result of a table-STRUCTURE edit tool (<c>set_column_widths</c>, <c>insert_column</c>,
 /// <c>remove_column</c>). The table is addressed by its 0-based document-order index (the same one
-/// <c>get_layout_info</c> reports); <see cref="ColumnIndex"/> is the GRID column the edit added/removed
-/// (null for a whole-table width set). <see cref="ColumnCountBefore"/>/<see cref="ColumnCountAfter"/> are
+/// <c>get_layout_info</c> reports); <see cref="ColumnIndex"/> is the GRID column the edit added/removed, or
+/// for a single-cell edit (<c>merge_cells</c>, <c>split_cells</c>, <c>set_cell_borders</c> with a
+/// <c>col</c>) the grid column that cell starts at — the <c>gridColumn</c> <c>get_layout_info</c> reports
+/// for it — and null for a whole-table or whole-row edit. <see cref="ColumnCountBefore"/>/<see cref="ColumnCountAfter"/> are
 /// the grid column counts around the edit. <see cref="QuickValidation"/> is always populated on a
 /// successful response — <c>Tools.ToolGuards.GuardTableEdit</c> is the one and only place this record is built,
 /// with the same structural guarantee <see cref="EditResultDto"/>/<see cref="CellEditResultDto"/> have.
@@ -333,7 +342,9 @@ public sealed record RepointedBindingDto(
 /// <see cref="QuickValidation"/> summary. A non-zero <see cref="ValidationSummaryDto.ErrorCount"/> here is
 /// EXPECTED when there are orphaned bindings (they surface there too, as <c>xpath-resolves</c> findings) —
 /// that is the orphan report corroborated by an independent check, not a failed refresh; <c>Ok=true</c>
-/// stands regardless.
+/// stands regardless. <see cref="RepairedUnreadablePart"/> is set only when the layout's BC dataset part could
+/// not be parsed and this refresh replaced its content (GitHub issue #96) — <see cref="NewUnboundFields"/> is
+/// then empty, there being no readable old schema to diff against.
 /// </summary>
 public sealed record RefreshResultDto(
     string OldReportName,
@@ -348,4 +359,5 @@ public sealed record RefreshResultDto(
     IReadOnlyList<OrphanedBindingDto> OrphanedBindings,
     IReadOnlyList<RepointedBindingDto> RepointedForeignBindings,
     IReadOnlyList<string> NewUnboundFields,
-    ValidationSummaryDto QuickValidation);
+    ValidationSummaryDto QuickValidation,
+    string? RepairedUnreadablePart);

@@ -21,6 +21,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   items. No tool emits a block-level repeater, so this guards layouts written or edited outside the
   tools.
 
+- **New `validate_layout` check `duplicate-control-id` (warning)** (GitHub issue #101). Two content
+  controls sharing a `w:sdtPr/w:id`, which only a hand edit at the package level produces, passed
+  validation silently while every id-addressed tool acted on the first of them. The check names
+  both controls, and the id-addressed tools now refuse such an id.
+
+- **New merge warning `multiple-top-level-records`** (GitHub issue #105). A `dataOverridesPath`
+  dataset printed for several documents, such as two purchase orders, previewed only the first
+  and said nothing. `preview_layout` now raises one warning per top-level data item the dataset
+  holds more than once and the layout does not repeat itself, naming the count ("The dataset has 2
+  top-level 'Purchase_Header' records, but the preview renders the first only…"). Items a repeater
+  repeats, such as a list report's rows, are exempt. The body is still rendered once: there is no
+  observed OOXML for how BC joins per-record documents.
+
 ### Fixed
 
 - **Inserts that would land inside a data-bound field, label or picture control are refused**
@@ -110,6 +123,199 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - Every row's cell widths are recomputed from the new grid, as `remove_column` already did.
   - `width` is now the new column's width, taken from the others; it must be smaller than the
     table. Omit it for an equal share.
+
+- **Edits of a layout that is open in Word or read-only fail as `file_locked`, and a read-only
+  layout can be previewed, validated and used as a template** (GitHub issue #94).
+  - **Wrong error code:** with the layout open in Word, or read-only (a TFVC/Perforce file that is
+    not checked out), every edit failed as `internal_error` with a "likely a bug in the tool" hint.
+    Word still lets the file be read and copied, so the failure only appeared when the edit
+    replaced the file. The same happened for `create_layout` over such an `outputPath`, and for
+    `preview_layout` while the previous `merged.docx` was open in Word. All of these now fail as
+    `file_locked`. The hint names the three likely causes: the file is open in Word or another
+    program, it is read-only or not checked out, or you have no write permission. The file is left
+    byte-identical.
+  - **Read-only sources:** private copies inherited the read-only attribute. So `preview_layout`
+    and `validate_layout level=full` failed on a read-only layout, `create_layout` failed on a
+    read-only `templatePath`, and each failure left behind a read-only copy that nothing could
+    delete. Private copies are now always writable, and a `create_layout` output is never
+    read-only.
+  - **Leftover temp files:** `.bcwl-build-*` files next to a `create_layout` output and
+    `%TEMP%\bcwl-edit-*` working copies were never cleaned up after a crash. Both are now removed
+    once they are a day old, like the other temporary files. This includes read-only leftovers
+    from earlier versions.
+
+- **A file that is not a usable layout, schema or dataset is reported as the caller's input, by
+  name** (GitHub issue #95). These failed as `internal_error` ("likely a bug in the tool"), or with
+  a hint about the wrong file:
+  - **Not a `.docx` at all:** an empty file, a text file or schema `.xml` saved as `.docx`, or a
+    truncated copy, passed to any tool that opens a layout or template. This is now
+    `invalid_layout`, and the hint names the file and explains `.docx` versus schema `.xml`. The
+    edit and preview tools used to name their private temp copy; they now name your file.
+  - **XML that is not well-formed:** a truncated schema `.xml`, one with a DTD, or one whose
+    encoding declaration does not match its bytes, passed as `schemaSource`, `newSchemaSource` or
+    the `source` of `list_dataset_fields`. A `.docx` with a damaged XML part is covered too. This
+    is now `invalid_layout`, and the hint names the file plus the line and position.
+  - **`dataOverridesPath`:** any file that cannot be used now fails as `invalid_argument` for that
+    parameter. That covers malformed XML, a wrong root element or namespace, and an export from
+    another report. The hint lists the two accepted shapes. A wrong-shaped file used to be
+    `invalid_layout`, with a hint about the layout.
+
+- **`create_layout` refuses to overwrite its own `schemaSource` when that file is an authored
+  layout** (GitHub issue #89). The new layout keeps only the dataset part of `schemaSource`. So an
+  `outputPath` equal to `schemaSource` replaced the authored layout with a blank one, and the call
+  returned `ok:true`: on the stock sales quote, 68 controls became 0. This is now refused with
+  `invalid_argument` and nothing is written, however the path is spelled. The hint points at
+  `refresh_xml_part` to re-bind a layout in place, or at a different `outputPath`. Running
+  `create_layout` in place on a just-compiled layout, which has no controls yet, still works.
+
+- **Malformed calls get an accurate error code, and an explicit `null` no longer crashes a tool**
+  (GitHub issue #97).
+  - **Wrong JSON type:** `"abc"` or `1.5` for an integer, `"true"` for a boolean, or `null` for a
+    number or boolean came back as `internal_error` ("The JSON value could not be converted to
+    System.Int32…") with no parameter named. It is now `invalid_argument` naming the parameter, the
+    type it needs, and what the call sent.
+  - **Unknown tool name:** was an `internal_error` envelope; now `invalid_argument` naming the
+    tool, with a hint pointing at `tools/list`.
+  - **Missing required argument:** still `invalid_argument`; the message now names just the
+    missing parameters, and the hint lists every required one.
+  - **Explicit `null` for an enum-like string:** crashed the tool body (`internal_error`, "Object
+    reference not set to an instance of an object."). An optional one (`layoutPart`, `look`,
+    `style`, `converter`, `level`) now takes its documented default, as if omitted; a required one
+    (`locationType`, `mode`) is `invalid_argument`.
+  - **No more `invalid_request`:** the one path that emitted this undocumented code (a binding
+    failure the SDK swallowed into its own text) now reports `invalid_argument`.
+  - **Docs:** README, ADR-0004 and SOLUTION-DESIGN §4 said a binding failure returns the SDK's bare,
+    non-enveloped text. They now describe what the server actually returns, and a host-level test
+    that runs the real server pipeline pins every case above.
+
+- **Unknown argument names and relative paths are refused instead of quietly changing the
+  outcome** (GitHub issue #90).
+  - **Unknown argument names:** the SDK ignored any key it had no parameter for, so a misspelled
+    optional argument took its default. `insert_text` with `"layoutpart":"footer"` wrote into the
+    body, and `set_cell_borders` with `"column":1` drew every cell. A key outside the tool's input
+    schema is now `invalid_argument`, naming the closest real parameter (`layoutpart` →
+    `layoutPart`, `column` → `col`) and listing them all. An unknown tool name gets the same
+    "did you mean" suggestion.
+  - **Relative paths:** a relative path, or a drive- or root-relative one (`C:Report.docx`,
+    `\Report.docx`), resolved against the server's working directory, and `create_layout` wrote
+    its output there. Every path parameter (`layoutPath`, `source`, `schemaSource`,
+    `newSchemaSource`, `templatePath`, `outputPath`, `dataOverridesPath`, `outputDir`, `pdfPath`)
+    must now be fully qualified, or the call is `invalid_argument` naming it.
+
+- **Numeric arguments are range-checked where they are parsed** (GitHub issue #98).
+  - **Column widths** (`set_column_widths`' `widths`, `insert_table`'s and
+    `insert_repeater_table`'s `columnWidths`, `insert_column`'s `width`) must be 1–31680 twips
+    (22 in, Word's maximum page width). A negative width failed as `edit_would_corrupt`, whose
+    hint blames the tool; a zero width was written as `w:gridCol w:w="0"`.
+  - **Cell spans** in the `cells` syntax (`insert_table_row`, `insert_repeater_row`,
+    `insert_subtotal_row`) must be 1–63, Word's maximum table column count. `"3:-,-1:-"` crashed
+    with "Index was out of range"; the refusal now has a hint explaining the `cells` syntax.
+  - **`preview_layout`'s `rows`** below 1 is `invalid_argument`. It used to return `ok:true` with
+    an empty body, plus warnings caused only by the row count.
+  - **`render_preview_pages`' `firstPage` and `maxPages`** below 1 are `invalid_argument`. Before,
+    page 1 rendered while the response echoed `firstPage: 0`.
+  - **Hints for parameter names that mean different things on different tools** now depend on the
+    tool as well as the name. `insert_table`'s `columns` (a count) no longer gets the hint for
+    `insert_repeater_table`'s list of column names, and its `rows` no longer gets the generic hint.
+
+- **Cells wrapped in two cell-level content controls are visible to the table tools** (GitHub
+  issue #85). The Business Central Word add-in's "Hide Table Row If Empty" and "Hide Table If
+  Empty" controls wrap a bound field's own cell-level control (`w:tr > w:sdt > w:sdt > w:tc`), as in
+  the stock SalespersonCommission and SubcontractorDispatchList layouts. The tools read one level
+  only, so they found no cell there:
+  - **`get_layout_info`** reported an empty "Unbound" cell, and the bound field had no table
+    coordinates. The cell now reports the bound field as its control, with its text, and every
+    wrapper level gets the cell's coordinate.
+  - **Rules, widths and spans:** `set_cell_borders` left a gap under the cell, `set_column_widths`
+    left its width stale, and a wrapped `gridSpan`-4 cell counted as one grid column.
+  - **Text and inserts:** `set_cell_text`, `tableCell` inserts and `afterControl` on either level
+    answered `not_found`. They now refuse the cell as a bound control (`invalid_argument`), like
+    any single-level bound cell.
+
+- **`get_layout_info` reports the grid column of every cell** (GitHub issue #81). Cells reported
+  only `colIndex`, their physical position in the row, while `remove_column`, `insert_column`'s
+  `atColumn` and `set_column_widths` take a grid column. On spanned tables the two differ: on the
+  stock VAT-spec invoice's lines table, Line Amount is `colIndex` 7 but grid column 9, and
+  `remove_column` 7 narrowed the VAT % cells instead and reported success.
+  - **New fields:** each cell now carries `gridColumn` (where it starts, `gridBefore` included)
+    and `gridSpan`, and each row `gridBefore`/`gridAfter`. The column tools' descriptions and hints
+    point at `gridColumn`.
+  - **`remove_column`'s summary** says per row whether a cell was deleted, a spanned cell narrowed
+    or a skipped run shrunk, and warns when no row had a cell of its own at that column.
+  - **`set_cell_borders`** returned the physical `col` as `columnIndex`. It now returns the grid
+    column the cell starts at, as the result type documents and `merge_cells`/`split_cells` do.
+
+- **Column and width edits reach every row of a repeater item** (GitHub issue #80). The table tools
+  saw only the first `w:tr` of each repeater: an item's other rows, nested detail repeaters, and the
+  subtotal and spacer rows `insert_subtotal_row` adds were skipped by `insert_column`,
+  `remove_column`, `set_column_widths`, the `w:vMerge` refusal, `get_layout_info`, `tableCell`
+  addressing and the grid-consistency check. A column edit left those rows on the old grid (on
+  InventoryOrderDetails the removed amount still printed past the table's right edge), and
+  validation passed.
+  - **Row numbering changes:** `get_layout_info`'s `rows[]` now lists every `w:tr`, each with a new
+    `repeaterControlId` (the innermost repeater it repeats with). On tables with multi-row repeater
+    items `rowCount` grows and the rows after such an item get higher indexes, so re-read
+    `get_layout_info` before reusing a stored row index. Controls in nested rows now have table
+    coordinates.
+  - **`insert_column`** binds a field into one row per repeater item: the first of the item's rows
+    that already holds a field of the same data item, else its first row.
+  - **`insert_table_row`** refuses an `atRow` between two rows of the same repeater
+    (`invalid_argument`) and names the positions just before and after it.
+
+- **A BC dataset part that no longer parses is reported as such, and `refresh_xml_part` repairs it**
+  (GitHub issue #96).
+  - **Diagnosis:** a part recognisable by its itemProps schemaRef, or by the BC namespace in its raw
+    bytes, used to be reported as "no BC part" by every tool, with the parser's error discarded.
+    `validate_layout` now reports one `schema-parse` error naming the part, the parser's message and
+    any encoding declaration that contradicts the bytes or DOCTYPE it carries; `get_layout_info`,
+    the insert tools and `create_layout`'s `schemaSource` fail `invalid_layout` with a repair hint.
+  - **Repair:** `refresh_xml_part` replaces such a part's content, keeping its `storeItemID`, and
+    reports it as `repairedUnreadablePart` (`newUnboundFields` is then empty).
+
+- **Layouts with two BC dataset parts, or two controls sharing an id, are no longer resolved by
+  "first match"** (GitHub issue #101).
+  - **Two BC parts:** reading uses the part most bindings name by `storeItemID`, then by namespace,
+    then the lowest package path, never relationship order; `single-bc-part` lists the parts and
+    says which one was measured. `refresh_xml_part`, `create_layout`'s `schemaSource` and every
+    tool that writes a binding refuse such a layout with `invalid_layout`.
+  - **Shared control ids:** `remove_control`, `afterControl` locations and `parentRepeaterId` refuse
+    an id more than one control carries instead of acting on the first.
+
+- **Bound inserts work on layouts whose dataset part has no itemProps** (GitHub issue #93).
+  - **Stock layouts:** on `SalespersonCommission`, `StandardStatement` and every other such layout,
+    a new binding reuses the `storeItemID` all existing bindings agree on; no itemProps is minted.
+  - **No consensus:** with no bindings, or disagreeing ones, the call fails `invalid_layout` with a
+    hint saying what to do, instead of `invalid_argument` naming internal methods.
+
+- **The mock merge re-anchors each binding through every enclosing repeater row** (GitHub issue
+  #104). It tried only the innermost row and read anything else from the document root with every
+  step indexed `[1]`, warning once per generated row:
+  - **Outer-row fields:** a field in a nested row bound to an outer row's column showed the first
+    outer row's value in every group. On InventoryOrderDetails, an `/Item/No_Item` field in the
+    Sales_Line row printed item 1's number under every item. Fields and nested repeaters now
+    resolve against the deepest enclosing row whose path they extend.
+  - **Absolute bindings:** a binding that no enclosing row holds is read from the document root,
+    as BC reads it, with no warning. SalespersonCommission's `/Labels` caption in the Salesperson
+    row no longer raises three of them. A binding outside every repeater row is always silent.
+  - **When it still warns:** `xpath-fallback` is raised once per control, with its evaluation
+    count, in two cases:
+    - a `//` binding;
+    - a control inside a repeater row that no enclosing row re-anchors, which reads the first of
+      several records of a repeating item, such as a `/Header/Line` field in a ReportTotalsLine
+      row. It repeats with rows it does not belong to, and the warning names the item and the
+      record count. Caption (label) columns are exempt, since they read the same in every record.
+
+- **`preview_layout` never leaves a stale PDF behind, and default previews get distinct PNG names**
+  (GitHub issue #106).
+  - **Stale PDF:** a failed re-conversion (a Word timeout, LibreOffice missing) returned
+    `conversionOk: false` but left the previous render on disk, so an earlier `pdfPath`, or the
+    folder itself, showed the pre-edit layout. The previous PDF is now deleted before converting,
+    and anything a failed attempt leaves there is removed. When the previous PDF cannot be deleted
+    (a viewer has it open), the call skips conversion and says so in `conversionError`.
+  - **PNG collisions:** every default preview was `preview.pdf`, so `render_preview_pages` wrote
+    two layouts' pages into one `outputDir` as the same `preview-page01.png`. The default PDF is
+    now `preview-<hash>.pdf`, as with an explicit `outputDir` (`merged.docx` keeps its name). A
+    `preview.pdf` an earlier version left in a default folder is removed.
 
 ### Security
 
@@ -245,6 +451,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Tool descriptions and error hints no longer claim a missing `partName` targets "the FIRST
   header/footer part": resolution has always preferred the first section's DEFAULT part, and the
   wording now says so and points at `partDetails`.
+- **`ModelContextProtocol` SDK 1.4.1 → 2.2.0** (#48, #67; added after release, the note was
+  missing). No observable change: tool lookup, argument binding and the call-tool filter behave the
+  same on both versions, measured on the 1.0.0 and 1.1.0 packages. A host-level test now pins that
+  boundary (GitHub issue #97), so a future SDK upgrade that changes it fails the suite.
 
 ### Fixed
 

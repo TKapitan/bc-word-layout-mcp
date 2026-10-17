@@ -518,13 +518,51 @@ public static class SampleDataGenerator
     /// <see cref="XDocument.Load(System.IO.Stream)"/> reads the encoding declaration from the stream itself,
     /// so UTF-16 LE + BOM exports work unchanged.
     /// </summary>
-    private static SampleDataset LoadOverrides(string path, ReportIdentity report)
+    /// <exception cref="ArgumentException">
+    /// <see cref="ArgumentException.ParamName"/> <c>dataOverridesPath</c>: the file is not well-formed XML, or
+    /// is not in either accepted shape for this report (wrong root, wrong namespace, an export from another
+    /// report, a name no XML element can carry). The message names the file and, for XML, the line/position.
+    /// </exception>
+    /// <remarks>
+    /// WHY AN ARGUMENT FAILURE (GitHub issue #95). This file is an optional parameter the caller chose, not
+    /// the layout or its schema, so the fix is always "pass a different data file". Reported as its loaders
+    /// throw it, a malformed file was an <see cref="System.Xml.XmlException"/> (<c>internal_error</c>, "likely a
+    /// bug in the tool") and a wrong-shaped one an <see cref="InvalidDataException"/> (<c>invalid_layout</c>,
+    /// whose hint is about the LAYOUT/schema). Both are rethrown here as an <see cref="ArgumentException"/> for
+    /// this parameter, so the host reports <c>invalid_argument</c> with a hint listing the two accepted shapes.
+    /// A missing file stays <see cref="FileNotFoundException"/> and an oversized one
+    /// <see cref="ResourceLimitExceededException"/>, each with its own established code.
+    /// </remarks>
+    private static SampleDataset LoadOverrides(string dataOverridesPath, ReportIdentity report)
     {
-        if (!File.Exists(path))
+        if (!File.Exists(dataOverridesPath))
         {
-            throw new FileNotFoundException("Data overrides file not found.", path);
+            throw new FileNotFoundException("Data overrides file not found.", dataOverridesPath);
         }
 
+        try
+        {
+            return LoadOverridesFile(dataOverridesPath, report);
+        }
+        catch (System.Xml.XmlException ex)
+        {
+            throw new ArgumentException(
+                $"dataOverridesPath '{dataOverridesPath}' is not well-formed XML: {ex.Message}",
+                nameof(dataOverridesPath),
+                ex);
+        }
+        catch (InvalidDataException ex)
+        {
+            throw new ArgumentException(
+                $"dataOverridesPath '{dataOverridesPath}' cannot be used as this layout's data: {ex.Message}",
+                nameof(dataOverridesPath),
+                ex);
+        }
+    }
+
+    /// <summary>The load-and-validate body of <see cref="LoadOverrides"/>, which translates its failures.</summary>
+    private static SampleDataset LoadOverridesFile(string path, ReportIdentity report)
+    {
         XDocument xdoc;
         using (var stream = File.OpenRead(path))
         {

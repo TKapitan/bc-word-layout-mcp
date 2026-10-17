@@ -21,9 +21,10 @@ namespace BcWordLayout.Domain;
 /// the insert tools' <c>tableIndex</c> directly, by construction rather than by hand-kept parity.
 /// </para>
 /// <para>
-/// Each table's own rows/cells are read from its DIRECT children only — a control living inside a NESTED
-/// table is attributed to that nested table's own entry (its innermost enclosing <c>w:tbl</c>), never to the
-/// outer cell that happens to contain the nested table, so every control is assigned to exactly one cell.
+/// Each table's own rows/cells are the ones whose nearest enclosing <c>w:tbl</c> is that table — a control
+/// living inside a NESTED table is attributed to that nested table's own entry (its innermost enclosing
+/// <c>w:tbl</c>), never to the outer cell that happens to contain the nested table, so every control is
+/// assigned to exactly one cell. A row nested in a repeater item is the table's own row like any other.
 /// </para>
 /// </remarks>
 public static class TableStructureReader
@@ -73,8 +74,8 @@ public static class TableStructureReader
             .ToList() ?? new List<int>();
         var columnCount = TableGridNavigator.GridColumnCount(table);
 
-        // Rows in document order (a plain w:tr, OR a row-level sdt sitting where a w:tr would) — the same
-        // enumeration TableGridNavigator.Rows exposes to every other row/cell walker.
+        // Rows in document order — every w:tr of the table, including the ones nested in row-level controls
+        // at any depth — the same enumeration TableGridNavigator.Rows exposes to every other row/cell walker.
         var rowSlots = TableGridNavigator.Rows(table);
         var rows = new List<TableRowInfo>(rowSlots.Count);
 
@@ -97,26 +98,34 @@ public static class TableStructureReader
     private static TableRowInfo ReadRow(
         Table table, TableGridNavigator.RowSlot rowSlot, int tableIndex, int rowIndex, Dictionary<SdtElement, Coord> coords)
     {
-        // A row-level control owns the whole row: record EVERY wrapper in its chain (e.g. a BC repeater's
-        // repeatingSection wrapping a repeatingSectionItem) at (table, row, null) — not just the outermost
-        // one — then read the cells from the innermost w:tr the chain ultimately holds. The OUTERMOST
-        // wrapper's id is reported as the row's own ControlId.
+        // A row-level control owns its rows: record EVERY wrapper in the chain (e.g. a BC repeater's
+        // repeatingSection wrapping a repeatingSectionItem, and a detail repeater nested in that item) at
+        // (table, row, null) — not just the outermost one. A wrapper holding several w:tr appears in each of
+        // their slots; TryAdd keeps the FIRST, so a row-level control's coordinate is the first row it wraps.
+        // The OUTERMOST wrapper's id is reported as the row's own ControlId, the INNERMOST repeater's as the
+        // repeater the row belongs to.
         if (rowSlot.IsControlRow)
         {
             var rowCoord = new Coord(tableIndex, rowIndex, null);
             foreach (var wrapper in rowSlot.Wrappers)
             {
-                coords[wrapper] = rowCoord;
+                coords.TryAdd(wrapper, rowCoord);
             }
         }
 
         var cells = new List<TableCellInfo>();
+        var (gridBefore, gridAfter) = rowSlot.InnerRow is null ? (0, 0) : TableGridNavigator.GridEdges(rowSlot.InnerRow);
         if (rowSlot.InnerRow is not null)
         {
+            // The grid column each cell starts at, by the same arithmetic every column tool uses (the row's
+            // first cell sits at gridBefore, each later one after the spans before it), so the gridColumn
+            // reported here is exactly the index remove_column/insert_column/set_column_widths act on.
             var cellSlots = TableGridNavigator.Cells(rowSlot.InnerRow);
+            var gridColumn = gridBefore;
             for (var c = 0; c < cellSlots.Count; c++)
             {
-                cells.Add(ReadCell(table, cellSlots[c], tableIndex, rowIndex, c, coords));
+                cells.Add(ReadCell(table, cellSlots[c], tableIndex, rowIndex, c, gridColumn, coords));
+                gridColumn += cellSlots[c].GridSpan;
             }
         }
 
@@ -125,32 +134,45 @@ public static class TableStructureReader
             RowIndex = rowIndex,
             IsControlRow = rowSlot.IsControlRow,
             ControlId = rowSlot.ControlId,
+            RepeaterControlId = TableGridNavigator.InnermostRepeater(rowSlot) is { } repeater
+                ? SdtInspector.ReadControlId(repeater)
+                : null,
+            GridBefore = gridBefore,
+            GridAfter = gridAfter,
             Cells = cells,
         };
     }
 
     private static TableCellInfo ReadCell(
-        Table table, TableGridNavigator.CellSlot cellSlot, int tableIndex, int rowIndex, int colIndex, Dictionary<SdtElement, Coord> coords)
+        Table table, TableGridNavigator.CellSlot cellSlot, int tableIndex, int rowIndex, int colIndex, int gridColumn,
+        Dictionary<SdtElement, Coord> coords)
     {
         var coord = new Coord(tableIndex, rowIndex, colIndex);
 
         TableCell? cell = cellSlot.InnerCell;
-        bool isControlCell;
+        var isControlCell = cellSlot.Wrappers.Count > 0;
         int? cellControlId = null;
         string? controlKind = null, alias = null, xpath = null;
 
-        if (cellSlot.CellChild is SdtCell sdtCell)
+        if (isControlCell)
         {
-            isControlCell = true;
-            cellControlId = SdtInspector.ReadControlId(sdtCell);
-            controlKind = SdtInspector.ClassifyControlKind(sdtCell).ToString();
-            alias = SdtInspector.ReadAlias(sdtCell);
-            xpath = SdtInspector.ReadXPath(sdtCell);
-            coords[sdtCell] = coord;
-        }
-        else
-        {
-            isControlCell = false;
+            // EVERY level of a cell-level wrapper chain is this cell's control and gets its coordinate (GitHub
+            // issue #85). The one reported as the cell's own is the INNERMOST — the control that directly wraps
+            // the w:tc. In the only multi-level shape observed, the Business Central Word add-in's conditional
+            // "Hide Table Row If Empty"/"Hide Table If Empty" controls, that is the bound field the add-in
+            // wrapped; the outermost is an unbound wrapper that says nothing about what the cell shows, and
+            // reporting it made a bound cell read as an empty "Unbound" one. The wrapper stays reachable through
+            // the control inventory, at this same coordinate.
+            foreach (var wrapper in cellSlot.Wrappers)
+            {
+                coords[wrapper] = coord;
+            }
+
+            var owner = cellSlot.Wrappers[^1];
+            cellControlId = SdtInspector.ReadControlId(owner);
+            controlKind = SdtInspector.ClassifyControlKind(owner).ToString();
+            alias = SdtInspector.ReadAlias(owner);
+            xpath = SdtInspector.ReadXPath(owner);
         }
 
         // Controls and text that belong to THIS cell (not to a nested table inside it): filter on the
@@ -181,6 +203,8 @@ public static class TableStructureReader
         return new TableCellInfo
         {
             ColIndex = colIndex,
+            GridColumn = gridColumn,
+            GridSpan = cellSlot.GridSpan,
             IsControlCell = isControlCell,
             ControlId = cellControlId,
             ControlKind = controlKind,

@@ -30,6 +30,19 @@ internal sealed class FakePdfConverter : IPdfConverter
     /// <summary>Error text <see cref="Convert"/> reports when <see cref="ConversionSucceeds"/> is false.</summary>
     public string ConversionErrorMessage { get; init; } = "simulated conversion failure";
 
+    /// <summary>
+    /// What a successful <see cref="Convert"/> writes; null writes the minimal <c>%PDF</c> marker. Pass
+    /// <c>MinimalPdf.Create(...)</c> when the result goes on to <c>render_preview_pages</c>, which needs a PDF
+    /// PDFium can actually render.
+    /// </summary>
+    public byte[]? PdfBytes { get; init; }
+
+    /// <summary>
+    /// When true, a FAILED <see cref="Convert"/> still leaves a truncated file at <c>pdfPath</c>, which is
+    /// what a Word export killed on timeout leaves behind.
+    /// </summary>
+    public bool WritesPartialOutputOnFailure { get; init; }
+
     /// <summary>How many times <see cref="Convert"/> was actually called.</summary>
     public int ConvertCallCount { get; private set; }
 
@@ -47,12 +60,17 @@ internal sealed class FakePdfConverter : IPdfConverter
 
         if (!ConversionSucceeds)
         {
+            if (WritesPartialOutputOnFailure)
+            {
+                File.WriteAllText(pdfPath, "%PDF-1.4\n%truncated-by-a-killed-export");
+            }
+
             return PdfConversionResult.Failure(Name, ConversionErrorMessage);
         }
 
         // Write a minimal-but-recognizable fake PDF so "the PDF file exists / starts with %PDF" assertions
         // that mirror the real-converter tests still hold against this fake.
-        File.WriteAllBytes(pdfPath, System.Text.Encoding.ASCII.GetBytes("%PDF-1.4\n%fake-pdf-for-tests\n"));
+        File.WriteAllBytes(pdfPath, PdfBytes ?? System.Text.Encoding.ASCII.GetBytes("%PDF-1.4\n%fake-pdf-for-tests\n"));
         return PdfConversionResult.Success(Name, pdfPath, TimeSpan.Zero);
     }
 }

@@ -16,34 +16,50 @@ namespace BcWordLayout.Domain;
 /// terms of GRID columns, which is what this navigator exposes.
 /// </summary>
 /// <remarks>
-/// A "row" is a bare <c>w:tr</c> OR a row-level control (<see cref="SdtRow"/>, possibly a
-/// <c>repeatingSection</c> wrapping a <c>repeatingSectionItem</c>) descended to the inner <c>w:tr</c> it
-/// ultimately holds; a "cell" is a bare <c>w:tc</c> OR a cell-level control (<see cref="SdtCell"/>)
-/// descended to the inner <c>w:tc</c> it wraps. <see cref="RowSlot.Wrappers"/> exposes every level of a
-/// nested row-control chain (not just the outermost) for the one caller — <see cref="TableStructureReader"/>
-/// — that needs to attribute EACH wrapper level to the row's coordinate, not just the outermost id.
+/// A "row" is every <c>w:tr</c> of the table — a bare one, or one held by row-level controls
+/// (<see cref="SdtRow"/>: a <c>repeatingSection</c> wrapping a <c>repeatingSectionItem</c>, and detail
+/// repeaters nested inside that item, to any depth); a "cell" is a bare <c>w:tc</c> OR a cell-level control
+/// (<see cref="SdtCell"/>, possibly a chain of them) descended to the innermost <c>w:tc</c> it ultimately
+/// wraps. <see cref="RowSlot.Wrappers"/>
+/// and <see cref="CellSlot.Wrappers"/> expose every level of a nested control chain (not just the outermost)
+/// for the one caller — <see cref="TableStructureReader"/> — that needs to attribute EACH wrapper level to the
+/// row's/cell's coordinate, not just the outermost id.
 /// </remarks>
 internal static class TableGridNavigator
 {
     /// <summary>
-    /// One row of a table in document order. <see cref="RowChild"/> is the direct child of the
-    /// <c>w:tbl</c> (a <c>w:tr</c> or an <see cref="SdtRow"/> wrapper); <see cref="InnerRow"/> is the
-    /// innermost <c>w:tr</c> the chain of wrappers ultimately holds (null when a row-level control wraps
-    /// none). <see cref="IsControlRow"/>/<see cref="ControlId"/> describe the outermost wrapper.
-    /// <see cref="Wrappers"/> is the full chain of row-level control wrappers from outermost to innermost
-    /// (empty for a bare <c>w:tr</c>) — e.g. <c>[repeatingSection, repeatingSectionItem]</c> — for callers
-    /// that must attribute every wrapper level, not just <see cref="RowChild"/>, to this row.
+    /// One row of a table in document order — one per <c>w:tr</c> (see <see cref="Rows"/>).
+    /// <see cref="InnerRow"/> is that <c>w:tr</c> (null only for the cell-less slot of a top-level row-level
+    /// control that holds no <c>w:tr</c> at all). <see cref="RowChild"/> is the direct child of the
+    /// <c>w:tbl</c> the row lives in: the <c>w:tr</c> itself, or the OUTERMOST row-level control around it —
+    /// shared by every row that control holds. <see cref="IsControlRow"/>/<see cref="ControlId"/> describe
+    /// that outermost wrapper. <see cref="Wrappers"/> is the full chain of row-level control wrappers between
+    /// the table and this <c>w:tr</c>, outermost first (empty for a bare <c>w:tr</c>) — e.g.
+    /// <c>[repeatingSection, repeatingSectionItem]</c> for an item's own row, four levels for a row of a
+    /// detail repeater nested in it — for callers that must attribute every wrapper level, or find the
+    /// repeater the row belongs to (<see cref="InnermostRepeater"/>).
     /// </summary>
     public readonly record struct RowSlot(
         OpenXmlElement RowChild, TableRow? InnerRow, bool IsControlRow, int? ControlId, IReadOnlyList<SdtRow> Wrappers);
 
     /// <summary>
     /// One cell of a row in document order. <see cref="CellChild"/> is the direct child of the <c>w:tr</c>
-    /// (a <c>w:tc</c> or an <see cref="SdtCell"/> wrapper); <see cref="InnerCell"/> is the <c>w:tc</c> it
-    /// resolves to (null when a cell-level control wraps none). <see cref="GridSpan"/> is how many grid
-    /// columns the cell occupies (from <c>w:tcPr/w:gridSpan</c>, default 1).
+    /// (a <c>w:tc</c> or an <see cref="SdtCell"/> wrapper); <see cref="InnerCell"/> is the innermost
+    /// <c>w:tc</c> the chain of cell-level wrappers ultimately holds (null when it holds none).
+    /// <see cref="GridSpan"/> is how many grid columns the cell occupies (from that inner cell's
+    /// <c>w:tcPr/w:gridSpan</c>, default 1). <see cref="Wrappers"/> is the full chain of cell-level control
+    /// wrappers from outermost (<see cref="CellChild"/> itself) to innermost — empty for a bare <c>w:tc</c>.
     /// </summary>
-    public readonly record struct CellSlot(OpenXmlElement CellChild, TableCell? InnerCell, int GridSpan);
+    /// <remarks>
+    /// The chain is usually one level (a BC bound field or label sitting where a <c>w:tc</c> would), but the
+    /// Business Central Word add-in's conditional controls wrap a SECOND cell-level control around a bound
+    /// field's own one: <c>SalespersonCommission.docx</c>'s "Hide Table Row If Empty"
+    /// (<c>#BC:HideTableRowIfEmpty</c>) around the bound <c>SalespersonPurchaser_Code</c> cell, and
+    /// <c>SubcontractorDispatchList.docx</c>'s "Hide Table If Empty" around a <c>gridSpan</c>-4 cell. Reading
+    /// one level only found no <c>w:tc</c> at all there, so every table tool skipped the cell — no rule, no
+    /// width, no text, span counted as 1, and the bound field had no table coordinates (GitHub issue #85).
+    /// </remarks>
+    public readonly record struct CellSlot(OpenXmlElement CellChild, TableCell? InnerCell, int GridSpan, IReadOnlyList<SdtCell> Wrappers);
 
     /// <summary>
     /// Every <c>w:tbl</c> in <paramref name="partRoot"/>, in <c>Descendants&lt;Table&gt;()</c> document
@@ -82,26 +98,97 @@ internal static class TableGridNavigator
         return table.GetFirstChild<TableGrid>()?.Elements<GridColumn>().Count() ?? 0;
     }
 
-    /// <summary>The rows of <paramref name="table"/> in document order (see <see cref="RowSlot"/>).</summary>
+    /// <summary>
+    /// The rows of <paramref name="table"/> in document order (see <see cref="RowSlot"/>): EVERY <c>w:tr</c>
+    /// whose nearest enclosing <c>w:tbl</c> is <paramref name="table"/>, however deep the row-level controls
+    /// around it nest — plus one cell-less slot for a top-level row-level control that holds no <c>w:tr</c>
+    /// at all, so its id still has a row coordinate.
+    /// </summary>
+    /// <remarks>
+    /// This used to yield one slot per direct child of the <c>w:tbl</c>, resolving a row-level control to the
+    /// FIRST <c>w:tr</c> in its chain (GitHub issue #80). Every other row of a repeater item was invisible: the
+    /// item's extra rows, its nested detail repeaters, the subtotal and spacer rows <c>insert_subtotal_row</c>
+    /// appends — the corpus norm (InventoryOrderDetails, StandardStatement, SalespersonCommission,
+    /// SubcontractorDispatchList, SalesInvoiceForSubscriptionBilling all have them). So a column edit updated
+    /// the visible rows and left those on the old grid, and <see cref="TableGridConsistencyGuard"/>, which walks
+    /// this same list, could not see the damage it exists to reject. Several slots now share one
+    /// <see cref="RowSlot.RowChild"/>; a caller that inserts a sibling of the row must use only a position
+    /// where a new <see cref="RowSlot.RowChild"/> starts (see <see cref="StartsTopLevelRow"/>).
+    /// <para>
+    /// The walk is the SDK's own iterative <c>Descendants</c> rather than a hand-rolled recursion, so a deep
+    /// chain of row-level controls needs no depth guard of its own; rows of a table nested in a cell are
+    /// filtered out by their nearest <c>w:tbl</c>.
+    /// </para>
+    /// </remarks>
     public static IReadOnlyList<RowSlot> Rows(Table table)
     {
         ArgumentNullException.ThrowIfNull(table);
         var slots = new List<RowSlot>();
         foreach (var child in table.ChildElements.Where(e => e is TableRow or SdtRow))
         {
-            if (child is SdtRow sdtRow)
-            {
-                var chain = ResolveRowWrapperChain(sdtRow);
-                slots.Add(new RowSlot(sdtRow, chain.InnerRow, IsControlRow: true, ControlId: SdtInspector.ReadControlId(sdtRow), Wrappers: chain.Wrappers));
-            }
-            else
+            if (child is not SdtRow sdtRow)
             {
                 slots.Add(new RowSlot(child, (TableRow)child, IsControlRow: false, ControlId: null, Wrappers: Array.Empty<SdtRow>()));
+                continue;
+            }
+
+            var controlId = SdtInspector.ReadControlId(sdtRow);
+            var before = slots.Count;
+            foreach (var row in sdtRow.Descendants<TableRow>().Where(tr => ReferenceEquals(NearestTable(tr), table)))
+            {
+                // The row-level controls between this w:tr and the table, outermost first.
+                var wrappers = row.Ancestors()
+                    .TakeWhile(a => !ReferenceEquals(a, table))
+                    .OfType<SdtRow>()
+                    .Reverse()
+                    .ToArray();
+                slots.Add(new RowSlot(sdtRow, row, IsControlRow: true, ControlId: controlId, Wrappers: wrappers));
+            }
+
+            if (slots.Count == before)
+            {
+                var chain = ResolveRowWrapperChain(sdtRow);
+                slots.Add(new RowSlot(sdtRow, InnerRow: null, IsControlRow: true, ControlId: controlId, Wrappers: chain.Wrappers));
             }
         }
 
         return slots;
     }
+
+    /// <summary>
+    /// True when <paramref name="rowIndex"/> is a position BETWEEN two of <paramref name="rows"/>' top-level
+    /// table children — the start of the table, its end (<paramref name="rowIndex"/> = <c>rows.Count</c>), or a
+    /// row that is the first one its <see cref="RowSlot.RowChild"/> holds — and false when it falls inside a
+    /// row-level control (between two rows of the same repeater). Only at a true position can a new row be
+    /// inserted as a direct child of the <c>w:tbl</c> and still appear where the index says.
+    /// </summary>
+    public static bool StartsTopLevelRow(IReadOnlyList<RowSlot> rows, int rowIndex)
+    {
+        ArgumentNullException.ThrowIfNull(rows);
+        return rowIndex <= 0
+            || rowIndex >= rows.Count
+            || !ReferenceEquals(rows[rowIndex].RowChild, rows[rowIndex - 1].RowChild);
+    }
+
+    /// <summary>
+    /// The innermost REPEATING SECTION among <paramref name="row"/>'s wrappers — the repeater the row is
+    /// cloned with, one item per data row — or null for a row no repeater wraps. A <c>repeatingSectionItem</c>
+    /// or a plain row-level control (a <c>w:group</c>) in the chain is skipped: neither repeats on its own.
+    /// </summary>
+    public static SdtRow? InnermostRepeater(RowSlot row)
+    {
+        for (var i = row.Wrappers.Count - 1; i >= 0; i--)
+        {
+            if (SdtInspector.IsRepeater(row.Wrappers[i]))
+            {
+                return row.Wrappers[i];
+            }
+        }
+
+        return null;
+    }
+
+    private static Table? NearestTable(OpenXmlElement element) => element.Ancestors<Table>().FirstOrDefault();
 
     /// <summary>The cells of <paramref name="innerRow"/> in document order (see <see cref="CellSlot"/>).</summary>
     public static IReadOnlyList<CellSlot> Cells(TableRow innerRow)
@@ -110,14 +197,15 @@ internal static class TableGridNavigator
         var slots = new List<CellSlot>();
         foreach (var child in innerRow.ChildElements.Where(e => e is TableCell or SdtCell))
         {
-            var inner = child switch
+            if (child is SdtCell sdtCell)
             {
-                TableCell tc => tc,
-                SdtCell sc => sc.SdtContentCell?.GetFirstChild<TableCell>(),
-                _ => null,
-            };
-
-            slots.Add(new CellSlot(child, inner, GridSpanOf(inner)));
+                var chain = ResolveCellWrapperChain(sdtCell);
+                slots.Add(new CellSlot(sdtCell, chain.InnerCell, GridSpanOf(chain.InnerCell), chain.Wrappers));
+            }
+            else
+            {
+                slots.Add(new CellSlot(child, (TableCell)child, GridSpanOf((TableCell)child), Array.Empty<SdtCell>()));
+            }
         }
 
         return slots;
@@ -233,11 +321,10 @@ internal static class TableGridNavigator
     /// <summary>
     /// Descends a chain of row-level controls starting at <paramref name="outer"/> (a <c>repeatingSection</c>
     /// may wrap a <c>repeatingSectionItem</c> which wraps the data <c>w:tr</c>), returning every wrapper
-    /// visited (outermost first) plus the innermost <c>w:tr</c> the chain ultimately holds (null if it holds
-    /// none). Used both by <see cref="Rows"/> (which only needs <see cref="RowWrapperChain.InnerRow"/>) and
-    /// by callers that must attribute EVERY wrapper level to the row's coordinate, not just the outermost
-    /// one <see cref="RowSlot.RowChild"/> reports (e.g. <see cref="TableStructureReader"/>, whose per-control
-    /// coordinate map needs a nested <c>repeatingSectionItem</c>'s own id mapped to its row too).
+    /// visited (outermost first) plus the FIRST <c>w:tr</c> met on the way down (null if it holds none).
+    /// <see cref="Rows"/> no longer enumerates rows this way — it stopped at that first <c>w:tr</c>, which is
+    /// how every later row of a repeater item went missing (GitHub issue #80) — and uses it only for the
+    /// wrapper chain of a row-level control that holds no <c>w:tr</c> at all.
     /// </summary>
     public static RowWrapperChain ResolveRowWrapperChain(SdtRow outer)
     {
@@ -258,5 +345,38 @@ internal static class TableGridNavigator
         }
 
         return new RowWrapperChain(wrappers, null);
+    }
+
+    /// <summary>The full chain of nested cell-level control wrappers <see cref="ResolveCellWrapperChain"/> returns.</summary>
+    public readonly record struct CellWrapperChain(IReadOnlyList<SdtCell> Wrappers, TableCell? InnerCell);
+
+    /// <summary>
+    /// The cell-level counterpart of <see cref="ResolveRowWrapperChain"/>: descends a chain of cell-level
+    /// controls starting at <paramref name="outer"/> (a BC add-in conditional control may wrap a bound
+    /// field's own cell-level control, which wraps the <c>w:tc</c>; see <see cref="CellSlot"/>'s remarks),
+    /// returning every wrapper visited (outermost first) plus the innermost <c>w:tc</c> the chain ultimately
+    /// holds (null if it holds none). Every level belongs to the same cell: <see cref="Cells"/> reads the
+    /// span from the innermost <c>w:tc</c>, and callers that address a control by id (an <c>afterControl</c>
+    /// location on any level) resolve it to that same cell.
+    /// </summary>
+    public static CellWrapperChain ResolveCellWrapperChain(SdtCell outer)
+    {
+        ArgumentNullException.ThrowIfNull(outer);
+        var wrappers = new List<SdtCell>();
+        SdtCell? current = outer;
+        while (current is not null)
+        {
+            wrappers.Add(current);
+            var content = current.SdtContentCell;
+            var innerCell = content?.GetFirstChild<TableCell>();
+            if (innerCell is not null)
+            {
+                return new CellWrapperChain(wrappers, innerCell);
+            }
+
+            current = content?.GetFirstChild<SdtCell>();
+        }
+
+        return new CellWrapperChain(wrappers, null);
     }
 }

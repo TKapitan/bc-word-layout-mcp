@@ -207,9 +207,9 @@ public class McpHostToolTests
                 StringComparison.OrdinalIgnoreCase);
 
             // The subfolder name itself is exactly LifecycleTools.DefaultPreviewOutputDirName's output - the
-            // fixed "merged.docx"/"preview.pdf" file names inside it stay unhashed (see PreviewLayout: the
-            // hash lives in the FOLDER name here, and only moves onto the FILE names when outputDir is
-            // explicit).
+            // fixed "merged.docx" file name inside it stays unhashed (see PreviewLayout: the hash lives in the
+            // FOLDER name here, and only moves onto the merged FILE name when outputDir is explicit; the PDF
+            // is "preview-<hash>.pdf" either way - see PreviewArtefactTests).
             var expectedDirName = LifecycleTools.DefaultPreviewOutputDirName(Corpus.Path(Corpus.SalesInvoice));
             Assert.Equal(expectedDirName, Path.GetFileName(mergedDir));
             Assert.Equal("merged.docx", Path.GetFileName(dto.MergedDocxPath));
@@ -1957,13 +1957,28 @@ public class McpHostToolTests
     }
 
     /// <summary>
-    /// The row at <paramref name="rowIndex"/>, counting BOTH plain <c>w:tr</c> AND row-level <c>SdtRow</c>
-    /// wrappers as rows — the same convention <c>TableStructureReader</c> (and therefore
-    /// <c>get_layout_info</c>'s row indices) uses, so a row index sourced from that tool lines up with the
-    /// physical row here even when an earlier row in the same table is a repeater's SdtRow.
+    /// The row at <paramref name="rowIndex"/>, counting EVERY <c>w:tr</c> of the table — including the rows
+    /// nested inside a repeater's item — the same convention <c>TableStructureReader</c> (and therefore
+    /// <c>get_layout_info</c>'s row indices) uses since GitHub issue #80, so a row index sourced from that
+    /// tool lines up with the physical row here even when an earlier row is a multi-row repeater's.
     /// </summary>
-    private static OpenXmlElement RowAt(Table table, int rowIndex) =>
-        table.ChildElements.Where(e => e is TableRow or SdtRow).ElementAt(rowIndex);
+    private static TableRow RowAt(Table table, int rowIndex) =>
+        IndependentGridWalk.Rows(table)[rowIndex];
+
+    /// <summary>
+    /// The (tableIndex, row, col) of the first body cell that is PLAIN TEXT (no control in or around it) and
+    /// whose visible text is exactly <paramref name="text"/>. Exact, because a substring search also matches
+    /// bound placeholders — InventoryOrderDetails' per-item <c>SubTotals_*</c> cells contain "Total", and they
+    /// precede the grand-total caption now that the rows inside the repeater item are listed too.
+    /// </summary>
+    private static (int TableIndex, int Row, int Col) FindPlainTextCell(string layoutPath, string text)
+    {
+        var info = Assert.IsType<LayoutInfoDto>(ReadTools.GetLayoutInfo(layoutPath).Data);
+        var match = info.Tables.Where(t => t.Part == "document.xml")
+            .SelectMany(t => t.Rows.SelectMany(r => r.Cells.Select(c => (Table: t, Row: r, Cell: c))))
+            .First(x => !x.Cell.IsControlCell && x.Cell.InnerControlIds.Count == 0 && x.Cell.Text == text);
+        return (match.Table.TableIndex, match.Row.RowIndex, match.Cell.ColIndex);
+    }
 
     /// <summary>Finds the (tableIndex, row, col) of the first body cell whose visible text contains <paramref name="needle"/>.</summary>
     private static (int TableIndex, int Row, int Col) FindCell(string layoutPath, string needle)
@@ -1995,7 +2010,7 @@ public class McpHostToolTests
         var path = CopyOfCorpus(Corpus.InventoryOrderDetails);
         try
         {
-            var (tableIndex, row, col) = FindCell(path, "Total");
+            var (tableIndex, row, col) = FindPlainTextCell(path, "Total");
 
             int cellsBefore;
             using (var probe = WordprocessingDocument.Open(path, false))
@@ -2035,7 +2050,7 @@ public class McpHostToolTests
         var path = CopyOfCorpus(Corpus.InventoryOrderDetails);
         try
         {
-            var (tableIndex, row, col) = FindCell(path, "Total");
+            var (tableIndex, row, col) = FindPlainTextCell(path, "Total");
 
             var response = EditTools.SetCellText(path, tableIndex, row, col, "Grand Total");
 

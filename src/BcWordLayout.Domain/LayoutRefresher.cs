@@ -38,9 +38,14 @@ public static class LayoutRefresher
     /// </returns>
     /// <exception cref="FileNotFoundException"><paramref name="newSchemaSource"/> does not exist.</exception>
     /// <exception cref="InvalidDataException">
-    /// <paramref name="doc"/> has no main document part or no BC dataset custom XML part to refresh;
+    /// <paramref name="doc"/> has no main document part or no BC dataset custom XML part to refresh (a part
+    /// that is there but cannot be parsed is REPAIRED, not refused - see <see cref="ResolveTarget"/>);
     /// <paramref name="newSchemaSource"/> is a <c>.docx</c> with no main document part or no BC dataset
     /// custom XML part; or is a schema <c>.xml</c> whose root is not <c>NavWordReportXmlPart</c>.
+    /// </exception>
+    /// <exception cref="LayoutDefectException">
+    /// <paramref name="doc"/> or a <c>.docx</c> <paramref name="newSchemaSource"/> carries several BC dataset
+    /// parts (<see cref="LayoutDefect.SeveralDatasetParts"/>), or the source's BC dataset part cannot be parsed.
     /// </exception>
     public static RefreshResult Refresh(WordprocessingDocument doc, string newSchemaSource)
     {
@@ -54,19 +59,11 @@ public static class LayoutRefresher
             ?? throw new InvalidDataException("Layout has no main document part.");
 
         // ---- capture the OLD identity/part BEFORE anything is loaded or mutated ----
-        var (bcPart, bcRoot) = SchemaProvider.FindBcPart(main)
-            ?? throw new InvalidDataException(
-                $"Layout has no BC dataset custom XML part (namespace starting '{OoxmlNames.BcNamespacePrefix}') to refresh.");
-
-        var oldStoreItemId = bcPart.CustomXmlPropertiesPart?.DataStoreItem?.ItemId?.Value;
-        var oldIdentity = SchemaProvider.ParseIdentity(bcRoot.Name.NamespaceName, oldStoreItemId);
-
-        // Capture the OLD schema's own leaf column paths BEFORE the BC part's content is overwritten below -
-        // NewUnboundFields (see its own remarks) needs this to report a genuine OLD-vs-NEW diff rather than
-        // every unbound leaf that happens to still be sitting in the new schema.
-        var oldColumnPaths = SchemaProvider.FromMainPart(main).AllColumns(includeSystem: false)
-            .Select(c => c.Path)
-            .ToHashSet(StringComparer.Ordinal);
+        var target = ResolveTarget(main);
+        var bcPart = target.Part;
+        var oldStoreItemId = target.OldIdentity.StoreItemId;
+        var oldIdentity = target.OldIdentity;
+        var oldColumnPaths = target.OldColumnPaths;
 
         // Capture the control inventory before any mutation. This is equally valid read before or after -
         // refresh never changes a binding's XPath element-name steps (only w:prefixMappings/w:tag, on a
@@ -123,11 +120,17 @@ public static class LayoutRefresher
             .ToList();
 
         // ---- new unbound fields: a genuine OLD-vs-NEW diff (non-label, new to this schema, still unbound) ----
+        //
+        // Empty when the old part could not be read: with no old schema there is no diff to compute, and
+        // listing every unbound column instead would report the fields the layout simply never used as "new"
+        // (see RefreshResult.NewUnboundFields).
         var boundPaths = BuildBoundPaths(inventory);
-        var newUnboundFields = newTree.AllColumns(includeSystem: false)
-            .Where(c => !c.IsLabel && !oldColumnPaths.Contains(c.Path) && !boundPaths.Contains(c.Path))
-            .Select(c => c.Path)
-            .ToList();
+        var newUnboundFields = target.Unreadable is not null
+            ? []
+            : newTree.AllColumns(includeSystem: false)
+                .Where(c => !c.IsLabel && !oldColumnPaths.Contains(c.Path) && !boundPaths.Contains(c.Path))
+                .Select(c => c.Path)
+                .ToList();
 
         // ---- mutate: replace the BC part's raw content, keeping the SAME part / the SAME ds:itemID ----
         using (var partStream = bcPart.GetStream(FileMode.Create, FileAccess.Write))
@@ -161,8 +164,65 @@ public static class LayoutRefresher
             OrphanedBindings = orphaned,
             RepointedForeignBindings = repointedForeign,
             NewUnboundFields = newUnboundFields,
+            RepairedUnreadablePart = target.Unreadable?.Describe(),
             QuickValidation = quick,
         };
+    }
+
+    // ---- the part to refresh: the layout's readable BC part, or the one unreadable candidate to repair ----
+
+    /// <summary>
+    /// The BC part a refresh replaces, plus what is known of it BEFORE its content is overwritten: its old
+    /// identity and its old leaf column paths (empty, with <see cref="Unreadable"/> set, when it cannot be read).
+    /// </summary>
+    private sealed record RefreshTarget(
+        CustomXmlPart Part, ReportIdentity OldIdentity, IReadOnlySet<string> OldColumnPaths, UnreadableBcPart? Unreadable);
+
+    /// <summary>
+    /// Picks the part this refresh replaces. Ordinarily the layout's readable BC dataset part, whose OLD
+    /// schema is read in full first - <see cref="RefreshResult.NewUnboundFields"/> needs the old leaf column
+    /// paths to report a genuine OLD-vs-NEW diff rather than every unbound leaf still sitting in the new schema.
+    /// </summary>
+    /// <remarks>
+    /// REPAIR (GitHub issue #96). When no part parses as a BC dataset part but exactly one is recognisably
+    /// one (<see cref="SchemaProvider.Scan"/>), that part is the target: replacing its content is exactly the
+    /// repair it needs, and this is the only tool that can make it - every other tool needs the part readable
+    /// first. Its old identity is what its itemProps schemaRef or raw bytes name (all that can be known of an
+    /// unparsable part), and it keeps its <c>ds:itemID</c> like any refreshed part, so the layout's bindings stay
+    /// linked. Refusing here, as this used to ("Layout has no BC dataset custom XML part to refresh"), left the
+    /// layout with no repair path inside the tool set at all.
+    /// <para>
+    /// SEVERAL BC parts are refused (GitHub issue #101): this used to replace "the first" in relationship
+    /// order, so with a foreign part listed first it rewrote THAT part, reported namespaceChanged, listed
+    /// dozens of the layout's own columns as new, and left errors no tool could clear.
+    /// <see cref="SchemaProvider.FindBcPart"/> is the refusal, unreadable candidates counting towards it.
+    /// </para>
+    /// </remarks>
+    private static RefreshTarget ResolveTarget(MainDocumentPart main)
+    {
+        var scan = SchemaProvider.Scan(main);
+        if (scan.Count == 1 && scan.Unreadable is [var broken])
+        {
+            return new RefreshTarget(
+                broken.Part,
+                SchemaProvider.ParseIdentity(broken.Namespace, broken.ItemId),
+                new HashSet<string>(StringComparer.Ordinal),
+                broken);
+        }
+
+        var (bcPart, bcRoot) = SchemaProvider.FindBcPart(main)
+            ?? throw new InvalidDataException(
+                $"Layout has no BC dataset custom XML part (namespace starting '{OoxmlNames.BcNamespacePrefix}') to refresh.");
+
+        var oldColumnPaths = SchemaProvider.FromMainPart(main).AllColumns(includeSystem: false)
+            .Select(c => c.Path)
+            .ToHashSet(StringComparer.Ordinal);
+
+        return new RefreshTarget(
+            bcPart,
+            SchemaProvider.ParseIdentity(bcRoot.Name.NamespaceName, SchemaProvider.ReadItemId(bcPart)),
+            oldColumnPaths,
+            Unreadable: null);
     }
 
     // ---- new schema loading (.docx layout vs standalone schema .xml) ----
@@ -187,7 +247,8 @@ public static class LayoutRefresher
             var sourceMain = sourceDoc.MainDocumentPart
                 ?? throw new InvalidDataException($"'{newSchemaSource}' has no main document part.");
 
-            var found = SchemaProvider.FindBcPart(sourceMain)
+            // FindBcPart refuses a source carrying several BC parts too: which schema to copy would be a guess.
+            var found = SchemaProvider.FindBcPart(sourceMain, $"newSchemaSource '{newSchemaSource}'")
                 ?? throw new InvalidDataException(
                     $"'{newSchemaSource}' has no BC dataset custom XML part (namespace starting "
                     + $"'{OoxmlNames.BcNamespacePrefix}').");

@@ -36,6 +36,8 @@ import sys
 import threading
 import time
 import traceback
+import xml.etree.ElementTree as ET
+import zipfile
 
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 HOST = os.path.join(REPO, "src", "BcWordLayout.McpHost", "bin", "Release", "net10.0", "BcWordLayout.McpHost.dll")
@@ -167,6 +169,43 @@ class Ctx:
     @staticmethod
     def grid_total(table: dict) -> int:
         return sum(table["gridColumnWidths"])
+
+    def rows_off_grid(self, table_index: int, part: str = "word/document.xml") -> list[str]:
+        """Rows of the table_index-th table of `part` in the saved work.docx whose gridBefore + sum of
+        gridSpan + gridAfter differs from the table's w:gridCol count - one line per offender, empty when
+        every row covers the grid.
+
+        Read straight off the XML, sharing no code with the server: a row is EVERY w:tr whose nearest
+        w:tbl is the table (rows nested in repeater items included), a cell every w:tc whose nearest w:tr
+        is the row (however many cell-level controls wrap it). Checks that asked the server could not see
+        the rows its own walker missed (GitHub issue #80), so they passed while those rows were broken.
+        """
+        w = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+        with zipfile.ZipFile(self.work) as package:
+            root = ET.fromstring(package.read(part))
+        parent = {child: node for node in root.iter() for child in node}
+
+        def nearest(element, tag):
+            node = parent.get(element)
+            while node is not None and node.tag != w + tag:
+                node = parent.get(node)
+            return node
+
+        def val(element, path):
+            found = element.find(path)
+            return int(found.get(w + "val")) if found is not None else 0
+
+        table = list(root.iter(w + "tbl"))[table_index]
+        grid = len(table.find(w + "tblGrid").findall(w + "gridCol"))
+        rows = [tr for tr in table.iter(w + "tr") if nearest(tr, "tbl") is table]
+        offenders = []
+        for index, tr in enumerate(rows):
+            spans = sum(max(1, val(tc, f"{w}tcPr/{w}gridSpan"))
+                        for tc in tr.iter(w + "tc") if nearest(tc, "tr") is tr)
+            total = val(tr, f"{w}trPr/{w}gridBefore") + spans + val(tr, f"{w}trPr/{w}gridAfter")
+            if total != grid:
+                offenders.append(f"w:tr {index} covers {total} of {grid} grid columns")
+        return offenders
 
     @staticmethod
     def find_data_item(node: dict, name: str) -> dict | None:
@@ -540,6 +579,9 @@ def s10(ctx: Ctx):
     after = ctx.info()["tables"][index]
     ctx.expect(after["columnCount"] == table["columnCount"] - 1, "one aging-band column removed")
     ctx.expect(ctx.grid_total(after) == total_before, "table width preserved")
+    off_grid = ctx.rows_off_grid(index)
+    ctx.expect(not off_grid, "every w:tr of the table, the nested detail rows included, covers the shrunk "
+                             f"grid (issue #80; off-grid: {off_grid})")
 
 
 @scenario("s11-quote-insert-repeater-table",
@@ -669,6 +711,9 @@ def s16(ctx: Ctx):
     ctx.edit("remove_column", tableIndex=index, column=table["columnCount"] - 1)
     after = ctx.info()["tables"][index]
     ctx.expect(ctx.grid_total(after) == total_before, "table width preserved")
+    off_grid = ctx.rows_off_grid(index)
+    ctx.expect(not off_grid, "every w:tr of the table, the rows nested in the /Item item included, covers "
+                             f"the shrunk grid (issue #80; off-grid: {off_grid})")
     # The default convention's labels-data-item rule classifies this layout's <Labels> columns with no
     # configuration, so previews sample them as captions and the hint has nothing to point at (it only
     # fires when a host explicitly disables/retargets the rule via BCWL_LABELS_DATA_ITEM).
@@ -758,7 +803,11 @@ def s19(ctx: Ctx):
     ctx.expect("renders exactly once" in grand["summary"], "the grand total is table-static, not per-group")
 
     after = ctx.info()["tables"][table["tableIndex"]]
+    # Every w:tr is its own row (issue #80): header, line, detail, spacer, subtotal, grand total.
+    ctx.expect(after["rowCount"] == 6, f"all six rows are listed (got {after['rowCount']})")
     ctx.edit("set_cell_borders", tableIndex=table["tableIndex"], row=after["rowCount"] - 1, edges="top")
+    off_grid = ctx.rows_off_grid(table["tableIndex"])
+    ctx.expect(not off_grid, f"every w:tr of the authored table covers its grid (off-grid: {off_grid})")
 
 
 # ================================================================ CLI

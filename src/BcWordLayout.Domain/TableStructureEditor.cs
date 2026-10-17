@@ -106,9 +106,10 @@ public static class TableStructureEditor
     /// vMerge tables — there is no span arithmetic here to get wrong.
     /// </summary>
     /// <param name="col">
-    /// 0-based PHYSICAL cell index within the row (the same index <c>get_layout_info</c> reports), or null
+    /// 0-based PHYSICAL cell index within the row (the <c>colIndex</c> <c>get_layout_info</c> reports), or null
     /// for every cell in the row. Physical rather than grid: a rule is drawn on a cell, and a spanned cell is
-    /// one cell however many grid columns it covers.
+    /// one cell however many grid columns it covers. The result's <see cref="TableEditResult.ColumnIndex"/>
+    /// is nevertheless the GRID column that cell starts at (null for a whole row), like every table tool's.
     /// </param>
     /// <exception cref="ArgumentException">
     /// <paramref name="options"/> selects no edge at all (nothing to do), or its
@@ -184,12 +185,20 @@ public static class TableStructureEditor
 
         var verb = options.Remove ? "Cleared" : "Drew";
         var where = col is { } c ? $"cell {c} of row {row}" : $"all {cellsAffected} cell(s) of row {row}";
+
+        // ColumnIndex is documented, for every table tool, as a GRID column — merge_cells/split_cells already
+        // report the grid column their cell starts at. This one used to echo the PHYSICAL col back (GitHub
+        // issue #81), which names a different column on any spanned row; report where the cell sits instead.
+        int? gridColumn = col is { } physical
+            ? TableGridNavigator.GridEdges(innerRow).Before + cellSlots.Take(physical).Sum(s => s.GridSpan)
+            : null;
+
         return new TableEditResult
         {
             Operation = "set_cell_borders",
             Part = partFile,
             TableIndex = tableIndex,
-            ColumnIndex = col,
+            ColumnIndex = gridColumn,
             RowsAffected = 1,
             ColumnCountBefore = gridCount,
             ColumnCountAfter = gridCount,
@@ -366,7 +375,7 @@ public static class TableStructureEditor
         // headerLabelPath used to skip loading it, which silently turned the label into static text and
         // never checked the path at all (GitHub issue #82).
         var schema = mode != InsertColumnMode.PlainText || options.HeaderLabelPath is not null
-            ? SchemaProvider.FromLayout(doc)
+            ? SchemaProvider.FromLayoutForBinding(doc)
             : null;
         ValidateInsertColumnPaths(schema, options);
 
@@ -618,26 +627,37 @@ public static class TableStructureEditor
     /// that rule applies to them. In a plain table, every row that is not a header row, as before.
     /// </para>
     /// <para>
+    /// ONE DATA ROW PER REPEATER ITEM. Every <c>w:tr</c> of the table is planned, including the rows nested
+    /// in a repeater item (GitHub issue #80: only an item's FIRST row used to be visible, so the rest kept the
+    /// old grid). A multi-row item has several rows of its own — the corpus's InventoryOrderDetails <c>/Item</c>
+    /// item is a spacer row, the item's field row, a nested detail row and a subtotals row; a tool-built item
+    /// is the line row plus <c>insert_subtotal_row</c>'s rows — and binding the field into all of them would
+    /// print it once per row of every item. Exactly one row per repeater item receives it: the first of the
+    /// item's own rows that already binds a field or label of the data path's own data item (the row the new
+    /// field's siblings sit in — InventoryOrderDetails' field row rather than its leading spacer),
+    /// else the item's first own row, which is all the old code ever saw. The item's other rows, and the rows
+    /// of detail repeaters nested in it, are filler.
+    /// </para>
+    /// <para>
     /// UNUSABLE ARGUMENTS ARE REFUSED, not dropped: an explicit headerText/headerLabelPath on a table with no
     /// header row (it used to vanish, returning <c>ok:true</c>), and field/label mode on a table with no row
     /// to hold the field.
-    /// </para>
-    /// <para>
-    /// Only the FIRST <c>w:tr</c> of a repeater's item is visible here (<see cref="TableGridNavigator"/>
-    /// resolves a row-level control to one inner row; GitHub issue #80), so a multi-row item's later rows are
-    /// not planned at all — unchanged by this method.
     /// </para>
     /// </remarks>
     private static List<RowInsertPlan> PlanInsertColumnRows(Table table, int tableIndex, InsertColumnOptions options)
     {
         var mode = options.Mode;
         var rowSlots = TableGridNavigator.Rows(table);
-        var repeaterPaths = rowSlots.Select(r => r.InnerRow is null ? null : RepeaterDataItemPath(r)).ToList();
+        var repeaters = rowSlots.Select(r => r.InnerRow is null ? null : TableGridNavigator.InnermostRepeater(r)).ToList();
+        var repeaterPaths = repeaters.Select(r => r is null ? null : RepeaterDataItemPath(r)).ToList();
         var hasRepeater = repeaterPaths.Any(p => p is not null);
         var anyTblHeader = rowSlots.Any(r => HasTblHeader(r.InnerRow));
         var dataRepeater = hasRepeater && mode != InsertColumnMode.PlainText
             ? ResolveDataRepeater(repeaterPaths, options.DataPath!, tableIndex)
             : null;
+        var dataRows = dataRepeater is null
+            ? new HashSet<int>()
+            : ChooseDataRows(rowSlots, repeaters, repeaterPaths, dataRepeater, DataItemOf(options.DataPath!));
 
         var plans = new List<RowInsertPlan>(rowSlots.Count);
         for (var idx = 0; idx < rowSlots.Count; idx++)
@@ -654,7 +674,7 @@ public static class TableStructureEditor
                     : IsCaptionRow(innerRow);
             var isDataRow = !isHeaderRow
                 && (hasRepeater
-                    ? dataRepeater is not null && string.Equals(repeaterPaths[idx], dataRepeater, StringComparison.Ordinal)
+                    ? dataRows.Contains(idx)
                     : mode != InsertColumnMode.PlainText);
             var receivesContent = isHeaderRow || (isDataRow && mode != InsertColumnMode.PlainText);
 
@@ -696,14 +716,16 @@ public static class TableStructureEditor
     /// <remarks>
     /// A path OUTSIDE every repeater of the table (a parent/Header field shown on each line, which the tool
     /// contract allows) has no nearest repeater. It is placed only when the table repeats a single data
-    /// item nested under the path's own — then there is one candidate row and no choice to make. With two
-    /// or more (the stock lines tables' Line + ReportTotalsLine), or when the path is unrelated to every
-    /// repeater, the call is refused naming the table's repeaters rather than guessing (ADR-0003).
+    /// item nested under the path's own — then there is one candidate row and no choice to make. Detail
+    /// repeaters nested in that one (a <c>/Header/Line/AssemblyLine</c> row inside the <c>/Header/Line</c>
+    /// item, visible here since GitHub issue #80) do not make it two: the field goes to the outermost repeater,
+    /// whose item the detail rows belong to. With two or more independent ones (the stock lines tables' Line +
+    /// ReportTotalsLine), or when the path is unrelated to every repeater, the call is refused naming the
+    /// table's repeaters rather than guessing (ADR-0003).
     /// </remarks>
     private static string ResolveDataRepeater(IReadOnlyList<string?> repeaterPaths, string dataPath, int tableIndex)
     {
-        var pathSegments = dataPath.Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        var dataItem = "/" + string.Join("/", pathSegments.Take(pathSegments.Length - 1));
+        var dataItem = DataItemOf(dataPath);
         var repeaters = repeaterPaths.OfType<string>().Distinct(StringComparer.Ordinal).ToList();
 
         var enclosing = repeaters
@@ -715,9 +737,12 @@ public static class TableStructureEditor
             return enclosing;
         }
 
-        if (repeaters.Count == 1 && IsSameOrDescendant(repeaters[0], dataItem))
+        var outermost = repeaters
+            .Where(r => !repeaters.Any(other => other != r && IsSameOrDescendant(r, other)))
+            .ToList();
+        if (outermost.Count == 1 && IsSameOrDescendant(outermost[0], dataItem))
         {
-            return repeaters[0];
+            return outermost[0];
         }
 
         throw new ArgumentException(
@@ -728,34 +753,68 @@ public static class TableStructureEditor
             + "the target row is unambiguous). Pick a column of one of those data items, or bind a specific "
             + "cell with insert_field (locationType 'tableCell').",
             nameof(dataPath));
+    }
 
-        static bool IsSameOrDescendant(string path, string ancestor) =>
-            string.Equals(path, ancestor, StringComparison.Ordinal)
-            || path.StartsWith(ancestor + "/", StringComparison.Ordinal);
+    private static bool IsSameOrDescendant(string path, string ancestor) =>
+        string.Equals(path, ancestor, StringComparison.Ordinal)
+        || path.StartsWith(ancestor + "/", StringComparison.Ordinal);
+
+    /// <summary>The data item a dataset path's leaf column belongs to: <c>/Header/Line</c> for <c>/Header/Line/UnitPrice</c>.</summary>
+    private static string DataItemOf(string dataPath)
+    {
+        var segments = dataPath.Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        return "/" + string.Join("/", segments.Take(segments.Length - 1));
     }
 
     /// <summary>
-    /// The dataset path (<c>/Header/Line</c>) of the data item a row repeats over: the binding of the
-    /// INNERMOST repeating section in the row's wrapper chain (the one closest to the <c>w:tr</c>, i.e. the
-    /// item the row is cloned for). Null for a bare row, and for a row-level control that is not a
-    /// repeater (or carries no binding) — such a row is planned like any other plain row.
+    /// The one row of each item of <paramref name="dataRepeater"/> that receives a field/label column — see
+    /// <see cref="PlanInsertColumnRows"/>'s remarks: per repeater CONTROL (a table may hold two repeaters
+    /// over the same data item, as StandardStatement's overdue-entries table does), the first of its own rows
+    /// that binds a field or label of <paramref name="dataItem"/>, else its first own row.
     /// </summary>
-    private static string? RepeaterDataItemPath(TableGridNavigator.RowSlot row)
+    private static HashSet<int> ChooseDataRows(
+        IReadOnlyList<TableGridNavigator.RowSlot> rowSlots,
+        List<SdtRow?> repeaters,
+        List<string?> repeaterPaths,
+        string dataRepeater,
+        string dataItem)
     {
-        for (var i = row.Wrappers.Count - 1; i >= 0; i--)
+        var chosen = new HashSet<int>();
+        var ownRowsByRepeater = Enumerable.Range(0, rowSlots.Count)
+            .Where(i => repeaters[i] is not null && string.Equals(repeaterPaths[i], dataRepeater, StringComparison.Ordinal))
+            .GroupBy(i => repeaters[i]!, ReferenceEqualityComparer.Instance);
+        foreach (var ownRows in ownRowsByRepeater)
         {
-            var wrapper = row.Wrappers[i];
-            if (!SdtInspector.IsRepeater(wrapper))
-            {
-                continue;
-            }
-
-            var binding = wrapper.GetFirstChild<SdtProperties>() is { } pr ? SdtInspector.FindRepeaterBinding(pr) : null;
-            var segments = BindingXPath.Segments(binding is null ? null : SdtInspector.Attr(binding, "xpath", OoxmlNames.W));
-            return segments.Count <= 1 ? null : "/" + string.Join("/", segments.Skip(1));
+            var rows = ownRows.ToList();
+            var sibling = rows.Cast<int?>().FirstOrDefault(i => BindsDataItem(rowSlots[i!.Value].InnerRow!, dataItem));
+            chosen.Add(sibling ?? rows[0]);
         }
 
-        return null;
+        return chosen;
+    }
+
+    /// <summary>
+    /// True when <paramref name="row"/> itself (not a table nested in one of its cells) holds a field or label
+    /// control bound to a column of <paramref name="dataItem"/>.
+    /// </summary>
+    private static bool BindsDataItem(TableRow row, string dataItem) =>
+        row.Descendants<SdtElement>()
+            .Where(s => ReferenceEquals(s.Ancestors<TableRow>().FirstOrDefault(), row))
+            .Where(s => SdtInspector.ClassifyControlKind(s) is ControlKind.Field or ControlKind.Label)
+            .Select(s => BindingXPath.Segments(SdtInspector.ReadXPath(s)))
+            .Any(segments => segments.Count > 2
+                && string.Equals("/" + string.Join("/", segments.Skip(1).Take(segments.Count - 2)), dataItem, StringComparison.Ordinal));
+
+    /// <summary>
+    /// The dataset path (<c>/Header/Line</c>) of the data item <paramref name="repeater"/> repeats over, from
+    /// its own binding. Null when it carries no binding — a row of such a repeater is planned like any other
+    /// plain row.
+    /// </summary>
+    private static string? RepeaterDataItemPath(SdtRow repeater)
+    {
+        var binding = repeater.GetFirstChild<SdtProperties>() is { } pr ? SdtInspector.FindRepeaterBinding(pr) : null;
+        var segments = BindingXPath.Segments(binding is null ? null : SdtInspector.Attr(binding, "xpath", OoxmlNames.W));
+        return segments.Count <= 1 ? null : "/" + string.Join("/", segments.Skip(1));
     }
 
     /// <summary>
@@ -893,9 +952,10 @@ public static class TableStructureEditor
 
     /// <summary>
     /// Inserts ONE static (non-repeating) <c>w:tr</c> into the <paramref name="tableIndex"/>-th table at
-    /// row-slot position <paramref name="atRow"/> (0-based, the SAME numbering <c>get_layout_info</c>'s
-    /// <c>tables[]</c> uses, where a repeater's whole repeating section counts as one row; null appends
-    /// after the last row) — the stock BC shape for the totals block INSIDE the line-items table (GitHub
+    /// row position <paramref name="atRow"/> (0-based, the SAME numbering <c>get_layout_info</c>'s
+    /// <c>tables[]</c> uses — one per <c>w:tr</c>, a repeater's rows included — at a position that is not
+    /// inside a row-level control; null appends after the last row) — the stock BC shape for the totals
+    /// block INSIDE the line-items table (GitHub
     /// issue #28): every stock document layout ends its lines table with right-anchored trailing rows
     /// (leading empty cells, <c>gridSpan</c>-merged content cells, bound totals fields — corpus:
     /// <c>StandardSalesQuote</c>/<c>StandardPurchaseOrder</c>/<c>StandardSalesInvoiceVatSpec</c>) rather
@@ -917,7 +977,8 @@ public static class TableStructureEditor
     /// </remarks>
     /// <exception cref="ArgumentException">
     /// <paramref name="cells"/> is empty or its spans do not sum to the grid column count;
-    /// <paramref name="atRow"/> is out of range; <paramref name="format"/> sets an alignment (per-cell
+    /// <paramref name="atRow"/> is out of range, or falls between two rows of the same row-level control
+    /// (see <see cref="RejectPositionInsideRowControl"/>); <paramref name="format"/> sets an alignment (per-cell
     /// alignments belong on <paramref name="cells"/>); the table uses vMerge; or (propagated from
     /// <see cref="SdtFactory.BuildStaticRow"/>) a path does not resolve to a leaf column.
     /// </exception>
@@ -974,11 +1035,13 @@ public static class TableStructureEditor
                 nameof(atRow));
         }
 
+        RejectPositionInsideRowControl(rowSlots, target, tableIndex);
+
         // ResolveTable already guarantees a w:tblGrid exists (gridCount comes from it).
         var gridColumns = table.GetFirstChild<TableGrid>()!.Elements<GridColumn>().ToList();
         var widths = LayoutEditor.ComputeCellWidthsFromGrid(gridColumns, cells);
 
-        var schema = SchemaProvider.FromLayout(doc);
+        var schema = LayoutEditor.SchemaForRow(doc, cells);
         var nextId = LayoutEditor.MakeIdGenerator(doc);
         var row = SdtFactory.BuildStaticRow(schema, cells, widths, nextId);
 
@@ -1021,6 +1084,49 @@ public static class TableStructureEditor
                 + "table row, not part of any repeating section. Follow up with set_cell_borders (row "
                 + $"{target}) for the rule a BC totals row carries, or set_cell_text for a literal caption.",
         };
+    }
+
+    /// <summary>
+    /// Refuses an <c>atRow</c> that falls BETWEEN two rows of the same row-level control — inside a repeater
+    /// item, now that its every row has an index of its own (GitHub issue #80).
+    /// </summary>
+    /// <remarks>
+    /// No honest placement exists there. A static row put INSIDE the item would be cloned with it and print
+    /// once per data row — the opposite of what <c>insert_table_row</c> promises (that is
+    /// <c>insert_subtotal_row</c>'s job, and it only appends at the item's end). Put outside, as a direct
+    /// table row, it would land before or after the WHOLE control, not at the row index asked for. So the call
+    /// is refused (ADR-0003), naming the control's row range and the two positions that do work.
+    /// </remarks>
+    private static void RejectPositionInsideRowControl(
+        IReadOnlyList<TableGridNavigator.RowSlot> rowSlots, int target, int tableIndex)
+    {
+        if (TableGridNavigator.StartsTopLevelRow(rowSlots, target))
+        {
+            return;
+        }
+
+        var control = rowSlots[target].RowChild;
+        var first = target;
+        while (first > 0 && ReferenceEquals(rowSlots[first - 1].RowChild, control))
+        {
+            first--;
+        }
+
+        var last = target;
+        while (last + 1 < rowSlots.Count && ReferenceEquals(rowSlots[last + 1].RowChild, control))
+        {
+            last++;
+        }
+
+        var alias = control is SdtElement sdt ? SdtInspector.ReadAlias(sdt) : null;
+        throw new ArgumentException(
+            $"atRow {target} falls inside a row-level control of table {tableIndex}: rows {first}..{last} all "
+            + $"belong to control {rowSlots[target].ControlId?.ToString(CultureInfo.InvariantCulture) ?? "?"}"
+            + (alias is null ? string.Empty : $" ('{alias}')")
+            + ". A static row inside it would repeat with it (once per data row, for a repeater), and outside it "
+            + $"would not sit at row {target}. Use atRow {first} (just before it) or {last + 1} (just after it); "
+            + "for a row that should repeat with each item of a repeater, use insert_subtotal_row.",
+            "atRow");
     }
 
     /// <summary>
@@ -1073,19 +1179,24 @@ public static class TableStructureEditor
         // basis to scale from).
         var allWidthsKnown = TryGetGridWidths(table, out var widthsBefore);
 
-        var rowsAffected = 0;
-        foreach (var row in TableGridNavigator.Rows(table))
+        // What happened to each row, for the summary: a caller who picked the wrong index (a physical cell
+        // index instead of a grid column — GitHub issue #81) otherwise had only "updating N row(s)" to go on,
+        // which reads the same whether the intended cells went or a neighbouring span merely got narrower.
+        var outcomes = new RemovalOutcomes();
+        var rows = TableGridNavigator.Rows(table);
+        for (var r = 0; r < rows.Count; r++)
         {
-            if (row.InnerRow is null)
+            if (rows[r].InnerRow is not { } innerRow)
             {
                 continue;
             }
 
-            var cells = TableGridNavigator.Cells(row.InnerRow);
-            var coverage = TableGridNavigator.Coverage(row.InnerRow);
+            var cells = TableGridNavigator.Cells(innerRow);
+            var coverage = TableGridNavigator.Coverage(innerRow);
             if (coverage.Total != gridCount)
             {
-                continue; // A pre-existing malformed row: do not guess how to shrink it.
+                outcomes.Untouched.Add(r); // A pre-existing malformed row: do not guess how to shrink it.
+                continue;
             }
 
             // The removed grid column may fall in a row's SKIPPED region rather than on one of its cells (a
@@ -1094,15 +1205,15 @@ public static class TableStructureEditor
             // coverage equal to the newly shrunk grid exactly as a cell removal does for the other rows.
             if (gridColumn < coverage.Before)
             {
-                TableGridNavigator.SetGridEdges(row.InnerRow, coverage.Before - 1, coverage.After);
-                rowsAffected++;
+                TableGridNavigator.SetGridEdges(innerRow, coverage.Before - 1, coverage.After);
+                outcomes.SkippedRunShrunk.Add(r);
                 continue;
             }
 
             if (gridColumn >= coverage.ContentEnd)
             {
-                TableGridNavigator.SetGridEdges(row.InnerRow, coverage.Before, coverage.After - 1);
-                rowsAffected++;
+                TableGridNavigator.SetGridEdges(innerRow, coverage.Before, coverage.After - 1);
+                outcomes.SkippedRunShrunk.Add(r);
                 continue;
             }
 
@@ -1114,19 +1225,22 @@ public static class TableStructureEditor
                     if (cell.GridSpan <= 1)
                     {
                         cell.CellChild.Remove();
+                        outcomes.CellDeleted.Add(r);
                     }
                     else
                     {
                         SetCellGridSpan(cell.InnerCell, cell.GridSpan - 1);
+                        outcomes.SpanNarrowed.Add(r);
                     }
 
-                    rowsAffected++;
                     break;
                 }
 
                 cursor += cell.GridSpan;
             }
         }
+
+        var rowsAffected = outcomes.CellDeleted.Count + outcomes.SpanNarrowed.Count + outcomes.SkippedRunShrunk.Count;
 
         GridColumns(table)[gridColumn].Remove();
 
@@ -1154,8 +1268,60 @@ public static class TableStructureEditor
             ColumnCountAfter = gridCount - 1,
             Summary = $"Removed grid column {gridColumn} from table {tableIndex}"
                 + (partFile == "document.xml" ? string.Empty : $" in {partFile}")
-                + $", updating {rowsAffected} row(s){widthNote}.",
+                + $", updating {rowsAffected} row(s) ({outcomes.Describe()}){widthNote}."
+                + outcomes.NoOwnCellNote(gridColumn),
         };
+    }
+
+    /// <summary>
+    /// Which rows <see cref="RemoveColumn"/> changed, and how — the row indexes are the same ones
+    /// <c>get_layout_info</c>'s <c>tables[].rows[]</c> reports.
+    /// </summary>
+    private sealed class RemovalOutcomes
+    {
+        /// <summary>Rows whose cell at the removed grid column spanned only it, and was deleted.</summary>
+        public List<int> CellDeleted { get; } = new();
+
+        /// <summary>Rows whose cell at the removed grid column spans further columns, and lost one of span.</summary>
+        public List<int> SpanNarrowed { get; } = new();
+
+        /// <summary>Rows that reach the removed grid column through a <c>w:gridBefore</c>/<c>w:gridAfter</c> run, which shrank.</summary>
+        public List<int> SkippedRunShrunk { get; } = new();
+
+        /// <summary>Pre-existing rows that did not match the grid, left as they were.</summary>
+        public List<int> Untouched { get; } = new();
+
+        public string Describe()
+        {
+            var parts = new List<string>(4);
+            Add(CellDeleted, "deleted the covering cell");
+            Add(SpanNarrowed, "narrowed the covering spanned cell by one column");
+            Add(SkippedRunShrunk, "shrank the skipped grid run");
+            Add(Untouched, "left untouched (already off-grid before the edit)");
+            return parts.Count == 0 ? "no row reaches that column" : string.Join("; ", parts);
+
+            void Add(List<int> rows, string what)
+            {
+                if (rows.Count > 0)
+                {
+                    parts.Add($"{what} in row{(rows.Count == 1 ? string.Empty : "s")} {string.Join(", ", rows)}");
+                }
+            }
+        }
+
+        /// <summary>
+        /// A warning when NO row had a cell of its own at the removed grid column — every covering cell was
+        /// a spanned one that merely got narrower. That is a legitimate edit (dropping a grid column that only
+        /// exists as part of spans), but it is also exactly what passing a physical cell index for the grid
+        /// column looks like (GitHub issue #81), so the summary says so rather than leave it to a preview.
+        /// </summary>
+        public string NoOwnCellNote(int gridColumn) =>
+            CellDeleted.Count == 0 && SpanNarrowed.Count > 0
+                ? $" No row had a cell of its own in grid column {gridColumn}: every cell covering it spans "
+                  + "further columns and was narrowed, not deleted. If you meant to remove a column of cells, "
+                  + "take its index from the gridColumn of one of those cells in get_layout_info's tables[] "
+                  + "(colIndex is the physical position in the row, which differs on spanned rows)."
+                : string.Empty;
     }
 
     /// <summary>

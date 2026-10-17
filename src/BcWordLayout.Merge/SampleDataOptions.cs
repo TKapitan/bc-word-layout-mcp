@@ -70,9 +70,10 @@ public sealed class SampleDataOptions
     /// an unconsumed ancestor never needed more than one instance in the first place (every extra one was pure
     /// waste, and worse, could exhaust <see cref="MaxTotalInstances"/> before a REAL repeater's own rows were
     /// generated); a field bound under an unconsumed item (no repeater at all in its own subtree) shows a
-    /// single resolved value either way; and a completely unread item still gets its one instance, so an
-    /// absolute-XPath fallback (<see cref="MergeEngine"/>'s <c>xpath-fallback</c> path, taken when re-anchoring
-    /// a divergent binding fails) can still resolve against it instead of false-reporting <c>unresolved-binding</c>.
+    /// single resolved value either way; and a completely unread item still gets its one instance, so a
+    /// binding <see cref="MergeEngine"/> reads from the document root (one inside a repeater row that lies
+    /// outside every enclosing repeater's data item, or an <c>xpath-fallback</c>) can still resolve
+    /// against it instead of false-reporting <c>unresolved-binding</c>.
     /// KNOWN (accepted) limit of the one-instance rule: a binding whose ANCESTOR step carries a positional
     /// index &gt; 1 (e.g. <c>/…/Header[2]/Line</c> as a repeater's own row xpath, or <c>Header[2]/Foo</c> for a
     /// field) would no longer resolve, because the unconsumed ancestor now has exactly one instance — verified

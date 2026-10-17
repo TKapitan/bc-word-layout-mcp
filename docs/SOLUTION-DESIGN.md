@@ -186,12 +186,16 @@ alongside the quick checks in `Domain.LayoutValidator`.
 
 Conventions that hold across the surface:
 
-- **Absolute paths only.** Every tool takes absolute file paths; mutating tools write in place.
+- **Absolute paths only.** Every tool takes absolute file paths; mutating tools write in place. The
+  call boundary enforces it: a relative path is refused as `invalid_argument` rather than resolved
+  against the server's working directory, and so is an argument name the tool's schema does not have
+  (a misspelled optional argument would otherwise silently take its default).
 - **One uniform envelope**: `{ok, data, error}`, where `error` carries `code`, `message` and a **`hint`
   that is never empty** — it names the argument to fix and its valid values, or the inspection tool to call
-  first. Nothing throws across the MCP boundary. The one uncovered edge is the SDK's own
-  argument-binding step, which runs before any tool body: a wrong-typed argument returns an SDK-shaped
-  error rather than this envelope.
+  first. Nothing throws across the MCP boundary, including for calls that never reach a tool body: the
+  host's call-tool filter wraps the SDK's tool lookup and argument binding, so an unknown tool name, a
+  missing required argument or a wrong-typed one returns `invalid_argument` naming the tool or
+  parameter.
 - **Shared location addressing**: `{type: documentEnd | afterControl | tableCell | atText, controlId?,
   tableIndex?, row?, col?, searchText?, layoutPart?, partName?}`. Edits stay deterministic without the
   agent knowing OOXML positions. `layoutPart: header|footer` with no `partName` resolves the **first
@@ -202,7 +206,13 @@ Conventions that hold across the surface:
   about first-page visibility from the tool surface alone.
 - **Coordinates round-trip.** The `tableIndex`/`row`/`col` an agent reads from `get_layout_info` address
   the same physical spot in every editing tool, by construction: reader and editor share
-  `TableGridNavigator` rather than keeping parallel implementations.
+  `TableGridNavigator` rather than keeping parallel implementations. A row is every `w:tr` of the table,
+  however deep the repeater items around it nest — each row of a multi-row item has its own index, tagged
+  with the innermost repeater it repeats with — so column edits, width re-slicing and the grid-consistency
+  guard reach the nested detail and subtotal rows too (issue #80). Each cell carries both of its
+  coordinates — `colIndex`, its physical position in the row (what the cell tools take), and
+  `gridColumn`/`gridSpan`, its place on the grid (what the column tools take, per §2.4) — and each row its
+  `gridBefore`/`gridAfter`, so the grid column of any cell is read, never derived.
 
 ## 5. The mock preview pipeline
 
@@ -212,20 +222,24 @@ schema ──► SampleDataGenerator ──► sample dataset XML
 layout.docx ──► MergeEngine ◄───────────┘
                     │  1. resolve each binding XPath → fill the control's text
                     │  2. clone repeatingSectionItem per data row, re-anchoring
-                    │     inner bindings per nesting level (XPathReanchor)
+                    │     each inner binding to the deepest enclosing row whose
+                    │     path it extends (XPathReanchor)
                     │  3. regenerate cloned drawing/bookmark ids so clones stay unique
                     │  4. substitute placeholder images for picture controls
                     │  5. strip external references (see §6, principle 5)
                     │  6. unresolved binding → warning + visible placeholder
                     ▼
-             merged.docx ──► IPdfConverter ──► preview.pdf ──► render_preview_pages ──► PNGs
+             merged.docx ──► IPdfConverter ──► preview-<hash>.pdf ──► render_preview_pages ──► PNGs
 ```
 
 - **`SampleDataGenerator`** produces seeded, type-aware fakes inferred from column names and types (amounts
   → decimals, `*Date*` → dates, codes → short uppercase strings). A fixed `seed` makes previews
   reproducible. It pre-scans the document's repeater bindings so it only multiplies rows for data items the
   *layout* actually repeats — otherwise a deep schema multiplies rows^depth and the preview explodes.
-  `dataOverridesPath` accepts a real exported dataset for a realistic look.
+  `dataOverridesPath` accepts a real exported dataset for a realistic look. One printed for several
+  documents holds several top-level records; the mock renders the first and raises a
+  `multiple-top-level-records` warning naming the count, rather than repeating the body per record as
+  BC does — how BC joins the per-record documents has never been observed in OOXML (§6, principle 4).
 - **The merge doubles as the deep validator.** `validate_layout level=full` runs it in dry-run mode:
   whatever the engine cannot resolve is what BC would choke on.
 - **Preview is a MOCK, and this is the project's central bet.** It never goes through the BC report engine.
