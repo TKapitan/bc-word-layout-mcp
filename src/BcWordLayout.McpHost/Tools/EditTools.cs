@@ -262,6 +262,46 @@ public static class EditTools
     private static CellTextFormat? ControlFormat(bool? bold, double? fontSizePoints) =>
         bold is null && fontSizePoints is null ? null : new CellTextFormat { Bold = bold, FontSizePoints = fontSizePoints };
 
+    [McpServerTool(Name = "wrap_in_repeater")]
+    [Description("Wrap a run of EXISTING body blocks (paragraphs, tables, block controls) in a BLOCK-level "
+                 + "repeating section over a data item, so they print once per record - the shape a "
+                 + "repeater TABLE cannot give. Two uses: (1) a per-entity document, like Microsoft's customer "
+                 + "statement: author one entity's whole body bound to the top-level item (e.g. "
+                 + "/Customer/Name), then wrap it all (wholeBody=true, pageBreakBefore=true) so every customer "
+                 + "gets its own page; (2) a paragraph per record of a nested item: insert_field e.g. "
+                 + "/Header/WorkDescriptionLines/WorkDescriptionLine in a paragraph of its own, then wrap that "
+                 + "paragraph. The fields inside need no change: insert_field already binds them the way a "
+                 + "repeater needs. Over a TOP-LEVEL data item the repeater also gets the w:group control "
+                 + "Business Central needs (without it BC prints an EMPTY document). The range is the body "
+                 + "blocks holding firstControlId through lastControlId (ids from get_layout_info's "
+                 + "controls[]; lastControlId defaults to firstControlId), or the whole body. REFUSED: a range "
+                 + "in a header/footer, controls given in the wrong order, a range holding a section break, a "
+                 + "repeater inside the range over data that is not under dataItem (it would print all its "
+                 + "records again per record), and a range with nothing bound under dataItem (every record "
+                 + "would print the same - most likely the wrong data item). Note that BC already prints the "
+                 + "whole body once per top-level record without any repeater; wrap a top-level item when you "
+                 + "want the records in one document with the page breaks the statement uses. Undo with "
+                 + "remove_control keepText=true on the returned controlId. Same write/validate/save-or-reject "
+                 + "safety as insert_field.")]
+    public static ToolResponse WrapInRepeater(
+        [Description("Absolute path to the .docx layout file.")] string layoutPath,
+        [Description("The repeating data item, exactly as list_dataset_fields reports it, e.g. '/Customer' or "
+                     + "'/Header/WorkDescriptionLines'.")] string dataItem,
+        [Description("The w:id of a control in the FIRST body block to repeat "
+                     + "(get_layout_info's controls[].sdtId). Required unless wholeBody=true.")] int? firstControlId = null,
+        [Description("The w:id of a control in the LAST body block to repeat; omit to repeat only the block "
+                     + "holding firstControlId.")] int? lastControlId = null,
+        [Description("True wraps every block of the body (the statement shape); then pass no control ids.")]
+        bool wholeBody = false,
+        [Description("True starts every record on a new page (a page break before the repeated content's "
+                     + "first paragraph, or before an empty paragraph put in front of a leading table), as "
+                     + "the stock statement does. At the very start of the document Word adds no blank page.")]
+        bool pageBreakBefore = false)
+    {
+        return GuardEdit(layoutPath, doc =>
+            LayoutEditor.WrapInRepeater(doc, dataItem, firstControlId, lastControlId, wholeBody, pageBreakBefore));
+    }
+
     [McpServerTool(Name = "remove_control")]
     [Description("Remove a content control (field, label, repeater, picture, or unbound) identified by its "
                  + "w:id, searching the main document body plus every header and footer. When keepText is "
@@ -273,9 +313,12 @@ public static class EditTools
                  + "field AND its text, leaving a blank column); keepText=true keeps the cell's text too "
                  + "(only the binding is dropped). Either way the column stays - removing an address field no "
                  + "longer deletes its column. (To truly drop a column you must remove its cell from every "
-                 + "row and adjust the grid, which is out of scope for a single-control edit.) keepText=true "
-                 + "is REJECTED on a repeater, and on the unbound w:group control between a block-level "
-                 + "top-level repeater and its item: unwrapping either leaves a shape BC cannot print. An id "
+                 + "row and adjust the grid, which is out of scope for a single-control edit.) keepText=true on "
+                 + "a BLOCK-level repeater (one wrap_in_repeater made, or the stock statement/work-description "
+                 + "shape) unwraps it completely - section, group and item - and keeps its content in place, "
+                 + "printing once: the undo of wrap_in_repeater. keepText=true is REJECTED on a row-level "
+                 + "repeater, and on the unbound w:group control between a block-level top-level repeater and "
+                 + "its item: unwrapping either leaves a shape BC cannot print. An id "
                  + "that more than one control in the layout carries is REFUSED (invalid_layout) rather than "
                  + "resolved to the first match - validate_layout reports it as duplicate-control-id. Same write/"
                  + "validate/save-or-reject safety as insert_field.")]

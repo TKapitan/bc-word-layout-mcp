@@ -453,6 +453,267 @@ public static class LayoutEditor
     }
 
     /// <summary>
+    /// Wraps a contiguous run of BODY blocks — paragraphs, tables, block controls — in a block-level repeating
+    /// section over <paramref name="dataItemPath"/>, so they print once per record (GitHub issue #31). The
+    /// shape is <see cref="SdtFactory.BuildBlockRepeater"/>'s: StandardStatement's
+    /// section › <c>w:group</c> › item for a top-level data item, the stock quote's section › item for a
+    /// nested one.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The range is the body-level blocks holding <paramref name="firstControlId"/> through
+    /// <paramref name="lastControlId"/> (the same block when that is null), each control lifted to the block
+    /// that is a direct child of the body; or, with <paramref name="wholeBody"/>, every block of the body. The
+    /// controls are the anchors because they are what <c>get_layout_info</c> addresses; a range of static text
+    /// is reached through the field next to it, or <paramref name="wholeBody"/>.
+    /// </para>
+    /// <para>
+    /// The bindings inside need no rewrite: a field under the item is bound with <c>[1]</c> on every step
+    /// (<c>/Customer[1]/Name[1]</c>), which Word and BC re-point to each repeated item - exactly how the corpus
+    /// controls inside 1316's <c>/Customer</c> repeater are bound, and what <c>insert_field</c> already writes.
+    /// </para>
+    /// <para>
+    /// Refused rather than guessed (ADR-0003): a range in a header or footer (nothing shows BC renders a
+    /// repeating section there); controls given last-before-first; a range holding a section break (a
+    /// repeated <c>w:sectPr</c> would multiply the page setup); a repeater inside the range over data OUTSIDE
+    /// <paramref name="dataItemPath"/>, or over that very item (it would print every record inside every
+    /// record); and a range with nothing bound under <paramref name="dataItemPath"/>, which would print the same
+    /// content once per record - almost certainly the wrong data item. Fields bound OUTSIDE the item are
+    /// allowed (a parent's value repeated per item is a real shape) and counted in the summary.
+    /// </para>
+    /// </remarks>
+    /// <exception cref="ArgumentException">See the remarks, plus a <paramref name="dataItemPath"/> that is not a
+    /// non-system data item (<see cref="SdtFactory.ResolveRepeaterDataItem"/>).</exception>
+    /// <exception cref="NotFoundException">A control id names no control in the layout.</exception>
+    /// <exception cref="LayoutDefectException">A control id is carried by several controls.</exception>
+    public static EditResult WrapInRepeater(
+        WordprocessingDocument doc, string dataItemPath, int? firstControlId, int? lastControlId,
+        bool wholeBody = false, bool pageBreakBefore = false)
+    {
+        ArgumentNullException.ThrowIfNull(doc);
+
+        var main = doc.MainDocumentPart ?? throw new InvalidDataException("Layout has no main document part.");
+        var body = main.Document?.Body ?? throw new InvalidDataException("Layout has no main document body.");
+
+        var schema = SchemaProvider.FromLayoutForBinding(doc);
+        var dataItem = SdtFactory.ResolveRepeaterDataItem(schema, dataItemPath);
+        var itemSegments = dataItem.Path.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        var itemPath = "/" + string.Join('/', itemSegments);
+
+        var blocks = ResolveBodyBlockRange(main, body, firstControlId, lastControlId, wholeBody);
+
+        if (blocks.Any(b => b.Descendants<SectionProperties>().Any()))
+        {
+            throw new ArgumentException(
+                "The range holds a section break (a paragraph carrying w:sectPr), and a repeated section break "
+                + "would repeat the page setup with every record. Narrow the range to blocks inside one section.",
+                nameof(lastControlId));
+        }
+
+        var (under, outside) = CountBindingsAgainstItem(blocks, itemSegments, itemPath, schema.Root.Name);
+        if (under == 0)
+        {
+            throw new ArgumentException(
+                $"Nothing in the range is bound under '{itemPath}', so every record would print the same "
+                + "content - most likely the wrong data item, or a range that misses the item's fields. Insert "
+                + $"a field from '{itemPath}' into the range first (insert_field), or pick the data item those "
+                + "fields belong to.",
+                nameof(dataItemPath));
+        }
+
+        var nextId = MakeIdGenerator(doc);
+        var marker = new Paragraph();
+        body.InsertBefore(marker, blocks[0]);
+        foreach (var block in blocks)
+        {
+            block.Remove();
+        }
+
+        var repeater = SdtFactory.BuildBlockRepeater(schema, itemPath, blocks, pageBreakBefore, nextId);
+        marker.InsertBeforeSelf(repeater);
+        marker.Remove();
+
+        var controlId = SdtInspector.ReadControlId(repeater)
+            ?? throw new InvalidOperationException("The newly built repeater has no w:id (unexpected).");
+        var grouped = SdtFactory.IsTopLevel(dataItem);
+
+        return new EditResult
+        {
+            Operation = "wrap_in_repeater",
+            ControlId = controlId,
+            Alias = SdtInspector.ReadAlias(repeater),
+            XPath = SdtInspector.ReadXPath(repeater),
+            Kind = ControlKind.Repeater.ToString(),
+            Part = DocumentPartName,
+            Summary = $"Wrapped {DescribeBlocks(blocks)} of the body in a repeater over '{itemPath}' (id "
+                + $"{controlId}), so they print once per record"
+                + (grouped
+                    ? ", inside a contentLocked w:group control: a top-level data item needs it, or Business "
+                      + "Central prints an empty document"
+                    : string.Empty)
+                + (pageBreakBefore ? "; every record starts on a new page" : string.Empty)
+                + $". {under} bound control(s) inside follow each record"
+                + (outside > 0
+                    ? $"; {outside} bound outside '{itemPath}' print the same value for every record"
+                    : string.Empty)
+                + $". To undo it, remove_control keepText=true on id {controlId} unwraps the repeater and keeps "
+                + "the content.",
+        };
+    }
+
+    private const string DocumentPartName = "document.xml";
+
+    /// <summary>
+    /// The body-level blocks <see cref="WrapInRepeater"/> wraps, in document order (see its remarks).
+    /// </summary>
+    private static List<OpenXmlElement> ResolveBodyBlockRange(
+        MainDocumentPart main, Body body, int? firstControlId, int? lastControlId, bool wholeBody)
+    {
+        if (wholeBody)
+        {
+            if (firstControlId is not null || lastControlId is not null)
+            {
+                throw new ArgumentException(
+                    "wholeBody=true wraps every block of the body, so it takes no firstControlId/lastControlId; "
+                    + "pass either the ids or wholeBody=true, not both.",
+                    nameof(wholeBody));
+            }
+
+            var all = body.ChildElements.Where(c => c is not SectionProperties).ToList();
+            return all.Count > 0
+                ? all
+                : throw new ArgumentException("The body has no content to wrap.", nameof(wholeBody));
+        }
+
+        if (firstControlId is not { } firstId)
+        {
+            throw new ArgumentException(
+                "Name the range to repeat: firstControlId (and lastControlId for more than one block), the ids "
+                + "get_layout_info reports for controls in its first and last block - or pass wholeBody=true.",
+                nameof(firstControlId));
+        }
+
+        var first = BodyBlockOf(main, body, firstId, nameof(firstControlId));
+        var last = lastControlId is { } lastId ? BodyBlockOf(main, body, lastId, nameof(lastControlId)) : first;
+
+        var children = body.ChildElements.ToList();
+        var from = children.IndexOf(first);
+        var to = children.IndexOf(last);
+        if (from > to)
+        {
+            throw new ArgumentException(
+                $"Control {lastControlId} comes BEFORE control {firstControlId} in the body; pass the control in "
+                + "the range's first block as firstControlId and the one in its last block as lastControlId.",
+                nameof(lastControlId));
+        }
+
+        return children.GetRange(from, to - from + 1);
+    }
+
+    /// <summary>The direct child of <paramref name="body"/> that holds control <paramref name="controlId"/>.</summary>
+    private static OpenXmlElement BodyBlockOf(MainDocumentPart main, Body body, int controlId, string paramName)
+    {
+        ControlIds.EnsureUnique(main, controlId);
+
+        var control = body.Descendants<SdtElement>().FirstOrDefault(s => SdtInspector.ReadControlId(s) == controlId);
+        if (control is null)
+        {
+            var elsewhere = PartWalker.ContentParts(main)
+                .FirstOrDefault(p => p.Root.Descendants<SdtElement>().Any(s => SdtInspector.ReadControlId(s) == controlId));
+            if (elsewhere.Root is not null)
+            {
+                throw new ArgumentException(
+                    $"Control {controlId} is in {elsewhere.PartName}; wrap_in_repeater works on the document body "
+                    + "only, because nothing shows that Business Central renders a repeating section in a header "
+                    + "or footer.",
+                    paramName);
+            }
+
+            throw new NotFoundException($"No control with id {controlId} was found in the document body.", NotFoundTarget.Control);
+        }
+
+        OpenXmlElement block = control;
+        while (block.Parent is not Body)
+        {
+            block = block.Parent
+                ?? throw new InvalidOperationException($"Control {controlId} is not attached to the body (unexpected).");
+        }
+
+        return block;
+    }
+
+    /// <summary>
+    /// Counts the BC-bound controls in <paramref name="blocks"/> bound under the item (repeaters included)
+    /// and outside it, refusing a repeater over the item itself or over data outside it (see
+    /// <see cref="WrapInRepeater"/>'s remarks).
+    /// </summary>
+    private static (int Under, int Outside) CountBindingsAgainstItem(
+        IReadOnlyList<OpenXmlElement> blocks, string[] itemSegments, string dataItemPath, string rootName)
+    {
+        int under = 0, outside = 0;
+        foreach (var sdt in blocks.SelectMany(b => b is SdtElement s ? b.Descendants<SdtElement>().Prepend(s) : b.Descendants<SdtElement>()))
+        {
+            var segments = BindingXPath.Segments(SdtInspector.ReadXPath(sdt));
+            if (segments.Count < 2 || !string.Equals(segments[0], rootName, StringComparison.Ordinal))
+            {
+                continue; // unbound, or bound to something other than the BC dataset
+            }
+
+            var path = segments.Skip(1).ToArray();
+            var isUnder = path.Length > itemSegments.Length && path.Take(itemSegments.Length).SequenceEqual(itemSegments, StringComparer.Ordinal);
+
+            if (SdtInspector.IsRepeater(sdt) && !isUnder)
+            {
+                var repeated = "/" + string.Join('/', path);
+                throw new ArgumentException(
+                    path.SequenceEqual(itemSegments, StringComparer.Ordinal)
+                        ? $"The range already holds a repeater over '{dataItemPath}' (id {SdtInspector.ReadControlId(sdt)}); "
+                          + "wrapping it in another would print every record inside every record."
+                        : $"The range holds a repeater over '{repeated}' (id {SdtInspector.ReadControlId(sdt)}), which is "
+                          + $"not under '{dataItemPath}': inside the new repeater it would print all of its records again "
+                          + $"for every '{dataItemPath}' record. Leave that block out of the range, or wrap in a data "
+                          + "item it belongs to.",
+                    nameof(dataItemPath));
+            }
+
+            if (isUnder)
+            {
+                under++;
+            }
+            else
+            {
+                outside++;
+            }
+        }
+
+        return (under, outside);
+    }
+
+    private static string DescribeBlocks(List<OpenXmlElement> blocks)
+    {
+        var paragraphs = blocks.Count(b => b is Paragraph);
+        var tables = blocks.Count(b => b is Table);
+        var controls = blocks.Count(b => b is SdtElement);
+        var parts = new List<string>();
+        if (paragraphs > 0)
+        {
+            parts.Add($"{paragraphs} paragraph{(paragraphs == 1 ? string.Empty : "s")}");
+        }
+
+        if (tables > 0)
+        {
+            parts.Add($"{tables} table{(tables == 1 ? string.Empty : "s")}");
+        }
+
+        if (controls > 0)
+        {
+            parts.Add($"{controls} block-level control{(controls == 1 ? string.Empty : "s")}");
+        }
+
+        return parts.Count == 0 ? $"{blocks.Count} block(s)" : string.Join(", ", parts);
+    }
+
+    /// <summary>
     /// Inserts a nested DETAIL ROW repeater into an EXISTING repeater's item — the standard BC shape for
     /// per-line detail ("another line with the required details" under the line row: serial/lot nos,
     /// assembly components), corpus-verified as sibling rows INSIDE the outer
@@ -1309,16 +1570,35 @@ public static class LayoutEditor
 
         if (keepText && SdtInspector.IsRepeater(target))
         {
-            // Unwrapping a repeatingSection would splice its repeatingSectionItem row template directly
-            // into the repeater's former position, orphaned from any enclosing repeatingSection - that is
-            // structurally valid OOXML (so it would still save and pass OpenXmlValidator), but it breaks
-            // the BC repeater shape LayoutValidator.Quick checks for (repeater-shape: every
+            // A BLOCK-level repeater in the standard shape (section › [w:group ›] item) is unwrapped down to its
+            // item's content: the "keep the content, drop the repeat" undo of wrap_in_repeater (GitHub issue
+            // #31). Every level goes at once, so no orphaned item or ungrouped top-level repeater is left.
+            if (target is SdtBlock blockRepeater && UnwrapBlockRepeater(blockRepeater) is { } keptBlocks)
+            {
+                return new EditResult
+                {
+                    Operation = "remove_control",
+                    ControlId = controlId,
+                    Alias = alias,
+                    XPath = xpath,
+                    Kind = kind,
+                    Part = part,
+                    Summary = $"Removed block-level repeater id {controlId} and kept its content: the {keptBlocks} "
+                        + "block(s) it repeated now print once, in place, and their bindings are unchanged.",
+                };
+            }
+
+            // Unwrapping a ROW repeater (or a block one of any other shape) would splice its
+            // repeatingSectionItem directly into the repeater's former position, orphaned from any enclosing
+            // repeatingSection - structurally valid OOXML (so it would still save and pass OpenXmlValidator),
+            // but it breaks the BC repeater shape LayoutValidator.Quick checks for (repeater-shape: every
             // repeatingSectionItem must be enclosed by a repeatingSection), i.e. a "successful" edit that
             // immediately fails its own post-edit quick validation. Reject it up front instead.
             throw new ArgumentException(
-                $"Control {controlId} is a repeating-section control; removing it with keepText=true would "
-                + "orphan its repeatingSectionItem row template from any enclosing repeatingSection, breaking "
-                + "the BC repeater shape. Use keepText=false to remove the whole repeater instead.",
+                $"Control {controlId} is a repeating-section control whose item is a table row (or not the "
+                + "standard section > item shape); removing it with keepText=true would orphan its "
+                + "repeatingSectionItem from any enclosing repeatingSection, breaking the BC repeater shape. Use "
+                + "keepText=false to remove the whole repeater instead.",
                 nameof(keepText));
         }
 
@@ -1416,6 +1696,39 @@ public static class LayoutEditor
             Part = part,
             Summary = BuildRemoveSummary(controlId, keepText, keptColumn),
         };
+    }
+
+    /// <summary>
+    /// Replaces a block-level <paramref name="repeater"/> by its item's content when it has the shape
+    /// <see cref="SdtFactory.BuildBlockRepeater"/> writes and the corpus carries - section › item, or section ›
+    /// <c>w:group</c> › item, each level holding exactly one control - and returns how many blocks were kept;
+    /// null, touching nothing, for any other shape.
+    /// </summary>
+    private static int? UnwrapBlockRepeater(SdtBlock repeater)
+    {
+        static SdtBlock? OnlyChild(SdtBlock sdt) =>
+            sdt.SdtContentBlock is { ChildElements.Count: 1, FirstChild: SdtBlock only } ? only : null;
+
+        var inner = OnlyChild(repeater);
+        if (inner?.SdtProperties?.GetFirstChild<SdtContentGroup>() is not null)
+        {
+            inner = OnlyChild(inner);
+        }
+
+        if (inner is null || !SdtInspector.IsRepeaterItem(inner) || inner.SdtContentBlock is not { } content)
+        {
+            return null;
+        }
+
+        var blocks = content.ChildElements.ToList();
+        foreach (var block in blocks)
+        {
+            block.Remove();
+            repeater.InsertBeforeSelf(block);
+        }
+
+        repeater.Remove();
+        return blocks.Count;
     }
 
     private static string BuildRemoveSummary(int controlId, bool keepText, bool keptColumn)

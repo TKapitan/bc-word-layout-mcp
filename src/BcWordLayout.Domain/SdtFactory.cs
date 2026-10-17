@@ -703,9 +703,9 @@ public static class SdtFactory
     /// Walks <paramref name="dataItemPath"/> down <paramref name="schema"/>'s tree, requiring every segment
     /// to be a data item (not a leaf column) and the final node to be a non-system data item. Distinct,
     /// specific messages mirror <see cref="ValidateLeafColumn"/>'s own style but for the reverse
-    /// expectation (a repeater table binds a whole repeating item, not one leaf column).
+    /// expectation (a repeater binds a whole repeating item, not one leaf column).
     /// </summary>
-    private static DataItem ResolveRepeaterDataItem(DatasetTree schema, string dataItemPath)
+    internal static DataItem ResolveRepeaterDataItem(DatasetTree schema, string dataItemPath)
     {
         if (string.IsNullOrWhiteSpace(dataItemPath))
         {
@@ -728,7 +728,7 @@ public static class SdtFactory
                 {
                     throw new ArgumentException(
                         $"Data item path '{dataItemPath}' resolves to a leaf column ('{name}'), not a "
-                        + "repeating data item; a repeater table must bind to a data item (bind a single "
+                        + "repeating data item; a repeater must bind to a data item (bind a single "
                         + "leaf column as a field/label instead - insert_field/insert_label).",
                         nameof(dataItemPath));
                 }
@@ -746,7 +746,7 @@ public static class SdtFactory
         {
             throw new ArgumentException(
                 $"Data item path '{dataItemPath}' resolves to the system data item ('{node.Name}'); a "
-                + "repeater table must bind to a business data item, not BCReportInformation.",
+                + "repeater must bind to a business data item, not BCReportInformation.",
                 nameof(dataItemPath));
         }
 
@@ -929,32 +929,128 @@ public static class SdtFactory
     /// </summary>
     private static SdtRow BuildRepeaterRow(DatasetTree schema, DataItem dataItem, TableRow dataRow, Func<int> nextId)
     {
+        var itemRow = new SdtRow(RepeaterItemProperties(nextId), new SdtContentRow(dataRow));
+        return new SdtRow(RepeaterProperties(schema, dataItem, nextId), new SdtContentRow(itemRow));
+    }
+
+    /// <summary>The <c>w:sdtPr</c> of a <c>w15:repeatingSectionItem</c>: id, placeholder, marker.</summary>
+    private static SdtProperties RepeaterItemProperties(Func<int> nextId) => new(
+        new SdtId { Val = nextId() },
+        new SdtPlaceholder(new DocPartReference { Val = DefaultPlaceholderDocPart }),
+        new Office2013Word.SdtRepeatedSectionItem());
+
+    /// <summary>
+    /// The <c>w:sdtPr</c> of a <c>w15:repeatingSection</c> bound to <paramref name="dataItem"/>: alias, tag, id,
+    /// a <c>w15:dataBinding</c> whose final XPath step is unindexed (<see cref="BuildRepeaterXPath"/>), marker.
+    /// </summary>
+    private static SdtProperties RepeaterProperties(DatasetTree schema, DataItem dataItem, Func<int> nextId)
+    {
         var report = schema.Report;
         var segments = dataItem.Path.Split('/', StringSplitOptions.RemoveEmptyEntries);
-        var xpath = BuildRepeaterXPath(schema.Root.Name, segments);
-        var alias = $"#Nav: /{string.Join('/', segments)}";
-        var tag = $"#Nav: {report.ReportName}/{report.ReportId}";
-
-        var itemSdtPr = new SdtProperties(
-            new SdtId { Val = nextId() },
-            new SdtPlaceholder(new DocPartReference { Val = DefaultPlaceholderDocPart }),
-            new Office2013Word.SdtRepeatedSectionItem());
-        var itemRow = new SdtRow(itemSdtPr, new SdtContentRow(dataRow));
-
-        var repeaterSdtPr = new SdtProperties(
-            new SdtAlias { Val = alias },
-            new Tag { Val = tag },
+        return new SdtProperties(
+            new SdtAlias { Val = $"#Nav: /{string.Join('/', segments)}" },
+            new Tag { Val = $"#Nav: {report.ReportName}/{report.ReportId}" },
             new SdtId { Val = nextId() },
             new Office2013Word.DataBinding
             {
                 PrefixMappings = $"xmlns:ns0='{report.Namespace}'",
-                XPath = xpath,
+                XPath = BuildRepeaterXPath(schema.Root.Name, segments),
                 StoreItemId = report.StoreItemId,
             },
             new Office2013Word.SdtRepeatedSection());
-
-        return new SdtRow(repeaterSdtPr, new SdtContentRow(itemRow));
     }
+
+    // ---- BuildBlockRepeater: a repeating section around body blocks ----
+
+    /// <summary>
+    /// Wraps <paramref name="blocks"/> — detached body-level paragraphs, tables and block controls, in document
+    /// order — in a BLOCK-level repeating section bound to <paramref name="dataItemPath"/>, the shape
+    /// <c>wrap_in_repeater</c> emits (GitHub issue #31). It mirrors the corpus's two block-level shapes:
+    /// <list type="bullet">
+    /// <item>over a TOP-LEVEL data item, StandardStatement.docx's (report 1316)
+    /// <c>repeatingSection(/Customer) › w:group › repeatingSectionItem › body</c>, the group carrying
+    /// <c>w:lock w:val="contentLocked"</c>. The group is load-bearing: without it Business Central prints an
+    /// EMPTY document (SOLUTION-DESIGN §2.3, the validator's <c>top-level-repeater-group</c> check);</item>
+    /// <item>over a NESTED data item, StandardSalesQuote's (1304)
+    /// <c>repeatingSection(/Header/WorkDescriptionLines) › repeatingSectionItem › paragraph</c>, with no
+    /// group.</item>
+    /// </list>
+    /// The section and item <c>w:sdtPr</c> are the ones <see cref="BuildRepeaterTable"/> writes for a row
+    /// repeater, at block level; the group's is 1316's (id, lock, placeholder, <c>w:group</c>), with this
+    /// factory's <see cref="DefaultPlaceholderDocPart"/>.
+    /// </summary>
+    /// <param name="schema">The report's parsed dataset; must carry a storeItemID (see <see cref="BuildField"/>).</param>
+    /// <param name="dataItemPath">A non-system data item, e.g. <c>/Customer</c> or <c>/Header/WorkDescriptionLines</c>.</param>
+    /// <param name="blocks">The content of the repeated item; moved into it as given.</param>
+    /// <param name="pageBreakBefore">
+    /// Starts every item on a new page, 1316's idiom: <c>w:pageBreakBefore</c> on the item's first paragraph,
+    /// or, when it starts with a table or control, on an empty paragraph put in front of it (1316's own item
+    /// opens with exactly that).
+    /// </param>
+    /// <param name="nextId">Supplies a fresh, document-unique <c>w:id</c> per call.</param>
+    /// <exception cref="ArgumentException">
+    /// <paramref name="dataItemPath"/> does not name a non-system data item (see
+    /// <see cref="ResolveRepeaterDataItem"/>), or <paramref name="blocks"/> is empty.
+    /// </exception>
+    public static SdtBlock BuildBlockRepeater(
+        DatasetTree schema, string dataItemPath, IReadOnlyList<OpenXmlElement> blocks, bool pageBreakBefore, Func<int> nextId)
+    {
+        ArgumentNullException.ThrowIfNull(schema);
+        ArgumentNullException.ThrowIfNull(blocks);
+        ArgumentNullException.ThrowIfNull(nextId);
+
+        var dataItem = ResolveRepeaterDataItem(schema, dataItemPath);
+        if (blocks.Count == 0)
+        {
+            throw new ArgumentException("A repeater needs at least one block to repeat.", nameof(blocks));
+        }
+
+        var content = new SdtContentBlock();
+        if (pageBreakBefore)
+        {
+            if (blocks[0] is Paragraph first)
+            {
+                (first.ParagraphProperties ??= new ParagraphProperties()).PageBreakBefore = new PageBreakBefore();
+            }
+            else
+            {
+                content.AppendChild(new Paragraph(new ParagraphProperties(new PageBreakBefore())));
+            }
+        }
+
+        foreach (var block in blocks)
+        {
+            content.AppendChild(block);
+        }
+
+        // Every corpus item ends on a paragraph; a table last would sit directly against whatever follows the
+        // repeater, and Word merges adjacent tables (see InsertionAnchor.InsertBlock).
+        if (blocks[^1] is Table)
+        {
+            content.AppendChild(new Paragraph());
+        }
+
+        OpenXmlElement inner = new SdtBlock(RepeaterItemProperties(nextId), content);
+        if (IsTopLevel(dataItem))
+        {
+            inner = new SdtBlock(
+                new SdtProperties(
+                    new SdtId { Val = nextId() },
+                    new DocumentFormat.OpenXml.Wordprocessing.Lock { Val = LockingValues.ContentLocked },
+                    new SdtPlaceholder(new DocPartReference { Val = DefaultPlaceholderDocPart }),
+                    new SdtContentGroup()),
+                new SdtContentBlock(inner));
+        }
+
+        return new SdtBlock(RepeaterProperties(schema, dataItem, nextId), new SdtContentBlock(inner));
+    }
+
+    /// <summary>
+    /// True for a data item directly under the dataset root (<c>/Customer</c>), the level whose block repeater
+    /// needs the <c>w:group</c> — the same notion the validator's <c>top-level-repeater-group</c> check uses.
+    /// </summary>
+    internal static bool IsTopLevel(DataItem dataItem) =>
+        dataItem.Path.Split('/', StringSplitOptions.RemoveEmptyEntries).Length == 1;
 
     /// <summary>
     /// Same shape as <see cref="BuildIndexedXPath"/> except the FINAL step is left unindexed (no

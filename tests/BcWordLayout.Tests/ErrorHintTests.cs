@@ -387,7 +387,8 @@ public class ErrorHintTests
         try
         {
             var info = Assert.IsType<LayoutInfoDto>(ReadTools.GetLayoutInfo(path).Data);
-            var repeater = info.Controls.First(c => c.Kind == "Repeater" && c.SdtId.HasValue);
+            // A ROW-level repeater: keepText=true unwraps a block-level one (wrap_in_repeater's undo, #31).
+            var repeater = info.Controls.First(c => c.Kind == "Repeater" && c.Level == "row" && c.SdtId.HasValue);
 
             var response = EditTools.RemoveControl(path, repeater.SdtId!.Value, keepText: true);
 

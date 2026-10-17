@@ -973,22 +973,25 @@ public class LayoutEditorTests
     // ---- remove_control keepText rejection: a repeating-section control must not be unwrapped ----
 
     [Fact]
-    public void RemoveControl_keepText_true_on_a_repeater_control_throws_ArgumentException_and_changes_nothing()
+    public void RemoveControl_keepText_true_on_a_row_repeater_throws_ArgumentException_and_changes_nothing()
     {
-        var path = SyntheticLayout.Create(SyntheticLayout.ProperRepeater(
-            "/ns0:NavWordReportXmlPart[1]/ns0:Header[1]/ns0:Line", SyntheticLayout.GoodItemId));
+        // A ROW-level repeater: keepText=true unwraps a block-level one instead (wrap_in_repeater's undo,
+        // GitHub issue #31 - see WrapInRepeaterTests).
+        var path = SyntheticLayout.Create(SyntheticLayout.RepeaterTable(
+            "/ns0:NavWordReportXmlPart[1]/ns0:Header[1]/ns0:Line",
+            "/ns0:NavWordReportXmlPart[1]/ns0:Header[1]/ns0:Line[1]/ns0:No[1]", SyntheticLayout.GoodItemId));
         try
         {
             using var doc = WordprocessingDocument.Open(path, true);
             var body = doc.MainDocumentPart!.Document!.Body!;
 
-            var ex = Assert.Throws<ArgumentException>(() => LayoutEditor.RemoveControl(doc, 100, keepText: true));
+            var ex = Assert.Throws<ArgumentException>(() => LayoutEditor.RemoveControl(doc, 700, keepText: true));
             Assert.Contains("repeating-section", ex.Message);
 
-            // Rejected before any mutation: the repeater (id 100) and its item (id 101) are both still
+            // Rejected before any mutation: the repeater (id 700) and its item (id 701) are both still
             // present, still nested exactly as they were.
-            Assert.Contains(body.Descendants<SdtElement>(), s => ReadId(s) == 100);
-            Assert.Contains(body.Descendants<SdtElement>(), s => ReadId(s) == 101);
+            Assert.Contains(body.Descendants<SdtElement>(), s => ReadId(s) == 700);
+            Assert.Contains(body.Descendants<SdtElement>(), s => ReadId(s) == 701);
         }
         finally
         {

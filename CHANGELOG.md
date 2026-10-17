@@ -9,6 +9,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **New tool `wrap_in_repeater`: repeat body content per record without a table** (GitHub issue
+  #31). Repeaters could only be table rows, so two stock shapes could not be authored: a statement
+  that gives every customer its own page, and a paragraph per record of a nested item such as the
+  quote's work-description lines. `wrap_in_repeater` wraps a run of existing body blocks, named by
+  a control in the first and last block (or `wholeBody=true`), in a block-level repeater over a data
+  item, in exactly the shapes the corpus carries:
+  - over a top-level item, StandardStatement's section › `w:group` (`contentLocked`) › item; without
+    the group Business Central prints an empty document;
+  - over a nested item, the stock quote's section › item.
+
+  `pageBreakBefore=true` starts every record on a new page, as the statement does. The fields
+  inside need no change. It refuses a range in a header or footer, a range holding a section break,
+  a repeater in the range over data outside the item, and a range with nothing bound under the item.
+  The tool-written shapes have no BC sandbox render yet.
+
 - **New `validate_layout` check `top-level-repeater-group` (error).** A block-level repeating
   section bound directly to the top-level data item (e.g. the whole invoice body wrapped in a
   repeater over `/Header`) makes Business Central print an EMPTY document unless its
@@ -18,8 +33,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   shape before, so the first symptom was a blank printout. The check is scoped so no captured layout
   trips it: StandardStatement's body-wide `/Customer` repeater carries the group, list reports'
   top-level repeaters are row-level, and the invoice/quote block-level repeaters are over nested
-  items. No tool emits a block-level repeater, so this guards layouts written or edited outside the
-  tools.
+  items. `wrap_in_repeater` (below) writes the grouped shape, so this guards layouts written or
+  edited outside the tools.
 
 - **New `validate_layout` check `duplicate-control-id` (warning)** (GitHub issue #101). Two content
   controls sharing a `w:sdtPr/w:id`, which only a hand edit at the package level produces, passed
@@ -35,6 +50,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   observed OOXML for how BC joins per-record documents.
 
 ### Changed
+
+- **`remove_control keepText=true` on a block-level repeater now unwraps it** instead of refusing
+  (GitHub issue #31): section, group and item go at once and the content stays in place, printing
+  once. It is the undo of `wrap_in_repeater`, and works on the stock statement and work-description
+  repeaters too. A row-level repeater is still refused.
 
 - **The server reports its product version as `serverInfo.version`** (GitHub issue #112). The MCP
   handshake answered with the four-part assembly version (`1.1.0.0`), which an RC shares with the

@@ -103,7 +103,9 @@ An EXPLICIT block-level repeater over the top-level item is legal only in the sh
 StandardStatement (repeatingSection › `w:group` sdt › repeatingSectionItem): without the `w:group`, BC
 prints an empty document (report 1306, verified 2026-10-13), while the mock preview fills it normally.
 Validation reports that as the `top-level-repeater-group` error. Row-level repeaters over the top-level
-item (list reports) and block-level repeaters over nested items need no group.
+item (list reports) and block-level repeaters over nested items need no group. `wrap_in_repeater` writes
+exactly these two block-level shapes, choosing by whether the data item is top-level (issue
+[#31](https://github.com/TKapitan/bc-word-layout-mcp/issues/31)).
 
 **4. Real BC tables are `gridSpan`-pervasive and RAGGED.** Per-row physical cell counts differ across rows
 of the same table, each reconciled to the grid by different span patterns; rows may also skip leading or
@@ -181,7 +183,7 @@ alongside the quick checks in `Domain.LayoutValidator`.
 
 ## 4. Tool surface
 
-**26 tools.** The per-parameter reference is the companion skill's §2
+**27 tools.** The per-parameter reference is the companion skill's §2
 ([`skills/al-word-layout/SKILL.md`](../skills/al-word-layout/SKILL.md)); this is the shape and the grouping.
 
 | Group | Tools |
@@ -189,7 +191,7 @@ alongside the quick checks in `Domain.LayoutValidator`.
 | Inspect | `get_layout_info`, `list_dataset_fields` |
 | Validate | `validate_layout` (`quick` \| `full`) |
 | Preview | `preview_layout`, `render_preview_pages` |
-| Author | `create_layout`, `insert_field`, `insert_label`, `insert_text`, `insert_page_number`, `insert_picture`, `insert_table`, `insert_repeater_table`, `insert_repeater_row`, `insert_subtotal_row` |
+| Author | `create_layout`, `insert_field`, `insert_label`, `insert_text`, `insert_page_number`, `insert_picture`, `insert_table`, `insert_repeater_table`, `insert_repeater_row`, `insert_subtotal_row`, `wrap_in_repeater` |
 | Table structure | `insert_table_row`, `insert_column`, `remove_column`, `set_column_widths`, `merge_cells`, `split_cells`, `set_cell_text`, `clear_cell_text`, `set_cell_borders` |
 | Lifecycle | `remove_control`, `refresh_xml_part` |
 

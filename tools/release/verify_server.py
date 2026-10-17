@@ -4,7 +4,7 @@ Usage:  python tools/release/verify_server.py [--expect-tools N] [--expect-versi
                                              -- <command> [args...]
 
 Exit 0 iff the server starts, completes the MCP handshake, tools/list returns the expected number of
-tools (default 26), and - with --expect-version - serverInfo.version is exactly V. Exit 1 on any
+tools (default 27), and - with --expect-version - serverInfo.version is exactly V. Exit 1 on any
 failure, printing the tail of the server's stderr with it; exit 2 on a usage error or a command that is
 not found. This is the release-channel smoke test: point it at `dnx ...`, a published exe from a release
 zip, or `dotnet run` - the same check proves each install channel actually starts a working server
@@ -27,7 +27,7 @@ import sys
 import threading
 import time
 
-EXPECTED_TOOLS_DEFAULT = 26
+EXPECTED_TOOLS_DEFAULT = 27
 DEFAULT_TIMEOUT = 300    # seconds per request
 POLL_INTERVAL = 0.5      # seconds between liveness checks of the server while a request is outstanding
 EXIT_GRACE = 2.0         # seconds a dead server's last output gets to drain before a wait gives up on it
