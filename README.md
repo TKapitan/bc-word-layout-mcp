@@ -255,7 +255,9 @@ and the export's `decimalformatter` columns are formatted the way BC itself rend
 a working copy of the layout and converts it to PDF **entirely offline** — never through the real
 Business Central report engine. That's good enough to catch structural and binding mistakes on every
 edit, but captions, fonts, and exact pagination can differ from a genuine BC render. Every
-`preview_layout` response repeats this as a `disclaimer` string.
+`preview_layout` response repeats this as a `disclaimer` string. A dataset printed for several
+documents previews only the first, and a `multiple-top-level-records` warning says so: BC renders the
+report body once per top-level record, the mock does not.
 
 **Final sign-off on any layout is always a real Business Central sandbox render** (AL build → publish
 to dev sandbox → run the report), never this tool's PDF alone.

@@ -267,7 +267,10 @@ public static class LifecycleTools
                      + "column carrying a decimalformatter attribute holds a raw number and is formatted "
                      + "with the export's formatRegion culture, matching what BC itself renders; an export "
                      + "from a DIFFERENT report than the layout's dataset is rejected with an error naming "
-                     + "both report ids.")] string? dataOverridesPath = null,
+                     + "both report ids. A dataset printed for SEVERAL documents (several top-level records "
+                     + "the layout does not repeat itself) previews the first only, reported as a "
+                     + "multiple-top-level-records warning naming the count - BC would render the body once "
+                     + "per record; pass a dataset holding just the record you want to see.")] string? dataOverridesPath = null,
         [Description("Optional absolute output directory for the merged .docx and preview .pdf. Defaults to "
                      + "a per-layout folder under the system temp directory, named "
                      + "'<layout-basename>-<hash>' where hash is derived from the layout's full path — so "

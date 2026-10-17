@@ -256,7 +256,10 @@ every tool here except `set_cell_borders`.
   namespace is otherwise unchanged. Rebuilding is only needed when the same control is ALSO in
   `orphanedBindings` (its XPath names a column this report does not have).
 - **Supply a real dataset via `dataOverridesPath`** for a `preview_layout` call that needs to look
-  realistic — generated sample data is type-aware but still synthetic.
+  realistic — generated sample data is type-aware but still synthetic. An export printed for several
+  documents previews the first only (a `multiple-top-level-records` warning names the count, since BC
+  would render the body once per record): to look at another document, pass a dataset holding just that
+  one.
 - **Don't over-read the mock preview's visual details.** Caption text, exact fonts, and pagination are
   known, documented fidelity gaps (see `docs/FIDELITY-CHECKLIST.md`) — they can differ from a real BC
   sandbox render even when the preview looks "right."

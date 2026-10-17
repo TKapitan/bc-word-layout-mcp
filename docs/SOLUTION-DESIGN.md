@@ -236,7 +236,10 @@ layout.docx ──► MergeEngine ◄───────────┘
   → decimals, `*Date*` → dates, codes → short uppercase strings). A fixed `seed` makes previews
   reproducible. It pre-scans the document's repeater bindings so it only multiplies rows for data items the
   *layout* actually repeats — otherwise a deep schema multiplies rows^depth and the preview explodes.
-  `dataOverridesPath` accepts a real exported dataset for a realistic look.
+  `dataOverridesPath` accepts a real exported dataset for a realistic look. One printed for several
+  documents holds several top-level records; the mock renders the first and raises a
+  `multiple-top-level-records` warning naming the count, rather than repeating the body per record as
+  BC does — how BC joins the per-record documents has never been observed in OOXML (§6, principle 4).
 - **The merge doubles as the deep validator.** `validate_layout level=full` runs it in dry-run mode:
   whatever the engine cannot resolve is what BC would choke on.
 - **Preview is a MOCK, and this is the project's central bet.** It never goes through the BC report engine.

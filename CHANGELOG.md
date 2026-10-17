@@ -26,6 +26,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   validation silently while every id-addressed tool acted on the first of them. The check names
   both controls, and the id-addressed tools now refuse such an id.
 
+- **New merge warning `multiple-top-level-records`** (GitHub issue #105). A `dataOverridesPath`
+  dataset printed for several documents, such as two purchase orders, previewed only the first
+  and said nothing. `preview_layout` now raises one warning per top-level data item the dataset
+  holds more than once and the layout does not repeat itself, naming the count ("The dataset has 2
+  top-level 'Purchase_Header' records, but the preview renders the first only…"). Items a repeater
+  repeats, such as a list report's rows, are exempt. The body is still rendered once: there is no
+  observed OOXML for how BC joins per-record documents.
+
 ### Fixed
 
 - **Inserts that would land inside a data-bound field, label or picture control are refused**

@@ -24,7 +24,10 @@ public sealed class MergeOptions
     /// <summary>
     /// Optional real exported dataset XML to merge with instead of generated sample data — both the layout's
     /// data-store part shape and the report UI's *Send to → XML* export are accepted (see
-    /// <see cref="SampleDataOptions.DataOverridesPath"/>).
+    /// <see cref="SampleDataOptions.DataOverridesPath"/>). A dataset holding several records of a top-level
+    /// item the layout does not repeat (several documents printed at once) merges the first only and raises a
+    /// <c>multiple-top-level-records</c> <see cref="MergeWarning"/> (see
+    /// <c>MergeEngine.WarnAboutUnrepeatedTopLevelRecords</c>).
     /// </summary>
     public string? DataOverridesPath { get; init; }
 
@@ -600,6 +603,7 @@ public static class MergeEngine
         var nsmgr = BuildNamespaceManager(main, data.Namespace);
         var state = new MergeState { MaxRowsPerRepeater = options.MaxRowsPerRepeater };
         SeedDocumentWideIdCounters(main, state);
+        WarnAboutUnrepeatedTopLevelRecords(main, data, state);
 
         foreach (var (root, hostPart, partName) in PartWalker.ContentPartsWithHost(main))
         {
@@ -735,6 +739,84 @@ public static class MergeEngine
             {
                 cell.AppendChild(new Paragraph());
             }
+        }
+    }
+
+    // ---- top-level records ----
+
+    /// <summary>
+    /// Raises one <c>multiple-top-level-records</c> warning for each top-level data item that
+    /// <paramref name="data"/> holds more than once but that no repeating section in the layout repeats.
+    /// <para>
+    /// BC iterates the top-level data item and renders the report body once per record — the implicit
+    /// top-level repeater (SOLUTION-DESIGN §2.3), which is not a <c>w15:repeatingSection</c> in the layout:
+    /// every top-level binding indexes the step <c>[1]</c>. A real exported dataset
+    /// (<see cref="MergeOptions.DataOverridesPath"/>) printed for several documents — several invoices, a
+    /// statement run for several customers — therefore holds several such records, and the mock shows the
+    /// first one only. That used to happen silently.
+    /// </para>
+    /// <para>
+    /// The merge deliberately does not render the body once per record. There is no observed OOXML for how
+    /// BC concatenates the per-record documents (section breaks, page numbering, headers and footers), and
+    /// ADR-0005 forbids inventing one. It says so instead.
+    /// </para>
+    /// <para>
+    /// Counted where the merge consumes the data, so a loaded dataset and a hand-built one are judged alike;
+    /// generated sample data never trips it (generation multiplies only repeater-consumed items, and
+    /// those are exempt). A top-level item some repeater in any part does repeat — a list report's row
+    /// repeater, StandardStatement's grouped body repeater — renders every record, so it is exempt; so is
+    /// the <c>BCReportInformation</c> system node. Items are reported in the order they first occur.
+    /// </para>
+    /// </summary>
+    private static void WarnAboutUnrepeatedTopLevelRecords(MainDocumentPart main, SampleDataset data, MergeState state)
+    {
+        var root = data.Xml.Root;
+        if (root is null)
+        {
+            return;
+        }
+
+        var repeated = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var (part, _) in PartWalker.ContentParts(main))
+        {
+            foreach (var sdt in part.Descendants<SdtElement>())
+            {
+                var pr = sdt.GetFirstChild<SdtProperties>();
+                if (pr is null || SdtInspector.Classify(pr) != SdtInspector.Classification.Repeater)
+                {
+                    continue;
+                }
+
+                var binding = SdtInspector.FindRepeaterBinding(pr);
+                var segments = BindingXPath.Segments(binding is null ? null : SdtInspector.Attr(binding, "xpath", OoxmlNames.W));
+                if (segments.Count == 2 && string.Equals(segments[0], root.Name.LocalName, StringComparison.Ordinal))
+                {
+                    repeated.Add(segments[1]);
+                }
+            }
+        }
+
+        var topLevelItems = root.Elements()
+            .Where(e => e.Name.LocalName != OoxmlNames.SystemNodeName)
+            .GroupBy(e => e.Name.LocalName, StringComparer.Ordinal);
+
+        foreach (var item in topLevelItems)
+        {
+            var count = item.Count();
+            if (count < 2 || repeated.Contains(item.Key))
+            {
+                continue;
+            }
+
+            state.Warnings.Add(new MergeWarning
+            {
+                Kind = "multiple-top-level-records",
+                Message = $"The dataset has {count} top-level '{item.Key}' records, but the preview renders the "
+                    + $"first only: no repeating section repeats '/{item.Key}', so every binding into it reads "
+                    + "record [1]. Business Central renders the report body once per top-level record; this mock "
+                    + "does not. To preview another record, pass a dataset holding only that one.",
+                Location = $"/{item.Key}",
+            });
         }
     }
 
