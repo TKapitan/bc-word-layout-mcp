@@ -213,6 +213,41 @@ public class LayoutRefresherTests
         }
     }
 
+    // ---- w16sdtdh:storeItemChecksum is left alone (GitHub issue #6) ----
+
+    [Fact]
+    public void Refresh_leaves_Words_storeItemChecksum_attributes_as_they_were()
+    {
+        // The checksum hashes the data part; a stale one is harmless and Word recomputes it on its next save
+        // (see LayoutRefresher's remarks for the measurement). This pins that the refresh does not strip or
+        // rewrite it - and that the SDK round-trips an attribute from a namespace newer than its own schemas.
+        const string Checksum = "w16sdtdh:storeItemChecksum=\"iVL4vw==\"";
+        var path = CopyOfCorpus(Corpus.JobQuote);
+        try
+        {
+            static int CountChecksums(WordprocessingDocument doc)
+            {
+                using var reader = new StreamReader(doc.MainDocumentPart!.GetStream());
+                var xml = reader.ReadToEnd();
+                return (xml.Length - xml.Replace(Checksum, string.Empty, StringComparison.Ordinal).Length) / Checksum.Length;
+            }
+
+            using (var doc = WordprocessingDocument.Open(path, true))
+            {
+                Assert.Equal(5, CountChecksums(doc)); // the capture's premise
+                LayoutRefresher.Refresh(doc, Corpus.Path(Corpus.JobQuote));
+                SaveAllParts(doc);
+            }
+
+            using var reopened = WordprocessingDocument.Open(path, false);
+            Assert.Equal(5, CountChecksums(reopened));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     // ---- removed column -> orphaned; a still-valid sibling is not ----
 
     [Fact]
