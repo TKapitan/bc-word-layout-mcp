@@ -101,10 +101,14 @@ public sealed record TableCellDto(
     int GridSpan);
 
 /// <summary>
-/// One row of a <see cref="TableDto"/>. <see cref="IsControlRow"/> marks a row wrapped by a row-level control
-/// (e.g. a repeater). <see cref="GridBefore"/>/<see cref="GridAfter"/> are the grid columns the row skips
-/// before its first and after its last cell (<c>w:gridBefore</c>/<c>w:gridAfter</c>, 0 when absent); with the
-/// cells' <see cref="TableCellDto.GridSpan"/>s they sum to the table's <c>columnCount</c>.
+/// One row of a <see cref="TableDto"/> — one per <c>w:tr</c>, so every row of a multi-row repeater item
+/// (its line row, a nested detail repeater's row, subtotal and spacer rows) is listed and addressable on its
+/// own (GitHub issue #80). <see cref="IsControlRow"/> marks a row wrapped by a row-level control (e.g. a
+/// repeater) and <see cref="ControlId"/> is the OUTERMOST such control's id; <see cref="RepeaterControlId"/>
+/// is the INNERMOST repeater's — the one the row repeats with (null outside every repeater).
+/// <see cref="GridBefore"/>/<see cref="GridAfter"/> are the grid columns the row skips before its first and
+/// after its last cell (<c>w:gridBefore</c>/<c>w:gridAfter</c>, 0 when absent); with the cells'
+/// <see cref="TableCellDto.GridSpan"/>s they sum to the table's <c>columnCount</c>.
 /// </summary>
 public sealed record TableRowDto(
     int RowIndex,
@@ -112,7 +116,8 @@ public sealed record TableRowDto(
     int? ControlId,
     IReadOnlyList<TableCellDto> Cells,
     int GridBefore,
-    int GridAfter);
+    int GridAfter,
+    int? RepeaterControlId);
 
 /// <summary>
 /// One table, described structurally. <see cref="TableIndex"/> is the 0-based, per-part, document-order

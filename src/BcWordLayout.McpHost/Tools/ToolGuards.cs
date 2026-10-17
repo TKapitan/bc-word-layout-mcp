@@ -937,7 +937,8 @@ internal static class ToolGuards
                     cell.GridColumn,
                     cell.GridSpan)).ToList(),
                 r.GridBefore,
-                r.GridAfter)).ToList());
+                r.GridAfter,
+                r.RepeaterControlId)).ToList());
 
     /// <summary>
     /// SECURITY: recurses once per <see cref="DataItem"/>

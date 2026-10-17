@@ -151,6 +151,9 @@ public class NestedRepeaterTests
             Assert.Equal(2, detailCells[1].Descendants<SdtRun>().Count());
 
             Assert.Empty(TableGridConsistencyGuard.Find(reopened));
+            // ...and by a walk that does not share the guard's navigator: the guard once could not see this
+            // detail row at all, so its silence alone proved nothing (GitHub issue #80).
+            Assert.Empty(IndependentGridWalk.RowsOffGrid(reopened));
             Assert.Empty(OpenXmlErrors(reopened));
         }
         finally

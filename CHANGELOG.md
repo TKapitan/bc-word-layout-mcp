@@ -232,6 +232,23 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - **`set_cell_borders`** returned the physical `col` as `columnIndex`. It now returns the grid
     column the cell starts at, as the result type documents and `merge_cells`/`split_cells` do.
 
+- **Column and width edits reach every row of a repeater item** (GitHub issue #80). The table tools
+  saw only the first `w:tr` of each repeater: an item's other rows, nested detail repeaters, and the
+  subtotal and spacer rows `insert_subtotal_row` adds were skipped by `insert_column`,
+  `remove_column`, `set_column_widths`, the `w:vMerge` refusal, `get_layout_info`, `tableCell`
+  addressing and the grid-consistency check. A column edit left those rows on the old grid (on
+  InventoryOrderDetails the removed amount still printed past the table's right edge), and
+  validation passed.
+  - **Row numbering changes:** `get_layout_info`'s `rows[]` now lists every `w:tr`, each with a new
+    `repeaterControlId` (the innermost repeater it repeats with). On tables with multi-row repeater
+    items `rowCount` grows and the rows after such an item get higher indexes, so re-read
+    `get_layout_info` before reusing a stored row index. Controls in nested rows now have table
+    coordinates.
+  - **`insert_column`** binds a field into one row per repeater item: the first of the item's rows
+    that already holds a field of the same data item, else its first row.
+  - **`insert_table_row`** refuses an `atRow` between two rows of the same repeater
+    (`invalid_argument`) and names the positions just before and after it.
+
 ### Security
 
 - **A crafted layout can no longer kill the server through the OpenXml SDK's own parse** (GitHub

@@ -99,9 +99,11 @@ public readonly record struct TableGridViolation(string Part, int TableIndex, in
 
 /// <summary>
 /// Detects table rows whose cell layout is inconsistent with the table's <c>w:tblGrid</c>. For every row
-/// (resolving repeater/cell wrappers via <see cref="TableGridNavigator"/>), the sum of its cells'
-/// <c>w:gridSpan</c> values plus any <c>w:gridBefore</c>/<c>w:gridAfter</c> must equal the grid's column
-/// count; every row must hold at least one cell; and every cell must hold at least one block-level child.
+/// (resolving repeater/cell wrappers via <see cref="TableGridNavigator"/> — EVERY <c>w:tr</c> of the table,
+/// the ones nested in repeater items included, which until GitHub issue #80 it could not see), the sum of
+/// its cells' <c>w:gridSpan</c> values plus any <c>w:gridBefore</c>/<c>w:gridAfter</c> must equal the grid's
+/// column count; every row must hold at least one cell; and every cell must hold at least one block-level
+/// child. <see cref="TableGridViolation.RowIndex"/> uses <c>get_layout_info</c>'s row numbering.
 /// </summary>
 /// <remarks>
 /// WHY THIS EXISTS: the structural table-editing tools (<c>set_column_widths</c>, <c>insert_column</c>,

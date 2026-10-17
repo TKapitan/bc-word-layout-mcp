@@ -21,9 +21,10 @@ namespace BcWordLayout.Domain;
 /// the insert tools' <c>tableIndex</c> directly, by construction rather than by hand-kept parity.
 /// </para>
 /// <para>
-/// Each table's own rows/cells are read from its DIRECT children only — a control living inside a NESTED
-/// table is attributed to that nested table's own entry (its innermost enclosing <c>w:tbl</c>), never to the
-/// outer cell that happens to contain the nested table, so every control is assigned to exactly one cell.
+/// Each table's own rows/cells are the ones whose nearest enclosing <c>w:tbl</c> is that table — a control
+/// living inside a NESTED table is attributed to that nested table's own entry (its innermost enclosing
+/// <c>w:tbl</c>), never to the outer cell that happens to contain the nested table, so every control is
+/// assigned to exactly one cell. A row nested in a repeater item is the table's own row like any other.
 /// </para>
 /// </remarks>
 public static class TableStructureReader
@@ -73,8 +74,8 @@ public static class TableStructureReader
             .ToList() ?? new List<int>();
         var columnCount = TableGridNavigator.GridColumnCount(table);
 
-        // Rows in document order (a plain w:tr, OR a row-level sdt sitting where a w:tr would) — the same
-        // enumeration TableGridNavigator.Rows exposes to every other row/cell walker.
+        // Rows in document order — every w:tr of the table, including the ones nested in row-level controls
+        // at any depth — the same enumeration TableGridNavigator.Rows exposes to every other row/cell walker.
         var rowSlots = TableGridNavigator.Rows(table);
         var rows = new List<TableRowInfo>(rowSlots.Count);
 
@@ -97,16 +98,18 @@ public static class TableStructureReader
     private static TableRowInfo ReadRow(
         Table table, TableGridNavigator.RowSlot rowSlot, int tableIndex, int rowIndex, Dictionary<SdtElement, Coord> coords)
     {
-        // A row-level control owns the whole row: record EVERY wrapper in its chain (e.g. a BC repeater's
-        // repeatingSection wrapping a repeatingSectionItem) at (table, row, null) — not just the outermost
-        // one — then read the cells from the innermost w:tr the chain ultimately holds. The OUTERMOST
-        // wrapper's id is reported as the row's own ControlId.
+        // A row-level control owns its rows: record EVERY wrapper in the chain (e.g. a BC repeater's
+        // repeatingSection wrapping a repeatingSectionItem, and a detail repeater nested in that item) at
+        // (table, row, null) — not just the outermost one. A wrapper holding several w:tr appears in each of
+        // their slots; TryAdd keeps the FIRST, so a row-level control's coordinate is the first row it wraps.
+        // The OUTERMOST wrapper's id is reported as the row's own ControlId, the INNERMOST repeater's as the
+        // repeater the row belongs to.
         if (rowSlot.IsControlRow)
         {
             var rowCoord = new Coord(tableIndex, rowIndex, null);
             foreach (var wrapper in rowSlot.Wrappers)
             {
-                coords[wrapper] = rowCoord;
+                coords.TryAdd(wrapper, rowCoord);
             }
         }
 
@@ -131,6 +134,9 @@ public static class TableStructureReader
             RowIndex = rowIndex,
             IsControlRow = rowSlot.IsControlRow,
             ControlId = rowSlot.ControlId,
+            RepeaterControlId = TableGridNavigator.InnermostRepeater(rowSlot) is { } repeater
+                ? SdtInspector.ReadControlId(repeater)
+                : null,
             GridBefore = gridBefore,
             GridAfter = gridAfter,
             Cells = cells,

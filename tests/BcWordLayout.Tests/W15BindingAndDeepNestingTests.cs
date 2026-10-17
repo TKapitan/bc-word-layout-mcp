@@ -170,6 +170,10 @@ public class W15BindingAndDeepNestingTests
             // cloning - the guard OpenXmlValidator cannot see.
             Assert.Empty(OpenXmlErrors(merged));
             Assert.Empty(TableGridConsistencyGuard.Find(merged));
+            // The guard used to see only each repeater item's FIRST row, i.e. none of the four nested levels
+            // this test is about (GitHub issue #80); a walk over every w:tr that shares none of its code is
+            // what actually checks the cloned rows.
+            Assert.Empty(IndependentGridWalk.RowsOffGrid(merged));
 
             // Re-anchoring worked at depth. Asserted on the machine-readable warning Kind and on
             // Stats.Unresolved rather than on message text, so a reworded message cannot quietly weaken it.

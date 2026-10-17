@@ -291,9 +291,12 @@ public static class TableTools
                  + "optional 'N:' prefix makes the cell span N grid columns (e.g. "
                  + "'4:-,3:/Header/Totals/TotalIncludingVATText,/Header/Totals/TotalAmountIncludingVAT'). "
                  + "The spans MUST sum to the table's columnCount. atRow is the 0-based row position to "
-                 + "insert at (a repeater's whole repeating section counts as ONE row - the same numbering "
-                 + "get_layout_info's tables[] uses); omit it to append after the last row, where a totals "
-                 + "row goes. The row renders exactly ONCE - it is never part of a repeating section (for "
+                 + "insert at, in get_layout_info's tables[] numbering (one row per w:tr, a repeater's rows "
+                 + "included); a position BETWEEN two rows of the same repeater is refused, since a static "
+                 + "row cannot sit inside a repeating item - use the index of the repeater's first row "
+                 + "(before it) or of the row after its last (after it). Omit atRow to append after the "
+                 + "last row, where a totals row goes. The row renders exactly ONCE - it is never part of a "
+                 + "repeating section (for "
                  + "per-group subtotal rows inside a repeater's item, use insert_subtotal_row). Use bold=true "
                  + "for the stock grand-total look and alignments for right-anchored amounts, then "
                  + "set_cell_borders for the rule and set_cell_text for any literal caption. REJECTED for "
@@ -305,8 +308,9 @@ public static class TableTools
         [Description("Comma-separated cell specs laying the row on the table's grid: '-' = empty spacer, "
                      + "a FULL dataset path = one bound cell, 'a+b' = several paths inline in one cell, "
                      + "optional 'N:' span prefix (N from 1 to 63). Spans must sum to the table's columnCount.")] string cells,
-        [Description("Optional 0-based row position (0..rowCount). Omit, or pass the table's rowCount, to "
-                     + "append after the last row - where a totals row goes.")] int? atRow = null,
+        [Description("Optional 0-based row position (0..rowCount), not inside a repeater (see this tool's "
+                     + "description). Omit, or pass the table's rowCount, to append after the last row - where "
+                     + "a totals row goes.")] int? atRow = null,
         [Description("Optional comma-separated per-cell alignments ('left'/'center'/'right', or '-' to keep "
                      + "the default), one per cell spec - amounts in a BC totals row are right-aligned.")]
         string? alignments = null,
@@ -446,7 +450,11 @@ public static class TableTools
                  + "empty cells). In a line-items table the bound control goes ONLY into the rows of the "
                  + "repeater whose data item contains dataPath (a /Header/Line field into the Line row, never "
                  + "into a ReportTotalsLine row of the same table, which is treated like any other non-content "
-                 + "row); a parent/Header field is accepted only when the table has a single repeater, and a "
+                 + "row) - and into ONE row per repeater item: an item with several rows (spacer, field, "
+                 + "nested detail, subtotal rows) gets it in the first row that already holds a field of "
+                 + "dataPath's data item, else its first row; every other row gets filler. A parent/Header "
+                 + "field is accepted only when the table has a single repeater (detail repeaters nested in "
+                 + "it do not count), and a "
                  + "dataPath matching none of the table's repeaters is refused. In a table with no repeater it "
                  + "goes into every non-header row. Header rows get a header cell (bind headerLabelPath, else "
                  + "headerText, else a humanized column name): rows marked w:tblHeader, else the first row of "

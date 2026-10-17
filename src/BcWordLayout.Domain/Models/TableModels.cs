@@ -46,7 +46,11 @@ public sealed class TableStructure
     /// <summary>0-based, per-part, document-order table index — the same index <c>tableCell</c> addressing uses.</summary>
     public required int TableIndex { get; init; }
 
-    /// <summary>Number of rows (plain <c>w:tr</c> plus any row-level control rows).</summary>
+    /// <summary>
+    /// Number of rows: every <c>w:tr</c> of the table, including the rows nested inside row-level controls at
+    /// any depth (each row of a multi-row repeater item, each nested detail repeater's row), plus one for a
+    /// row-level control that holds no <c>w:tr</c> at all.
+    /// </summary>
     public required int RowCount { get; init; }
 
     /// <summary>Number of grid columns declared by the table's <c>w:tblGrid</c>.</summary>
@@ -60,6 +64,13 @@ public sealed class TableStructure
 }
 
 /// <summary>One row of a <see cref="TableStructure"/>.</summary>
+/// <remarks>
+/// ONE ROW PER <c>w:tr</c>. A repeater item that holds several rows — its line row, the rows of a detail
+/// repeater nested in it, its subtotal and spacer rows — lists each of them, in document order, every one
+/// tagged with the repeater it belongs to (<see cref="RepeaterControlId"/>). Until GitHub issue #80 a
+/// repeater counted as ONE row (its first <c>w:tr</c>), so the other rows had no index at all, and the
+/// indexes of the rows after such an item were one or more lower than they are now.
+/// </remarks>
 public sealed class TableRowInfo
 {
     /// <summary>0-based row index within its table.</summary>
@@ -72,8 +83,19 @@ public sealed class TableRowInfo
     /// </summary>
     public required bool IsControlRow { get; init; }
 
-    /// <summary>The row-level control's <c>w:id</c>, when <see cref="IsControlRow"/> is true; else null.</summary>
+    /// <summary>
+    /// The <c>w:id</c> of the OUTERMOST row-level control around the row, when <see cref="IsControlRow"/> is
+    /// true; else null — the same id for every row that control holds, and the one whose removal takes them all.
+    /// </summary>
     public int? ControlId { get; init; }
+
+    /// <summary>
+    /// The <c>w:id</c> of the INNERMOST repeating section around the row — the repeater it is cloned with,
+    /// one per data row — or null when no repeater wraps it. In a stock statement's lines table the item's own
+    /// rows carry the outer <c>CurrencyLoop</c> repeater's id and the nested detail row its
+    /// <c>DtldCustLedgEntries</c> repeater's, while <see cref="ControlId"/> is the outer one's for all of them.
+    /// </summary>
+    public int? RepeaterControlId { get; init; }
 
     /// <summary>
     /// Grid columns the row skips BEFORE its first cell (<c>w:trPr/w:gridBefore</c>, 0 when absent) — so its
