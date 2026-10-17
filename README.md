@@ -16,6 +16,11 @@ it is saved and rejected outright if it would corrupt the file.
 - [`skills/al-word-layout-design/SKILL.md`](skills/al-word-layout-design/SKILL.md) — the design
   skill: what a new layout should *look like* — archetype skeletons and observed BC document
   conventions, each tagged with the stock corpus layout or BC-verified build it comes from.
+- [`skills/al-word-layout-from-design/SKILL.md`](skills/al-word-layout-from-design/SKILL.md) — from a
+  finished Word design plus the report's empty layout to a bound layout: what to ask a consultant for,
+  mapping sample text to dataset fields, binding it, checking it.
+- [`skills/al-word-layout-composite/SKILL.md`](skills/al-word-layout-composite/SKILL.md) — composable
+  layouts: what the body, header/footer and theme files contain, and the style contract between them.
 - [`docs/SOLUTION-DESIGN.md`](docs/SOLUTION-DESIGN.md) — architecture and design rationale.
 - [`docs/adr/`](docs/adr/) — the deliberate design decisions, as ADRs.
 
@@ -111,9 +116,12 @@ runs the code as built when the session started; restart the session to pick up 
 
 ### The companion skills and plugin
 
-Two skills ride along with the server: `al-word-layout` teaches an agent the intended workflow and
-the supported matrix, and `al-word-layout-design` teaches what a from-scratch layout should look
-like (archetype skeletons and observed BC document conventions). The server is fully usable without
+Four skills ride along with the server: `al-word-layout` teaches an agent the intended workflow and
+the supported matrix, `al-word-layout-design` teaches what a from-scratch layout should look
+like (archetype skeletons and observed BC document conventions), `al-word-layout-from-design`
+turns a finished Word design plus the report's empty layout into a bound layout — so a functional
+consultant can get a working layout without touching OOXML or AL — and `al-word-layout-composite`
+covers composable layouts: the report body, the reusable header/footer layout and the theme. The server is fully usable without
 them, but agents drive the tools noticeably better with them. The plugin installs the skills and
 the server entry together, and this repository is a plugin marketplace for **both** ecosystems:
 
@@ -123,8 +131,8 @@ the server entry together, and this repository is a plugin marketplace for **bot
   `"chat.plugins.marketplaces": ["TKapitan/bc-word-layout-mcp"]` to your **user** `settings.json`,
   then install the `bc-word-layout` plugin from the marketplace. The same mechanism serves
   Copilot CLI.
-- **Manual copy (the floor — no plugin system involved):** copy `skills/al-word-layout/` and
-  `skills/al-word-layout-design/` into your project's `.claude/skills/` or `.github/skills/` (or
+- **Manual copy (the floor — no plugin system involved):** copy the `skills/` folders
+  (`al-word-layout/`, `al-word-layout-design/`, `al-word-layout-from-design/`, `al-word-layout-composite/`) into your project's `.claude/skills/` or `.github/skills/` (or
   user-level `~/.claude/skills/`). `SKILL.md` agent skills are an open standard — Claude Code,
   VS Code, and Copilot CLI all scan these locations natively; the server is then registered
   separately per Option A/B above.
@@ -437,6 +445,12 @@ Or write the requests to a file of your own and pipe it (`Get-Content requests.j
   skill: the two archetype skeletons (trading document, list report), per-element BC conventions
   (address blocks, caption placement, line-table alignment, totals, chrome, typography), and the
   stock idioms the tools cannot build.
+- [`skills/al-word-layout-from-design/SKILL.md`](skills/al-word-layout-from-design/SKILL.md) — the
+  design-to-layout skill: inputs to request, the sample-text-to-field map and its rules, the binding
+  recipe for a styled design, mock-render traps, and the consultant handover.
+- [`skills/al-word-layout-composite/SKILL.md`](skills/al-word-layout-composite/SKILL.md) — the
+  composable-layout skill: body / header-footer / theme rules, the theme–body style contract, splitting
+  one design into the three parts, and what made a theme fail to apply.
 - [`docs/SOLUTION-DESIGN.md`](docs/SOLUTION-DESIGN.md) — architecture, tool surface, design risks.
 - [GitHub issues](https://github.com/TKapitan/bc-word-layout-mcp/issues) — the backlog: what is
   deferred, why, and what each remaining item is blocked on. Labels classify each issue by type,

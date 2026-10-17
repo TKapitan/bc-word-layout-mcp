@@ -187,7 +187,9 @@ totals table, which is the BC-verified simpler shape [verified: P07]).
 - Stock caption text is smaller and bolder than its values (9 pt bold captions over 11 pt values
   [1304, 1322]); totals amounts are bold everywhere [stock + verified].
 - Broad styling (colours, shading, other fonts) has no tool: use a branded `templatePath` shell or
-  hand-edit the OOXML and re-validate (al-word-layout §3).
+  hand-edit the OOXML and re-validate (al-word-layout §3). When the look already exists as a finished
+  Word design with sample values, follow al-word-layout-from-design instead of rebuilding it here; for
+  a theme shared across reports, al-word-layout-composite.
 
 ### Widths (twips)
 - Full A4 content width is **10206 twips** with the stock margins. `insert_table`'s default even
