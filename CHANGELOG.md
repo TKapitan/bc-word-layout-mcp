@@ -450,6 +450,29 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     waited out the 300–400 s timeout. Their stdio client could also miss a response that arrived
     just as it began to wait, and report a timeout for a server that had answered.
 
+- **The skill's tool reference and the README describe what the server actually returns**
+  (GitHub issue #100). Agents drive the tools from `skills/al-word-layout/SKILL.md`, and these
+  mismatches with the live server misled them:
+  - **Return shapes:** the eight table-structure tools, `insert_table` and `insert_table_row`
+    included, return the table-edit result (`operation`, `part`, `tableIndex`, `columnIndex`,
+    `rowsAffected`, `columnCountBefore`, `columnCountAfter`, `summary`, `quickValidation`), not the
+    `insert_field` or `set_cell_text` shape the skill named. `insert_column` therefore returns no id
+    for a control it creates. `insert_repeater_table` also returns `tableIndex` and `dataRowIndex`.
+  - **Field names** are camelCase (`xPath`, `storeItemId`, `parentRepeaterXPath`, `sdtId`), in the
+    skill and in `get_layout_info`'s own description; `refresh_xml_part`'s binding lists carry
+    `sdtId`.
+  - **Nulls are omitted, not sent:** a success has no `error` key, a failure no `data` key, and an
+    unset optional field (an unreferenced part's `role`, a failed conversion's `pdfPath`) is
+    absent.
+  - **Missing parameters:** `insert_repeater_table`'s `look`, `insert_field`/`insert_label`'s
+    `bold`/`fontSizePoints`, and `set_cell_text`'s `bold`/`alignment`/`fontSizePoints`. The design
+    skill's "Open" table look added the header rule `look="bc"` already draws.
+  - **Error codes:** `rasterize_failed` (`render_preview_pages`, also for a `firstPage` past the end)
+    was missing from the skill's list.
+  - **Mutating tools:** there are 20, not "eighteen" (README listed 15), and every one of them runs
+    the grid-consistency guard, not only the table edits. `create_layout`'s own check of the layout
+    it built reports a failure as `internal_error`, as a server bug.
+
 ### Security
 
 - **A crafted layout can no longer kill the server through the OpenXml SDK's own parse** (GitHub

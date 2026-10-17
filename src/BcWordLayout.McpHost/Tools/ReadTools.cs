@@ -26,8 +26,9 @@ public static class ReadTools
 {
     [McpServerTool(Name = "get_layout_info")]
     [Description("Inspect a BC Word report layout (.docx): returns report name/id, dataset namespace, "
-                 + "storeItemID, the full control inventory (kind, alias, tag, xpath, storeItemID, part, "
-                 + "parent repeater, and for each control its structural LEVEL - run/block/cell/row/runRuby - "
+                 + "storeItemId, the full control inventory (kind, alias, tag, xPath, storeItemId, part, "
+                 + "sdtId - the control's w:id, the controlId the edit tools take - usesW15Binding, "
+                 + "parentRepeaterXPath, and for each control its structural LEVEL - run/block/cell/row/runRuby - "
                  + "plus its tableIndex/rowIndex/colIndex when it sits in a table), a TABLES section "
                  + "describing every table's grid (rowCount, columnCount, gridColumnWidths) and its rows - ONE "
                  + "PER w:tr, so each row of a multi-row repeater item (line, nested detail, subtotal, spacer "

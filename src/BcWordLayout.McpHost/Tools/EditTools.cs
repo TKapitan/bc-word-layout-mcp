@@ -247,7 +247,7 @@ public static class EditTools
         });
     }
 
-    /// <summary>Maps insert_field/insert_label's optional run-formatting knobs to the domain record (null when both omitted).</summary>
+    /// <summary>Maps the insert tools' optional run-formatting knobs (bold, fontSizePoints) to the domain record (null when both omitted).</summary>
     private static CellTextFormat? ControlFormat(bool? bold, double? fontSizePoints) =>
         bold is null && fontSizePoints is null ? null : new CellTextFormat { Bold = bold, FontSizePoints = fontSizePoints };
 

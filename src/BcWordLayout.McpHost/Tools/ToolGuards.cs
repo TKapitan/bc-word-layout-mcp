@@ -74,8 +74,8 @@ internal static class ToolGuards
         EditLocks.GetOrAdd(PathIdentity.Canonical(layoutPath), static _ => new object());
 
     /// <summary>
-    /// Shared choreography for every mutating tool (<c>insert_field</c>, <c>insert_label</c>,
-    /// <c>insert_repeater_table</c>, <c>remove_control</c>, <c>refresh_xml_part</c>): copy
+    /// Shared choreography for all 20 mutating tools — every tool that writes through <see cref="GuardEdit"/>,
+    /// <see cref="GuardCellEdit"/>, <see cref="GuardTableEdit"/> or <see cref="GuardRefresh"/>: copy
     /// <paramref name="layoutPath"/> to a private temp working copy, open THAT copy read-write
     /// (<see cref="OpenSettings.AutoSave"/> off), apply <paramref name="mutate"/>, then run
     /// <see cref="OpenXmlValidator"/> both BEFORE and after the edit so only NEWLY introduced structural
@@ -96,8 +96,9 @@ internal static class ToolGuards
     /// <see cref="RefreshResultDto"/>) is therefore structurally incapable of shipping without a populated
     /// <c>QuickValidation</c>; this is not a convention an individual tool could forget to follow. The
     /// <paramref name="mutate"/> result type is generic (<typeparamref name="TResult"/>) precisely because
-    /// different mutating tools return different result shapes — <see cref="EditResult"/> for the four
-    /// content-control edits, <see cref="RefreshResult"/> for <c>refresh_xml_part</c> (which additionally
+    /// different mutating tools return different result shapes — <see cref="EditResult"/> for the nine
+    /// content-control and repeater edits, <see cref="CellEditResult"/> and <see cref="TableEditResult"/> for the
+    /// cell and table-structure edits, <see cref="RefreshResult"/> for <c>refresh_xml_part</c> (which additionally
     /// computes ITS OWN <see cref="RefreshResult.QuickValidation"/> internally, for Domain-level callers
     /// that never go through this tool layer at all — <paramref name="onSuccess"/> is free to reuse that
     /// one instead of the <see cref="ValidationResult"/> passed alongside <typeparamref name="TResult"/>,
@@ -277,8 +278,7 @@ internal static class ToolGuards
                         // In practice this is an unreachable safety net, not a normally-exercised path:
                         // SdtFactory, LocationResolver, and LayoutRefresher are all deliberately engineered
                         // (3.2/3.4/4.1) to only ever emit/target valid OOXML, so no known route
-                        // through insert_field/insert_label/remove_control/insert_repeater_table/
-                        // refresh_xml_part's public surface can actually trigger it today. It is kept as a
+                        // through any mutating tool's public surface can actually trigger it today. It is kept as a
                         // backstop against a future change breaking that invariant, and is deliberately not
                         // force-tested — there is no honest way to reach it from the outside without
                         // fabricating an internal bug to order.
@@ -578,7 +578,7 @@ internal static class ToolGuards
         return added;
     }
 
-    /// <summary>Thin <see cref="GuardMutate{TResult}"/> instantiation building the content-control edit tools' <see cref="EditResultDto"/> — used by <see cref="EditTools"/>'s <c>insert_field</c>/<c>insert_label</c>/<c>insert_picture</c>/<c>remove_control</c> and <see cref="TableTools"/>'s <c>insert_repeater_table</c>.</summary>
+    /// <summary>Thin <see cref="GuardMutate{TResult}"/> instantiation building the content-control edit tools' <see cref="EditResultDto"/> — used by <see cref="EditTools"/>'s <c>insert_field</c>/<c>insert_label</c>/<c>insert_text</c>/<c>insert_page_number</c>/<c>insert_picture</c>/<c>remove_control</c> and <see cref="TableTools"/>'s <c>insert_repeater_table</c>/<c>insert_repeater_row</c>/<c>insert_subtotal_row</c>.</summary>
     internal static ToolResponse GuardEdit(string layoutPath, Func<WordprocessingDocument, EditResult> mutate) =>
         GuardMutate(layoutPath, mutate, (editResult, quick) =>
         {
@@ -623,8 +623,9 @@ internal static class ToolGuards
 
     /// <summary>
     /// Thin <see cref="GuardMutate{TResult}"/> instantiation for <see cref="TableTools"/>'s table-STRUCTURE
-    /// tools (<c>set_column_widths</c>, <c>insert_column</c>, <c>remove_column</c>, <c>merge_cells</c>,
-    /// <c>split_cells</c>), building <see cref="TableEditResultDto"/>. Same save-or-reject safety and
+    /// tools (<c>insert_table</c>, <c>insert_table_row</c>, <c>set_column_widths</c>, <c>insert_column</c>,
+    /// <c>remove_column</c>, <c>merge_cells</c>, <c>split_cells</c>, <c>set_cell_borders</c>), building
+    /// <see cref="TableEditResultDto"/>. Same save-or-reject safety and
     /// post-edit QuickValidation guarantee as <see cref="GuardEdit"/>/<see cref="GuardCellEdit"/>, plus the
     /// <see cref="TableGridConsistencyGuard"/> backstop <see cref="GuardMutate{TResult}"/> now runs for every
     /// mutating tool — so a structural table edit that would desync a row's cells from the grid is rejected
@@ -767,7 +768,7 @@ internal static class ToolGuards
             + "host process may have exited while holding the lock; it is released automatically, so a retry "
             + "after a short pause should succeed.");
 
-    // ---- location building (shared by EditTools' insert_field/insert_label and TableTools' insert_repeater_table) ----
+    // ---- location building (shared by every tool with a locationType: EditTools' inserts, TableTools' insert_repeater_table/insert_table) ----
 
     /// <summary>
     /// Builds a <see cref="Location"/> from a tool's flat, MCP-friendly parameters. Only checks that

@@ -226,8 +226,9 @@ public sealed record PreviewPagesResultDto(
     IReadOnlyList<PreviewPageDto> Pages);
 
 /// <summary>
-/// Result of a mutating edit tool (<c>insert_field</c>, <c>insert_label</c>, <c>insert_picture</c>,
-/// <c>remove_control</c>, <c>insert_repeater_table</c>). <see cref="ColumnCount"/>,
+/// Result of a mutating edit tool (<c>insert_field</c>, <c>insert_label</c>, <c>insert_text</c>,
+/// <c>insert_page_number</c>, <c>insert_picture</c>, <c>remove_control</c>, <c>insert_repeater_table</c>,
+/// <c>insert_repeater_row</c>, <c>insert_subtotal_row</c>). <see cref="ColumnCount"/>,
 /// <see cref="TableIndex"/> and <see cref="DataRowIndex"/> are populated for <c>insert_repeater_table</c>
 /// only; null for every other operation. <see cref="QuickValidation"/> is always populated on a successful
 /// response: <c>Tools.ToolGuards.GuardEdit</c> is the one and only place this record is constructed, and it
@@ -268,8 +269,9 @@ public sealed record CellEditResultDto(
     ValidationSummaryDto QuickValidation);
 
 /// <summary>
-/// Result of a table-STRUCTURE edit tool (<c>set_column_widths</c>, <c>insert_column</c>,
-/// <c>remove_column</c>). The table is addressed by its 0-based document-order index (the same one
+/// Result of a table-STRUCTURE edit tool (<c>insert_table</c>, <c>insert_table_row</c>,
+/// <c>set_column_widths</c>, <c>insert_column</c>, <c>remove_column</c>, <c>merge_cells</c>, <c>split_cells</c>,
+/// <c>set_cell_borders</c>). The table is addressed by its 0-based document-order index (the same one
 /// <c>get_layout_info</c> reports); <see cref="ColumnIndex"/> is the GRID column the edit added/removed, or
 /// for a single-cell edit (<c>merge_cells</c>, <c>split_cells</c>, <c>set_cell_borders</c> with a
 /// <c>col</c>) the grid column that cell starts at — the <c>gridColumn</c> <c>get_layout_info</c> reports

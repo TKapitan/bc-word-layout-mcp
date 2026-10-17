@@ -177,7 +177,7 @@ other tool is conversion-free and works everywhere the server runs.
 
 | Tool | Purpose |
 |---|---|
-| `get_layout_info` | Inspect a layout: report name/id, dataset namespace, `storeItemID`, the full control inventory (kind, alias, tag, xpath, part, parent repeater), per-part details (kind, header/footer role `default`/`first`/`even`, and which part a `partName`-less header/footer edit targets) plus a `hasTitlePage` flag, every table's rows (one per `w:tr`, so each row of a multi-row repeater item is addressable, tagged with the repeater it repeats with) and cells — each cell with both its physical `colIndex` (what the cell tools take) and its `gridColumn`/`gridSpan` (what the column tools take; they differ on any spanned row), each row with its `gridBefore`/`gridAfter` — and a quick validation summary. |
+| `get_layout_info` | Inspect a layout: report name/id, dataset namespace, `storeItemID`, the full control inventory (kind, alias, tag, `xPath`, part, parent repeater), per-part details (kind, header/footer role `default`/`first`/`even`, and which part a `partName`-less header/footer edit targets) plus a `hasTitlePage` flag, every table's rows (one per `w:tr`, so each row of a multi-row repeater item is addressable, tagged with the repeater it repeats with) and cells — each cell with both its physical `colIndex` (what the cell tools take) and its `gridColumn`/`gridSpan` (what the column tools take; they differ on any spanned row), each row with its `gridBefore`/`gridAfter` — and a quick validation summary. |
 | `list_dataset_fields` | List the dataset hierarchy (data items + columns) from a `.docx` layout or a standalone schema `.xml`; flags labels and, for a layout, bound/unbound columns. |
 | `validate_layout` | Validate a layout: `level=quick` (structural + binding checks, including a `repeater-downgraded` error for a repeater a Word save turned into a plain content control, a `top-level-repeater-group` error for a block-level repeater over the top-level data item without the `w:group` wrapper Business Central needs to print it, a warning when a layout containing repeaters declares a Word compatibility mode below 15, and a `duplicate-control-id` warning when two content controls share a `w:id`) or `level=full` (adds a dry-run merge that surfaces every unresolved binding as a finding). |
 | `preview_layout` | Mock preview: merges deterministic (or supplied) sample data into a working copy and converts it to PDF via Word COM or LibreOffice. |
@@ -209,25 +209,32 @@ other tool is conversion-free and works everywhere the server runs.
 Every tool returns a uniform envelope:
 
 ```json
-{ "ok": true, "data": { "...": "tool-specific payload" }, "error": null }
+{ "ok": true, "data": { "...": "tool-specific payload" } }
 ```
+
+Members that would be `null` are omitted rather than sent as `null`: a success has no `error` key, a
+failure has no `data` key, and an optional field inside `data` is simply absent.
 
 One tool extends (never replaces) this shape: `render_preview_pages` returns the same JSON envelope as
 its result's **first text content block**, followed by one MCP **image content block** per rendered page
 — the only way a tool result can carry images over MCP. Its envelope JSON is serialized with the same
 options the SDK applies to every other tool, so parsers see an identical shape either way.
 
-On failure, `data` is `null` and `error` is populated with `{ code, message, hint }` — `hint` is always
+On failure, `error` is populated with `{ code, message, hint }` — `hint` is always
 a non-empty, agent-actionable next step (which argument to fix and its valid values, or which
-inspection tool to call first). Nothing throws across the MCP boundary. The eighteen mutating tools
-(`insert_field`, `insert_label`, `insert_text`, `insert_picture`, `insert_repeater_table`, `remove_control`, `set_cell_text`,
-`clear_cell_text`, `set_column_widths`, `insert_column`, `remove_column`, `merge_cells`, `split_cells`,
-`set_cell_borders`, `refresh_xml_part`) additionally run `OpenXmlValidator` *before* saving — a write that would introduce a
-**new** structural error is rejected (`edit_would_corrupt`) and the file on disk is left untouched. Table
-edits are additionally checked by a grid-consistency guard that rejects (`edit_would_break_table`, file
-untouched) any edit leaving a row's cells inconsistent with its `w:tblGrid` — a corruption class
-`OpenXmlValidator` accepts silently. Every successful mutating response also carries a fresh post-edit
-`quickValidation` summary.
+inspection tool to call first). Nothing throws across the MCP boundary. The 20 mutating tools
+(`insert_field`, `insert_label`, `insert_text`, `insert_page_number`, `insert_picture`, `insert_table`,
+`insert_repeater_table`, `insert_repeater_row`, `insert_subtotal_row`, `insert_table_row`,
+`remove_control`, `set_cell_text`, `clear_cell_text`, `set_column_widths`, `insert_column`,
+`remove_column`, `merge_cells`, `split_cells`, `set_cell_borders`, `refresh_xml_part`) additionally run
+`OpenXmlValidator` *before* saving — a write that would introduce a **new** structural error is
+rejected (`edit_would_corrupt`) and the file on disk is left untouched. Every one of them is also
+checked by a grid-consistency guard that rejects (`edit_would_break_table`, file untouched) any edit
+leaving a row's cells inconsistent with its `w:tblGrid` — a corruption class `OpenXmlValidator`
+accepts silently. Every successful mutating response also carries a fresh post-edit
+`quickValidation` summary. (`create_layout` writes a new file instead: it checks the layout it built
+and returns `quickValidation` too, but a failure of that check is a server bug, reported as
+`internal_error`, never `edit_would_corrupt`.)
 
 **Envelope boundary: malformed calls get the envelope too.** The SDK looks the tool up and binds the
 JSON arguments onto its typed parameters before any tool body runs. The server's call-tool filter wraps
