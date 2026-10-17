@@ -1,10 +1,13 @@
-# Release on a v* tag (see docs/RELEASING.md): tag-vs-version guard, full test gate, then pack +
-# push EVERY produced
-# .nupkg (the top-level BcWordLayout.Mcp manifest package plus one per RID — all must ship together),
-# build the Channel-B zips + checksums via the same script a local rehearsal uses, and create the
-# GitHub Release with the zips, SHA256SUMS.txt, and install.ps1 as assets (the README's
-# releases/latest/download/install.ps1 one-liner depends on that last asset). A tag containing '-'
-# (e.g. v1.0.0-rc.1) is marked as a pre-release.
+# Release on a v* tag (see docs/RELEASING.md). Nothing reaches NuGet - whose versions are immutable and
+# can never be reclaimed - until everything that will ship has been built and smoke-tested (GitHub issue
+# #110): the tag-vs-version guard and the full test gate, then pack EVERY .nupkg (the top-level
+# BcWordLayout.Mcp manifest package plus one per RID - all must ship together), build the Channel-B zips +
+# checksums, and run scripts/smoke-release-artifacts.ps1, which checks what the packages and zips contain
+# and starts the server from both the unzipped exe and the local packages (via dnx), requiring this exact
+# version. Only then the NuGet push, then the GitHub Release with the zips, SHA256SUMS.txt, and
+# install.ps1 as assets (the README's releases/latest/download/install.ps1 one-liner depends on that last
+# asset). CI runs the same build-and-smoke scripts on every pull request. A tag containing '-' (e.g.
+# v1.0.0-rc.1) is marked as a pre-release.
 #
 # NuGet publishing uses TRUSTED PUBLISHING (OIDC), not a stored API key: the job's GitHub OIDC token
 # is exchanged for a 1-hour NuGet API key against the Trusted Publishing policy configured on
@@ -45,11 +48,22 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
+      # tools/release/verify_server.py, run by the smoke test below.
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
       - name: Test (full gate)
         run: dotnet test -c Release
 
       - name: Pack NuGet packages
-        run: dotnet pack src/BcWordLayout.McpHost -c Release
+        run: dotnet pack src/BcWordLayout.McpHost -c Release -o artifacts/nupkg
+
+      - name: Build release zips + checksums
+        run: pwsh scripts/build-release-zips.ps1
+
+      - name: Smoke-test every artifact before publishing anything
+        run: pwsh scripts/smoke-release-artifacts.ps1
 
       - name: NuGet login (OIDC -> temp API key)
         uses: NuGet/login@v1
@@ -63,7 +77,7 @@ jobs:
       - name: Push every package to NuGet
         shell: pwsh
         run: |
-          $packages = @(Get-ChildItem src/BcWordLayout.McpHost/bin/Release/*.nupkg)
+          $packages = @(Get-ChildItem artifacts/nupkg/*.nupkg)
           if ($packages.Count -ne 3) {
             throw "Expected 3 packages (BcWordLayout.Mcp + win-x64 + win-arm64), found $($packages.Count): $($packages.Name -join ', ')"
           }
@@ -71,9 +85,6 @@ jobs:
             dotnet nuget push $pkg.FullName --api-key "${{ steps.nuget-login.outputs.NUGET_API_KEY }}" --source https://api.nuget.org/v3/index.json --skip-duplicate
             if ($LASTEXITCODE -ne 0) { throw "Push failed for $($pkg.Name)" }
           }
-
-      - name: Build release zips + checksums
-        run: pwsh scripts/build-release-zips.ps1
 
       - name: Create the GitHub Release
         shell: pwsh

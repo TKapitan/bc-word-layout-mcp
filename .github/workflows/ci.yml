@@ -56,10 +56,36 @@ jobs:
         if: runner.os == 'Linux'
         run: python3 -m unittest discover -s tools/tests -v
 
+  # The release artifacts, built and smoke-tested exactly as release.yml does before it publishes
+  # (scripts/build-release-zips.ps1, then scripts/smoke-release-artifacts.ps1), so a packaging problem
+  # fails the pull request that causes it instead of the tag that would have shipped it (GitHub issue
+  # #110). A job of its own, so it runs in parallel with the test legs.
+  package-smoke:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: Pack NuGet packages
+        run: dotnet pack src/BcWordLayout.McpHost -c Release -o artifacts/nupkg
+
+      - name: Build release zips + checksums
+        run: pwsh scripts/build-release-zips.ps1
+
+      - name: Smoke-test the artifacts
+        run: pwsh scripts/smoke-release-artifacts.ps1
+
   # The single required status check (see the header comment). `if: always()` makes it report on every
   # run, so a failed or cancelled leg fails it instead of leaving it pending.
   ci-result:
-    needs: [build-and-test]
+    needs: [build-and-test, package-smoke]
     if: always()
     permissions: {}   # reads the needs context only; never checks out
     runs-on: ubuntu-latest
@@ -67,6 +93,7 @@ jobs:
       - name: Verify every job succeeded
         shell: bash
         run: |
-          result='${{ needs.build-and-test.result }}'
-          echo "build-and-test: $result"
-          [ "$result" = "success" ]
+          tests='${{ needs.build-and-test.result }}'
+          smoke='${{ needs.package-smoke.result }}'
+          echo "build-and-test: $tests, package-smoke: $smoke"
+          [ "$tests" = "success" ] && [ "$smoke" = "success" ]
