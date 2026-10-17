@@ -79,6 +79,12 @@ unpacks to a stable location, verifies the checksum, and prints the ready-to-pas
 irm https://github.com/TKapitan/bc-word-layout-mcp/releases/latest/download/install.ps1 | iex
 ```
 
+For a specific version, pre-releases included, run that release's own script with `-Version`:
+
+```pwsh
+& ([scriptblock]::Create((irm https://github.com/TKapitan/bc-word-layout-mcp/releases/download/v1.2.3/install.ps1))) -Version 1.2.3
+```
+
 The documented config then points at the fixed path
 `%LOCALAPPDATA%\bc-word-layout-mcp\current\BcWordLayout.McpHost.exe`.
 

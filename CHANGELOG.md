@@ -379,6 +379,25 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   anchored on its first control), and `insert_text`'s description shows it for `Label: Value`. A
   test pins the run order.
 
+- **The `install.ps1` one-liner no longer changes the caller's PowerShell session or leaves its
+  download behind, and `-FromDirectory` installs the version asked for** (GitHub issue #109).
+  - **Session:** under the documented `irm … | iex`, the script ran in the caller's scope.
+    Afterwards `$ErrorActionPreference` stayed `Stop`, so the next failing command aborted the
+    whole command line; a `$Version` of the caller's own became `latest`; and every script
+    variable stayed behind. The script now runs in a scope of its own however it is started, and
+    `-Version` still binds in a file run and in the scriptblock form.
+  - **Download folder:** every install left `%TEMP%\bcwl-install-<guid>` behind, holding the
+    ~50 MB zip. It is now removed whether the install succeeds or fails.
+  - **`-FromDirectory`:** it took the first zip by file name and ignored `-Version`: with 1.0.0 and
+    1.1.0 present it installed 1.0.0, and with 1.1.0-rc.1 and 1.1.0 the RC. It now installs
+    exactly the `-Version` zip, naming the versions present when it is missing, or without
+    `-Version` the highest SemVer version.
+  - **Architecture:** x64 PowerShell on an ARM64 machine installed the `win-x64` zip. The native
+    architecture now decides.
+  - Windows PowerShell 5.1's progress bar no longer slows the download.
+
+  The README now shows how to install a specific version.
+
 ### Security
 
 - **A crafted layout can no longer kill the server through the OpenXml SDK's own parse** (GitHub
