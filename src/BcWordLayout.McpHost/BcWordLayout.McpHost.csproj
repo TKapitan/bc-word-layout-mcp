@@ -39,7 +39,7 @@
     <PackageId>BcWordLayout.Mcp</PackageId>
     <PackageType>McpServer</PackageType>
     <Authors>Tom Kapitan</Authors>
-    <Description>MCP server that lets AI agents create, edit, validate, and preview Microsoft Word report layouts for Microsoft Dynamics 365 Business Central - 23 deterministic, typed tools over stdio, with validate-before-save write safety and an offline mock PDF preview.</Description>
+    <Description>MCP server that lets AI agents create, edit, validate, and preview Microsoft Word report layouts for Microsoft Dynamics 365 Business Central - 26 deterministic, typed tools over stdio, with validate-before-save write safety and an offline mock PDF preview.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageProjectUrl>https://github.com/TKapitan/bc-word-layout-mcp</PackageProjectUrl>

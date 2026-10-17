@@ -275,13 +275,14 @@ report body once per top-level record, the mock does not.
 **Final sign-off on any layout is always a real Business Central sandbox render** (AL build → publish
 to dev sandbox → run the report), never this tool's PDF alone.
 
-**What has been validated against a real Business Central sandbox:** a five-layout authoring pack
-built entirely with these tools was uploaded to real BC sandboxes and rendered by the real report
-engine — validated against **BC 28.0 and 28.3** (Cronus AU; the recorded run and what it measured
-live in [`docs/FIDELITY-CHECKLIST.md`](docs/FIDELITY-CHECKLIST.md)). All five passed: BC accepts
-what these tools author, bindings resolve, repeaters expand, and the mock preview's structure
-matched the real render on the dimensions checked. That is what it proves — and no more: five
-layouts, one BC version family, one localization. The mock preview remains a mock; the per-release
+**What has been validated against a real Business Central sandbox:** a pack of layouts made with
+these tools was uploaded to real BC sandboxes and rendered by the real report engine — validated
+against **BC 28.0 and 28.3** (Cronus AU) in two rounds. Round 1 had five items, one of them built
+from scratch; round 2 had seven: three from-scratch builds (P01, P06, P07) and four edits of stock
+layouts. [`docs/FIDELITY-CHECKLIST.md`](docs/FIDELITY-CHECKLIST.md) records both runs and what they
+measured. Every item passed: BC accepts what these tools author, bindings resolve, repeaters
+expand, and the mock preview's structure matched the real render on the dimensions checked. That
+is what it proves — and no more: seven layouts, one BC version family, one localization. The mock preview remains a mock; the per-release
 fidelity procedure and its open manual dimensions live in the same checklist.
 
 ## Public contract and versioning
@@ -292,7 +293,7 @@ codes.** Removing or changing any of those is a breaking change and lands only i
 new tools, new optional parameters, new `data` fields, and new error codes are additive (minor).
 Error `message`/`hint` texts are not part of the contract — never parse them.
 
-- **Business Central versions:** validated against **BC 28.0** (see above). Word report layouts are
+- **Business Central versions:** validated against **BC 28.0 and 28.3** (see above). Word report layouts are
   a long-stable BC format, so the tools are *expected* to work with any BC version that supports
   Word layouts — reports of issues on other versions are welcome — but the compatibility commitment
   extends only to versions a validation has actually covered.
@@ -350,7 +351,7 @@ Prerequisite: the **.NET 10 SDK** (and the nuget.org package source configured).
 
 ```pwsh
 dotnet build     # warnings fail the build (TreatWarningsAsErrors + .NET analyzers)
-dotnet test      # 684 tests
+dotnet test
 ```
 
 The suite includes Word COM PDF-conversion tests and OOXML snapshot tests against the corpus of 10
@@ -416,7 +417,7 @@ Or write the requests to a file of your own and pipe it (`Get-Content requests.j
 | `src/BcWordLayout.Merge` | `SampleDataGenerator` (seeded, type-aware fakes), `MergeEngine` (binding fill, repeater expansion incl. nested/re-anchored XPaths, picture placeholders), `FullValidator` (the dry-run merge behind `validate_layout level=full`). |
 | `src/BcWordLayout.Render` | `IPdfConverter` + `WordComConverter` (primary) / `LibreOfficeConverter` (fallback) + `PdfConverterFactory` (auto-selection) + PDF output sanity checks. |
 | `src/BcWordLayout.McpHost` | The MCP stdio server (console app): the 26 tool definitions (`Tools/ReadTools.cs`, `Tools/EditTools.cs`, `Tools/TableTools.cs`, `Tools/LifecycleTools.cs`, sharing `Tools/ToolGuards.cs`) and the `{ok,data,error}` envelope (`ToolContracts.cs`). |
-| `tests/BcWordLayout.Tests` | 684 xUnit tests: the 10 real corpus layouts in `tests/corpus/` plus synthetic fixtures — reader/validator/merge/editor/refresher/converter coverage, snapshot tests, MCP host tool tests, packaging-manifest guards, and the fidelity harness. |
+| `tests/BcWordLayout.Tests` | xUnit tests: the 10 real corpus layouts in `tests/corpus/` plus synthetic fixtures — reader/validator/merge/editor/refresher/converter coverage, snapshot tests, MCP host tool tests, packaging-manifest guards, and the fidelity harness. |
 
 ## Contributing and security
 

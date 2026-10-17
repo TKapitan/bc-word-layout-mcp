@@ -17,7 +17,7 @@ dotnet test
 The full suite must be green before and after your change. Tests locate the corpus via
 `AppContext.BaseDirectory`, so they run from any directory. Optional Python 3 tooling under
 `tools/e2e/` (not required for a PR, but a good smoke test for tool-surface changes):
-`scenarios.py` drives 16 multi-step edit journeys through the real stdio server;
+`scenarios.py` drives 19 multi-step edit journeys through the real stdio server;
 `call.py` makes a one-shot tool call from the CLI (handy while debugging);
 `author_order_confirmation.py` is the worked example that authors a complete layout from scratch
 through the tools alone; `sandbox_pack.py`/`bc_compare.py` build and re-check the BC-sandbox
@@ -38,6 +38,8 @@ first making the case in an issue will be declined, however clean the code:
    never empty. Tool names, parameters, and error codes are a public API (semver).
 5. **Emit only OOXML that has been observed in a real BC layout** — "valid per the OOXML schema" is
    not the bar; a new shape needs a captured fixture first.
+6. **Transplant the dataset schema, never synthesize it** — the BC dataset part always comes from a
+   BC-produced artifact (a layout or an exported schema), never from AL source or by hand.
 
 ## Corpus rules
 

@@ -34,10 +34,10 @@ shapes*, this ADR refuses to *author the schema part's content* at all.
 
 What the tools do author is deliberately confined to the wrapper around the transplant:
 `refresh_xml_part` preserves the existing `ds:itemID` so bindings keep linking to the same part,
-rewrites the schema references, and on a namespace change remaps `w:prefixMappings`/`w:tag` — see
-`LayoutRefresher` and issues [#1](https://github.com/TKapitan/bc-word-layout-mcp/issues/1) /
-[#2](https://github.com/TKapitan/bc-word-layout-mcp/issues/2) for the open questions on that wrapper
-behaviour.
+rewrites the schema references, and re-points every BC-namespaced binding's `w:prefixMappings`/`w:tag`
+to the layout's namespace, whether or not the namespace changed — BC refuses to upload a binding that
+names any other (`InvalidPrefixMapping`; issues [#1](https://github.com/TKapitan/bc-word-layout-mcp/issues/1)
+and [#2](https://github.com/TKapitan/bc-word-layout-mcp/issues/2), both settled). See `LayoutRefresher`.
 
 ## Consequences
 

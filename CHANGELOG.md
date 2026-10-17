@@ -473,6 +473,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     the grid-consistency guard, not only the table edits. `create_layout`'s own check of the layout
     it built reports a failure as `internal_error`, as a server bug.
 
+- **Stale counts, versions and references are corrected across the docs and package metadata**
+  (GitHub issue #113). The NuGet package description says 26 tools (it said 23), and the Copilot
+  marketplace entry names both skills. The docs now agree on the validated BC versions (28.0 and
+  28.3) and on the validation pack (two rounds, five then seven items), count 19 e2e journeys, and
+  drop a test count that never matched a release. Questions and issues since settled (#1, #2,
+  #10) are no longer described as open, and the design doc, the fidelity checklist, the
+  contributing guide and the worked example point at the right sections, parameters and folders.
+
 ### Security
 
 - **A crafted layout can no longer kill the server through the OpenXml SDK's own parse** (GitHub

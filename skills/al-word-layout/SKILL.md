@@ -200,12 +200,12 @@ removed, or the grid column an edited cell starts at; absent for a whole-table o
 - Offline PDF preview with a choice of converter: Word COM (primary) or LibreOffice (fallback), via
   `converter=auto|word|libreoffice`.
 
-**NOT supported / deferred:**
+**NOT supported:**
 - **Hide-if-empty / BC add-in conditional controls** (Hide Field if Zero, Hide Empty Table, Hide Empty
   Table Row, layout comment) — there is no `set_hide_if_empty` tool. Deferred pending research: the BC
   Word add-in's OOXML encoding for these has never been reverse-engineered (and no corpus layout
   happens to use them either, so there's nothing to imitate yet).
-- **Repeater tables in headers/footers** — deferred. `insert_repeater_table` and `insert_table`
+- **Repeater tables in headers/footers** — not supported: nothing shows BC renders a repeating section there. `insert_repeater_table` and `insert_table`
   reject any `layoutPart` other than `body` with `invalid_argument`; `validate_layout` (`quick`)
   still flags a pre-existing/hand-authored header or footer repeater with a
   `repeater-in-header-footer` **warning** (not an error) rather than silently accepting it.
@@ -243,7 +243,7 @@ removed, or the grid column an edited cell starts at; absent for a whole-table o
   sample data (or your override), converted outside the real BC report engine. The outer loop — AL
   build → publish to dev sandbox → run the report — is unchanged and is the only real verification.
 - **Don't try to create a repeater table in a header or footer.** `insert_repeater_table` only accepts
-  `layoutPart='body'`; this is a known deferred gap (GitHub issue #10), not something to work around by
+  `layoutPart='body'`; this is a deliberate limit (nothing shows BC renders a repeating section in a header/footer), not something to work around by
   hand-authoring one.
 - **Don't ignore a failure's `error.hint`/`error.code`.** Every failure is agent-actionable — it names
   the exact argument to fix or the inspection tool to call first (typically `get_layout_info` /

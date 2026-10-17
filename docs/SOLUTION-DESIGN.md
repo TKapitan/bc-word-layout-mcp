@@ -3,13 +3,14 @@
 | | |
 |---|---|
 | **Name** | `bc-word-layout-mcp` |
-| **Status** | **Living document.** Describes v1.0.0 as built. Update it in the same change that alters a decision here. |
+| **Status** | **Living document.** Describes `main` as built: v1.1.0 plus the changes listed under *Unreleased* in the CHANGELOG. Update it in the same change that alters a decision here. |
 | **Audience** | AL developers using Claude Code / MCP-capable agents, and anyone maintaining this server |
 | **Owner** | Tom Kapitan |
 
 This is the **source of truth for design decisions**: what the tool is, how it is built, and *why* it is
 shaped this way. Two neighbours cover what this deliberately does not:
-[`README.md`](../README.md) is the user-facing reference for each tool's parameters and behaviour, and
+[`README.md`](../README.md) is the user-facing overview of the tools and their behaviour (the companion
+skill's §2 is the per-parameter reference), and
 the [issue tracker](https://github.com/TKapitan/bc-word-layout-mcp/issues) is what is deferred and what
 each item is blocked on. Where this document
 describes a rule ("refuse rather than guess"), the code is expected to match it; where they disagree, one
@@ -173,7 +174,8 @@ alongside the quick checks in `Domain.LayoutValidator`.
 
 ## 4. Tool surface
 
-**26 tools.** [`README.md`](../README.md) is the per-parameter reference; this is the shape and the grouping.
+**26 tools.** The per-parameter reference is the companion skill's §2
+([`skills/al-word-layout/SKILL.md`](../skills/al-word-layout/SKILL.md)); this is the shape and the grouping.
 
 | Group | Tools |
 |---|---|
@@ -196,7 +198,7 @@ Conventions that hold across the surface:
   host's call-tool filter wraps the SDK's tool lookup and argument binding, so an unknown tool name, a
   missing required argument or a wrong-typed one returns `invalid_argument` naming the tool or
   parameter.
-- **Shared location addressing**: `{type: documentEnd | afterControl | tableCell | atText, controlId?,
+- **Shared location addressing**: `{locationType: documentEnd | afterControl | tableCell | atText, controlId?,
   tableIndex?, row?, col?, searchText?, layoutPart?, partName?}`. Edits stay deterministic without the
   agent knowing OOXML positions. `layoutPart: header|footer` with no `partName` resolves the **first
   section's default** header/footer — not the first part in the package, which is frequently the even-page
@@ -247,8 +249,9 @@ layout.docx ──► MergeEngine ◄───────────┘
   sandbox render, which remains the sign-off step. Every preview response repeats this. Known gaps —
   caption translation, BC SaaS font substitution, pagination, locale formatting — and the per-release manual
   procedure are in [`FIDELITY-CHECKLIST.md`](FIDELITY-CHECKLIST.md). The bet was validated against real BC
-  sandboxes on 2026-08-01 (BC 28.0 and 28.3): a five-layout authoring pack passed end to end — BC accepts
-  what the tools author and the mock's structure matched the real render on the dimensions checked.
+  sandboxes in two rounds (2026-08-01 and 2026-08-02; BC 28.0 and 28.3): five items, then seven, three of
+  them built from scratch — all passed. BC accepts what the tools author, and the mock's structure matched
+  the real render on the dimensions checked.
   Per-release manual fidelity dimensions remain open in the checklist.
 
 ## 6. Design principles
@@ -360,17 +363,18 @@ version exposes part-URI control, adopting it is a one-line change and this note
   [`PROVENANCE.md`](../tests/corpus/PROVENANCE.md)), chosen so each contributes a structural shape
   the others lack (`Corpus.cs` records what each is for). Coverage of a shape *nothing* in the corpus has
   is treated as absent, not as passing.
-- **684 xUnit tests**: schema parsing, control classification, every editor operation asserted on the
+- **xUnit tests**: schema parsing, control classification, every editor operation asserted on the
   resulting OOXML, validator positive *and* negative paths (each defect paired with a valid sibling that
   must **not** trip the same check, so a test cannot pass by firing indiscriminately).
 - **Snapshot tests**: merged main-part XML against approved snapshots per corpus layout, plus a
   byte-identical determinism check.
 - **Tool-surface tests**: every tool driven through its real MCP entry point, including the guard/envelope
   behaviour and every `hint` branch.
-- **e2e scenarios** (`tools/e2e/scenarios.py`): 16 multi-step edit journeys against corpus copies, each
+- **e2e scenarios** (`tools/e2e/scenarios.py`): 19 multi-step edit journeys against corpus copies, each
   verifying that an edit introduces **no new validation finding** versus the pristine layout, then
-  previewing and rendering it. Caches are keyed on the server build, so a code change that flips an outcome
-  cannot be masked by a stale pass.
+  previewing and rendering it. Caches are keyed on the content of every server assembly, the harness code
+  and the corpus file a scenario edits, so a code change that flips an outcome cannot be masked by a stale
+  pass.
 - **Fidelity harness**: regenerates preview artefacts for manual comparison — see
   [`FIDELITY-CHECKLIST.md`](FIDELITY-CHECKLIST.md).
 - **Converter tests are dependency-agnostic**: they pass whether or not Word/LibreOffice is installed; an
@@ -401,6 +405,5 @@ live list. The ones that would change this document:
 
 | Question | Issue |
 |---|---|
-| How does BC resolve a binding whose namespace does not match its part? Decides whether that finding is a warning or an error. | [#1](https://github.com/TKapitan/bc-word-layout-mcp/issues/1) |
 | What OOXML do the BC add-in's conditional controls produce? Blocks the largest missing capability. | [#8](https://github.com/TKapitan/bc-word-layout-mcp/issues/8) |
 | Is the LibreOffice path good enough to be the non-Windows experience? | [#7](https://github.com/TKapitan/bc-word-layout-mcp/issues/7) |
