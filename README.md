@@ -305,8 +305,10 @@ Error `message`/`hint` texts are not part of the contract — never parse them.
 ## Not in v1 / deferred
 
 - **Hide-if-empty BC add-in conditional controls** (Hide Field if Zero, Hide Empty Table, Hide Empty
-  Table Row, layout comment) — no `set_hide_if_empty` tool; research-gated on capturing the BC Word
-  add-in's OOXML encoding for these (see [ADR-0005](docs/adr/0005-emit-only-observed-ooxml.md)).
+  Table Row, layout comment) — no `set_hide_if_empty` tool. The row and table variants are captured
+  in two corpus layouts and wait on a sandbox check of what BC treats as empty ([#123](https://github.com/TKapitan/bc-word-layout-mcp/issues/123));
+  Hide Field if Zero and layout comments wait on capturing the BC Word add-in's OOXML ([#8](https://github.com/TKapitan/bc-word-layout-mcp/issues/8),
+  [ADR-0005](docs/adr/0005-emit-only-observed-ooxml.md)).
 - **Repeater tables in headers/footers** — `insert_repeater_table` only creates them in the document
   body; a pre-existing/hand-authored one is still detected by `validate_layout` with a warning rather
   than silently accepted. (NESTED repeaters in the body are supported: insert the inner table into a
