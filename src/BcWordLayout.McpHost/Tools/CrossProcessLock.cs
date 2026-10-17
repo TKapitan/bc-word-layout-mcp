@@ -1,12 +1,14 @@
 using System.Security.Cryptography;
 using System.Text;
+using BcWordLayout.Domain;
 
 namespace BcWordLayout.McpHost.Tools;
 
 /// <summary>
 /// Cross-process counterpart to <see cref="ToolGuards.EditLockFor"/>'s in-process per-path lock: a
-/// named, system-wide <see cref="Mutex"/> keyed by a hash of the layout's normalized,
-/// case-folded full path, so TWO SEPARATE PROCESSES (e.g. two IDE windows, each hosting its own MCP server)
+/// named, system-wide <see cref="Mutex"/> keyed by a hash of the layout's case-folded, resolved full path
+/// (<see cref="PathIdentity.Canonical"/>, the same key the in-process lock uses), so TWO SEPARATE PROCESSES
+/// (e.g. two IDE windows, each hosting its own MCP server)
 /// editing/previewing/reading the SAME layout serialize against each other too — not just two threads inside
 /// one process, which is all <see cref="ToolGuards.EditLockFor"/>'s plain <see cref="object"/>/<c>lock</c>
 /// can ever see.
@@ -24,7 +26,10 @@ namespace BcWordLayout.McpHost.Tools;
 /// <see cref="ToolGuards.EditLockFor"/>'s dictionary is <see cref="StringComparer.OrdinalIgnoreCase"/> and
 /// <c>LifecycleTools.PreviewPathHash</c> folds case too: Windows paths are case-insensitive, so two
 /// differently-cased spellings of the same file must resolve to the SAME mutex, or the two primitives could
-/// disagree about which callers are actually contending for the same file.
+/// disagree about which callers are actually contending for the same file. For the same reason the path is
+/// RESOLVED before hashing: the second host is exactly the case where the same file arrives under another
+/// spelling (a junction, a symlink, a subst or mapped drive), and hashing the bare full path gave each
+/// spelling its own mutex, so the two hosts' commits overwrote each other (GitHub issue #92).
 /// </para>
 /// <para>
 /// ACQUIRE ORDER: every caller takes the in-process lock (<see cref="ToolGuards.EditLockFor"/>) FIRST, then
@@ -113,7 +118,7 @@ internal static class CrossProcessLock
     /// </summary>
     internal static string MutexName(string layoutPath)
     {
-        var normalized = Path.GetFullPath(layoutPath).ToUpperInvariant();
+        var normalized = PathIdentity.Canonical(layoutPath).ToUpperInvariant();
         var hash = SHA256.HashData(Encoding.UTF8.GetBytes(normalized));
         return "Local\\bcwl-edit-" + Convert.ToHexString(hash)[..24].ToLowerInvariant();
     }

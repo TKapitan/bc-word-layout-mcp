@@ -317,6 +317,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     now `preview-<hash>.pdf`, as with an explicit `outputDir` (`merged.docx` keeps its name). A
     `preview.pdf` an earlier version left in a default folder is removed.
 
+- **Edits made through a junction, a symlink, or a subst or mapped drive now wait for edits made
+  through the plain path** (GitHub issue #92). Both edit locks, the in-process one and the named
+  mutex shared between server processes, were keyed on the full path as written, which does not
+  follow those spellings. Two hosts editing one layout through two spellings therefore never waited
+  for each other, and one host's commit replaced the other's. Of 12 concurrent `insert_text` calls
+  from two server processes, 6 through a folder and 6 through a junction or a subst drive to it, all
+  returned `ok: true` and the file kept 6; it now keeps all 12. Every path is resolved through the
+  file system before it keys a lock, and the same resolution:
+  - commits an edit made through a symlink to the file into the file it points at, instead of
+    replacing the link with a plain copy that holds the edit;
+  - keys `preview_layout`'s default output folder, so every spelling of a layout shares one;
+  - decides "the same file" for `create_layout`'s refusal to overwrite its own `schemaSource` and
+    for the preview merge's output check, so a junction spelling of `schemaSource` is refused too.
+
 ### Security
 
 - **A crafted layout can no longer kill the server through the OpenXml SDK's own parse** (GitHub

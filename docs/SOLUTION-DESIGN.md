@@ -315,8 +315,10 @@ mechanical: one `SdtInspector` classification ladder instead of four hand-synced
 more, not less, with outside contributors.
 
 **7. Serialise per path, in and across processes.** Concurrent tool calls on one layout take a per-path
-in-process lock; a `CrossProcessLock` (named mutex, keyed by normalised path) is acquired *inside* it so two
-IDE windows cannot interleave. Read tools take the same pair briefly, so a read cannot observe a
+in-process lock; a `CrossProcessLock` (named mutex) is acquired *inside* it so two IDE windows cannot
+interleave. Both are keyed by the path as the file system resolves it (`PathIdentity`: junctions,
+symlinks, and subst and mapped drives followed), so two spellings of one file share one lock, and an edit
+commits to that resolved path. Read tools take the same pair briefly, so a read cannot observe a
 half-committed rename.
 
 **8. The dataset schema is transplanted, never synthesized.** `create_layout` and `refresh_xml_part` copy

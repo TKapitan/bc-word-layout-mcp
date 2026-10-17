@@ -29,9 +29,12 @@ internal static class ToolGuards
     // ---- mutating-tool edit safety (open read-write copy, mutate, validate BEFORE save, atomic commit) ----
 
     /// <summary>
-    /// Per-path locks serializing concurrent edits targeting the same layout file (keyed by the normalized
-    /// full path, case-insensitively — <see cref="StringComparer.OrdinalIgnoreCase"/> is the dictionary's
-    /// own comparer, so lookups need no manual case-folding). Two <see cref="GuardEdit"/> calls against
+    /// Per-path locks serializing concurrent edits targeting the same layout file (keyed by the file system's
+    /// own spelling of the path, <see cref="PathIdentity.Canonical"/>, case-insensitively —
+    /// <see cref="StringComparer.OrdinalIgnoreCase"/> is the dictionary's own comparer, so lookups need no
+    /// manual case-folding). Keying on the resolved path, not just <see cref="Path.GetFullPath(string)"/>, is
+    /// what makes a junction, symlink, or subst or mapped drive spelling of a layout take the SAME lock as its
+    /// plain spelling (GitHub issue #92). Two <see cref="GuardEdit"/> calls against
     /// DIFFERENT files never contend; two against the SAME file are serialized so their working-copy /
     /// stage-and-swap sequences can never race each other (e.g. both reading the same "pre-existing ids"
     /// snapshot and generating colliding <c>w:id</c>s, or one's atomic swap clobbering the other's). Entries
@@ -68,7 +71,7 @@ internal static class ToolGuards
     /// assumptions about how long the guarded work itself takes.
     /// </summary>
     internal static object EditLockFor(string layoutPath) =>
-        EditLocks.GetOrAdd(Path.GetFullPath(layoutPath), static _ => new object());
+        EditLocks.GetOrAdd(PathIdentity.Canonical(layoutPath), static _ => new object());
 
     /// <summary>
     /// Shared choreography for every mutating tool (<c>insert_field</c>, <c>insert_label</c>,
@@ -164,10 +167,17 @@ internal static class ToolGuards
                     return CrossProcessLockTimeoutFailure(layoutPath, CrossProcessLock.MutatingTimeout);
                 }
 
+                // The file system's own spelling of layoutPath (see PathIdentity): the folder the commit stages
+                // into and the path it replaces. Through a junction or a subst or mapped drive this is the same
+                // file either way; through a symlink to the FILE, renaming over layoutPath itself would replace
+                // the link with a plain copy and leave the real layout - and every other host editing it under
+                // its real name, behind the same lock - without this edit (GitHub issue #92).
+                var commitPath = PathIdentity.Canonical(layoutPath);
+
                 // Best-effort orphan cleanup: runs on EVERY mutating call,
                 // scoped to layoutPath's OWN directory only — see SweepStaleStagingFiles's own remarks — plus
                 // this method's own %TEMP% working copies, at most hourly (see SweepStaleEditWorkingCopiesIfDue).
-                SweepStaleStagingFiles(layoutPath);
+                SweepStaleStagingFiles(commitPath);
                 SweepStaleEditWorkingCopiesIfDue();
 
                 // CopyWritable, not a bare File.Copy: a read-only layout (a TFVC/Perforce file that is not
@@ -315,13 +325,13 @@ internal static class ToolGuards
                     // Path.GetDirectoryName returns null only for a bare root (e.g. "C:\") - a path-shape
                     // edge case, not a lookup failure; left as a plain InvalidOperationException
                     // (→ internal_error via Guard's generic catch), not NotFoundException.
-                    var targetDir = Path.GetDirectoryName(Path.GetFullPath(layoutPath))
+                    var targetDir = Path.GetDirectoryName(commitPath)
                         ?? throw new InvalidOperationException($"Could not determine the directory of '{layoutPath}'.");
                     var staged = Path.Combine(targetDir, $".bcwl-stage-{Guid.NewGuid():N}.docx");
                     try
                     {
                         RetryTransientFileDenial(() => ScratchFiles.CopyWritable(workingCopy, staged));
-                        RetryTransientFileDenial(() => File.Move(staged, layoutPath, overwrite: true));
+                        RetryTransientFileDenial(() => File.Move(staged, commitPath, overwrite: true));
                     }
                     catch (UnauthorizedAccessException ex)
                     {

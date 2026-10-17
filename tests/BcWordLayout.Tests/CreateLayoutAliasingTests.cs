@@ -101,6 +101,48 @@ public class CreateLayoutAliasingTests
         }
     }
 
+    [WindowsOnlyFact]
+    public void A_junction_or_8_3_spelling_of_schemaSource_is_recognized_too()
+    {
+        // GitHub issue #92 (noted on #89): Path.GetFullPath does not follow a junction, so before the same-file
+        // check used PathIdentity that spelling overwrote the authored layout. The 8.3 spelling was already
+        // expanded by GetFullPath and stays recognized.
+        var dir = PrivateDirectory();
+        var real = Directory.CreateDirectory(Path.Combine(dir, "real-folder-with-a-long-name")).FullName;
+        var link = Path.Combine(dir, "link");
+        try
+        {
+            var quote = CopyOfCorpusInto(real, Corpus.StandardSalesQuote, "quote.docx");
+            var before = File.ReadAllBytes(quote);
+            var boundControls = BoundControlCount(quote);
+            FileSystemLinks.CreateJunction(link, real);
+
+            var spellings = new List<string> { Path.Combine(link, "quote.docx") };
+            if (FileSystemLinks.ShortPathOrNull(quote) is { } shortSpelling)
+            {
+                spellings.Add(shortSpelling);
+            }
+
+            foreach (var outputPath in spellings)
+            {
+                var response = LifecycleTools.CreateLayout(quote, outputPath);
+
+                Assert.False(response.Ok);
+                Assert.Equal("invalid_argument", response.Error!.Code);
+                Assert.Contains("same file as schemaSource", response.Error.Message, StringComparison.Ordinal);
+                Assert.Contains($"{boundControls} bound content control(s)", response.Error.Message, StringComparison.Ordinal);
+            }
+
+            Assert.Equal(before, File.ReadAllBytes(quote));
+            Assert.Empty(Directory.EnumerateFiles(real, ".bcwl-*"));
+        }
+        finally
+        {
+            FileSystemLinks.DeleteJunction(link);
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
     [Fact]
     public void A_different_templatePath_does_not_make_overwriting_an_authored_schemaSource_acceptable()
     {

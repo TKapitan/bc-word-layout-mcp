@@ -135,8 +135,8 @@ public static class LayoutBuilder
         // the dataset part but no controls yet. When templatePath is that same file too, its body IS the
         // output's body (nothing authored is dropped) and the template rules below decide instead
         // (TemplateNotUnboundException refuses a template whose own controls would go stale).
-        if (SamePath(fullOutputPath, schemaSource)
-            && !(templatePath is not null && SamePath(fullOutputPath, templatePath)))
+        if (PathIdentity.SameFile(fullOutputPath, schemaSource)
+            && !(templatePath is not null && PathIdentity.SameFile(fullOutputPath, templatePath)))
         {
             var boundControls = CountBoundControls(schemaSource);
             if (boundControls > 0)
@@ -151,10 +151,16 @@ public static class LayoutBuilder
             }
         }
 
+        // The build file and the final move go to the file system's own spelling of outputPath (see
+        // PathIdentity): the same file through a junction or a subst or mapped drive, and the link's TARGET when
+        // outputPath is a symlink to an existing file, rather than replacing the link itself with a plain file.
+        // Messages and the result keep the caller's spelling.
+        var writePath = PathIdentity.Canonical(outputPath);
+
         // Path.GetDirectoryName returns null only for a bare root (e.g. "C:\") - an edge case in path
         // shape, not "this path does not exist in the layout"; left as a plain InvalidOperationException
         // (→ internal_error), not NotFoundException.
-        var targetDir = Path.GetDirectoryName(fullOutputPath)
+        var targetDir = Path.GetDirectoryName(writePath)
             ?? throw new InvalidOperationException($"Could not determine the directory of '{outputPath}'.");
         Directory.CreateDirectory(targetDir);
 
@@ -254,7 +260,7 @@ public static class LayoutBuilder
             // by this account), so it is reported as such rather than as an internal error.
             try
             {
-                TransientFileRetry.Run(() => File.Move(tempPath, fullOutputPath, overwrite: true));
+                TransientFileRetry.Run(() => File.Move(tempPath, writePath, overwrite: true));
             }
             catch (UnauthorizedAccessException ex)
             {
@@ -282,20 +288,8 @@ public static class LayoutBuilder
     }
 
     // ---- outputPath aliasing schemaSource (GitHub issue #89) ----
-
-    /// <summary>
-    /// True when <paramref name="fullPath"/> (already full) and <paramref name="otherPath"/> resolve to the
-    /// same full path, compared case-insensitively.
-    /// </summary>
-    /// <remarks>
-    /// Case-insensitive on every OS, matching <c>MergeEngine.Merge</c>'s own outputPath-vs-layoutPath check
-    /// and the per-path edit lock's key: Windows (the supported platform) and macOS file systems ignore case,
-    /// and on a case-sensitive one this can only over-refuse, which costs a different outputPath, never a
-    /// destroyed layout. Spellings that <see cref="Path.GetFullPath(string)"/> does not normalize (an 8.3 short
-    /// name, a junction or symlink) are not recognized as the same file.
-    /// </remarks>
-    private static bool SamePath(string fullPath, string otherPath) =>
-        string.Equals(fullPath, Path.GetFullPath(otherPath), StringComparison.OrdinalIgnoreCase);
+    // "Same file" is PathIdentity.SameFile: a junction or symlink and a subst or mapped drive spelling of
+    // schemaSource are recognized too (GitHub issue #92), not only case, relative-path and 8.3 differences.
 
     /// <summary>
     /// Counts the data-bound content controls (any kind with a binding XPath: field, label, repeater, picture -
