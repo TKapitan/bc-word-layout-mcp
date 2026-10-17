@@ -125,6 +125,14 @@ public static class SdtFactory
     /// <paramref name="embedRelationshipId"/> is required rather than optional (see
     /// <see cref="LayoutEditor.InsertPicture"/>, which adds a <see cref="PlaceholderImage"/> part and passes
     /// its id).
+    /// <para>
+    /// A non-square frame does not survive a Word save, and nothing in this shape can make it (GitHub issue
+    /// #53). Measured 2026-10-17 by opening and saving through Word: Word replaces the image with its own
+    /// 10-byte stub and squares the frame to its SHORTER side (35×18 mm → 18×18, 18×35 → 18×18). Microsoft's
+    /// own StandardSalesInvoiceVatSpec.docx does the same: its 60×30 mm <c>CompanyPicture</c> comes back
+    /// 30×30. So the size is documented on <c>insert_picture</c> as lasting until the next Word save, rather
+    /// than imitated from a stock shape.
+    /// </para>
     /// </remarks>
     /// <param name="schema">The report's parsed dataset (see <see cref="BuildField"/>).</param>
     /// <param name="datasetPath">Slash-delimited path to the picture's leaf column, e.g. <c>/Header/CompanyPicture</c>.</param>

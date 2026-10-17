@@ -58,6 +58,15 @@ public sealed class InsertionAnchor
     internal OpenXmlElement InnermostHost => (OpenXmlElement?)_inlineParagraph ?? _blockContainer;
 
     /// <summary>
+    /// The run formatting inline content inserted here should carry to match the text before it (GitHub issue
+    /// #122; see <see cref="InheritedRunFormat"/> for the rule), or null when there is none to match: the text
+    /// before the insertion point is unformatted, or the anchor opens a brand-new paragraph, which has no
+    /// neighbour to take formatting from. A fresh detached copy on every call.
+    /// </summary>
+    internal RunProperties? InheritedRunProperties() =>
+        _inlineParagraph is null ? null : InheritedRunFormat.Before(_inlineParagraph, _insertAfterInline);
+
+    /// <summary>
     /// The table cell block content inserted at this anchor lands inside (the nearest one, for a cell in a
     /// nested table), or null when it lands at a part's top level — for callers sizing new block content to
     /// its container, e.g. <see cref="LayoutEditor.InsertRepeaterTable"/>'s default column widths.
