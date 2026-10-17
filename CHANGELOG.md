@@ -370,6 +370,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   The corpus was already clean and is unchanged. A standard-library `unittest` suite covers the
   rules and exit codes (`python -m unittest discover -s tools/tests`), and CI runs it.
 
+- **The documented "Page X / Y" recipe now renders "Page  1 / 3"** (GitHub issue #88).
+  `insert_page_number`'s description and both skills said to insert the two spaces after the
+  `Page_Lbl` label first and the page-number fields second, both anchored on the label. An
+  `afterControl` insert lands directly after its anchor, so that order put the spaces after the
+  fields: "Page1 / 3  ". The recipe now inserts the fields first and the spaces second. The skill's
+  location model states the general rule (an inline line is built right to left, every insert
+  anchored on its first control), and `insert_text`'s description shows it for `Label: Value`. A
+  test pins the run order.
+
 ### Security
 
 - **A crafted layout can no longer kill the server through the OpenXml SDK's own parse** (GitHub

@@ -166,13 +166,14 @@ totals table, which is the BC-verified simpler shape [verified: P07]).
     an edit landing in the default part is invisible on page 1.
 - Stock page numbers are `Page_Lbl` + two literal spaces + Word `PAGE`/`NUMPAGES` field codes
   [stock: 1304, 1322, 1306, 115 — identical construct in all four]. Buildable: `insert_label` the
-  `Page_Lbl`, `insert_text` `"  "` (`afterControl` on the label), then `insert_page_number`
-  (`afterControl` again) — it emits the exact stock field construct (`X / Y` by default;
+  `Page_Lbl`, then `insert_page_number` (`afterControl` on the label), then `insert_text` `"  "`
+  (`afterControl` on the label again) — it emits the exact stock field construct (`X / Y` by default;
   `includeTotal=false` for the bare page number).
-- Inline sequences anywhere: insert the control first, then `insert_text` with
-  `locationType="afterControl"` anchored to it — `documentEnd` appends a NEW paragraph per call.
-  Separators are literal runs (`" "`, `"  |  "`, `", "`) [stock: every multi-control line;
-  verified: P07].
+- Inline sequences anywhere: insert the first control, then the rest **right to left**, each with
+  `locationType="afterControl"` anchored on that first control — every such insert lands directly
+  after the anchor, so for `Label: Value` insert the label, then the value, then the `": "` text.
+  `documentEnd` appends a NEW paragraph per call. Separators are literal runs (`" "`, `"  |  "`,
+  `", "`) [stock: every multi-control line; verified: P07].
 
 ### Typography
 - A blank build ships pinned Calibri 11 pt + `Normal`/`TableGrid` styles, BC-verified to render
