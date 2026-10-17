@@ -608,8 +608,8 @@ public static class LayoutValidator
     //       the P07-verified skeleton insert_repeater_table builds) and render without any group;
     //     - top-level only. Block-level repeaters over NESTED items (Header[1]/WorkDescriptionLines,
     //       Header[1]/PaymentReportingArgument in the stock 1304/1306 layouts) have no group and render.
-    //     No tool here emits a block-level repeater, so this guards layouts authored or edited outside the
-    //     tools - e.g. an agent writing the OOXML directly, which is how shape B was produced. The one tool
+    //     wrap_in_repeater emits shape C (GitHub issue #31), so this guards layouts authored or edited
+    //     outside the tools - e.g. an agent writing the OOXML directly, which is how shape B was produced. The one tool
     //     edit that could turn shape C into B, remove_control keepText=true on the group, is refused through
     //     IsUngroupedTopLevelBlockRepeater below (GitHub issue #87).
     private static void CheckTopLevelBlockRepeaterGroup(MainDocumentPart main, List<ValidationFinding> findings)

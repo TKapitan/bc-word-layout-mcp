@@ -30,7 +30,7 @@ Pick the archetype before calling any tool:
 |---|---|---|
 | **Trading document** | Quote, order, invoice, credit memo, shipment — one document per record, addressed to a counterparty | Title/logo chrome → address block → document-info grid → line-items table → totals (§2) |
 | **List / analysis report** | Commission, register, aging, activity lists — rows grouped under entities, running chrome | Header/footer parts with report chrome → grouped repeater table with nested detail rows → totals (§3) |
-| **Per-entity statement** | One sub-document per customer/vendor with a page break between them | **Not buildable from scratch** — the whole body sits inside a per-entity repeating section [stock: 1316], and repeaters here are tables only. Export the stock layout and edit it instead (§5). |
+| **Per-entity statement** | One sub-document per customer/vendor with a page break between them | Author ONE entity's body bound under the top-level item (e.g. `/Customer/...`), then `wrap_in_repeater` with `wholeBody=true`, `pageBreakBefore=true`: the stock shape [stock: 1316], `w:group` included. BC already prints the body once per top-level record without it; the wrap gives every record its own page in one document. The tool-written shape has no BC sandbox render yet, so when it must be right first time, export the stock layout and edit it. |
 
 Settle before building (ask only what the request leaves open): which parties' addresses (two is
 the default; add ship-to when it differs [stock: 1322 buy-from + ship-to + company]), which
@@ -210,7 +210,6 @@ totals table, which is the BC-verified simpler shape [verified: P07]).
 | Page-position-CONDITIONAL content (`IF PAGE = NUMPAGES`) | Blocked on add-in-compatible OOXML evidence (#11); plain `PAGE`/`NUMPAGES` itself IS buildable — `insert_page_number` (§4 Chrome) | `templatePath` shell carrying the construct, or hand-edit + `validate_layout` |
 | Colour header bands / accent colours [stock: 1306] | No shading tool (#15) | Branded `templatePath` or hand-edit + validate |
 | Hide-if-empty add-in controls | Row/table variants captured [stock: 115, SubcontractorDispatchList] but BC's "empty" rule unverified (#123); *Hide Field if Zero* never captured (#8) | Reserve the rows/cells; stock layouts render empty lines too |
-| Whole-body per-entity repeat with page breaks [stock: 1316] | Repeaters are tables only (#31) | Export the stock layout and edit; don't build from scratch |
 
 ## 6. Design-time mock caveats
 

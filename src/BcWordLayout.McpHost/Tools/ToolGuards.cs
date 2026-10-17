@@ -1376,7 +1376,9 @@ internal static class ToolGuards
             + "e.g. '/Header/Line/ItemNo_Line'. insert_field/insert_label each require a LEAF column (not a "
             + "repeating data item): insert_label additionally requires a label-shaped name per the active "
             + $"label convention ({LabelConvention.Current.Describe()}), insert_field requires the reverse. "
-            + "insert_repeater_table's dataItem must be a repeating, non-system DATA ITEM (not a leaf column).",
+            + "insert_repeater_table's and wrap_in_repeater's dataItem must be a repeating, non-system DATA ITEM "
+            + "(not a leaf column); wrap_in_repeater also needs at least one control in its range bound under "
+            + "that item, and no repeater in the range over data outside it.",
 
         "columns" or "column" =>
             "insert_repeater_table's columns must be a non-empty, comma-separated list of LEAF column names "
@@ -1480,11 +1482,18 @@ internal static class ToolGuards
             + "list_dataset_fields reports it (isLabel=true).",
 
         "keeptext" =>
-            "remove_control's keepText=true cannot target a repeating-section control (it would orphan its "
-            + "row template from any enclosing repeater), nor the w:group control between a block-level "
+            "remove_control's keepText=true cannot target a ROW-level repeating-section control (it would orphan "
+            + "its row template from any enclosing repeater), nor the w:group control between a block-level "
             + "top-level repeater and its item (BC would print an empty document); to remove the repeater "
             + "with its content, call remove_control with keepText=false (the default) on the REPEATER's id, "
-            + "otherwise leave the control in place.",
+            + "otherwise leave the control in place. (keepText=true on a BLOCK-level repeater's own id does "
+            + "work: it unwraps the whole repeater and keeps its content.)",
+
+        "firstcontrolid" or "lastcontrolid" or "wholebody" =>
+            "wrap_in_repeater repeats the body blocks holding firstControlId through lastControlId: control ids "
+            + "from get_layout_info's controls[] (sdtId), in the DOCUMENT BODY, the first one earlier in the "
+            + "document than the last (lastControlId defaults to firstControlId), with no section break "
+            + "between them. Or pass wholeBody=true and no ids to repeat the whole body.",
 
         "schema" =>
             "A bound control must name the storeItemID of the layout's dataset part, and every insert tool "

@@ -1,5 +1,8 @@
+using BcWordLayout.Domain;
+using BcWordLayout.Domain.Models;
 using BcWordLayout.McpHost;
 using BcWordLayout.McpHost.Tools;
+using DocumentFormat.OpenXml.Packaging;
 
 namespace BcWordLayout.Tests;
 
@@ -520,6 +523,67 @@ public class InvalidArgumentHintCoverageTests
         }
     }
 
+    // ---- "firstcontrolid" / "lastcontrolid" / "wholebody" — LayoutEditor.WrapInRepeater's range ----
+
+    /// <summary>A blank quote layout with two work-description fields, each in its own body paragraph.</summary>
+    private static (string Path, int First, int Second) LayoutWithTwoWorkDescriptionFields()
+    {
+        var path = NewOutputPath();
+        LayoutBuilder.Create(Corpus.Path(Corpus.StandardSalesQuote), path);
+        using var doc = WordprocessingDocument.Open(path, true);
+        int Insert() => LayoutEditor.InsertField(doc, "/Header/WorkDescriptionLines/WorkDescriptionLine",
+            new Location { Type = LocationKind.DocumentEnd }).ControlId;
+        var first = Insert();
+        var second = Insert();
+        doc.MainDocumentPart!.Document!.Save();
+        return (path, first, second);
+    }
+
+    [Fact]
+    public void WrapInRepeater_with_no_range_hint_names_the_range_rule()
+    {
+        var (path, _, _) = LayoutWithTwoWorkDescriptionFields();
+        try
+        {
+            var response = EditTools.WrapInRepeater(path, "/Header/WorkDescriptionLines");
+            AssertActionableFailure(response, "invalid_argument", "firstControlId through lastControlId");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void WrapInRepeater_with_controls_in_the_wrong_order_hint_names_the_range_rule()
+    {
+        var (path, first, second) = LayoutWithTwoWorkDescriptionFields();
+        try
+        {
+            var response = EditTools.WrapInRepeater(path, "/Header/WorkDescriptionLines", firstControlId: second, lastControlId: first);
+            AssertActionableFailure(response, "invalid_argument", "earlier in the document than the last");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void WrapInRepeater_with_ids_and_wholeBody_hint_names_the_range_rule()
+    {
+        var (path, first, _) = LayoutWithTwoWorkDescriptionFields();
+        try
+        {
+            var response = EditTools.WrapInRepeater(path, "/Header/WorkDescriptionLines", firstControlId: first, wholeBody: true);
+            AssertActionableFailure(response, "invalid_argument", "wholeBody=true and no ids");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     // ---- "keeptext" — LayoutEditor.RemoveControl (keepText=true on a repeater) ----
 
     [Fact]
@@ -529,7 +593,8 @@ public class InvalidArgumentHintCoverageTests
         try
         {
             var info = Assert.IsType<LayoutInfoDto>(ReadTools.GetLayoutInfo(path).Data);
-            var repeater = info.Controls.First(c => c.Kind == "Repeater" && c.SdtId.HasValue);
+            // A ROW-level repeater: keepText=true unwraps a block-level one (wrap_in_repeater's undo, #31).
+            var repeater = info.Controls.First(c => c.Kind == "Repeater" && c.Level == "row" && c.SdtId.HasValue);
 
             var response = EditTools.RemoveControl(path, repeater.SdtId!.Value, keepText: true);
 
