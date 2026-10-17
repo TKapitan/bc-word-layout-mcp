@@ -178,6 +178,52 @@ public class CrossProcessLockTests
         }
     }
 
+    [WindowsOnlyFact]
+    public void An_edit_through_a_junction_waits_for_the_lock_held_through_the_real_path()
+    {
+        // GitHub issue #92: a second host editing the same layout through a junction took a different mutex,
+        // so both hosts' edits ran concurrently and one commit replaced the other's. The lock is keyed on the
+        // resolved path, so the junction spelling now contends with the real one.
+        var dir = Directory.CreateTempSubdirectory("bcwl-crosslock-junction-").FullName;
+        var real = Directory.CreateDirectory(Path.Combine(dir, "real")).FullName;
+        var link = Path.Combine(dir, "link");
+        var originalTimeout = CrossProcessLock.MutatingTimeout;
+        try
+        {
+            var layout = Path.Combine(real, "J.docx");
+            File.Copy(Corpus.Path(Corpus.SalesInvoice), layout);
+            FileSystemLinks.CreateJunction(link, real);
+            var before = File.ReadAllBytes(layout);
+            CrossProcessLock.MutatingTimeout = TimeSpan.FromMilliseconds(300);
+
+            var holderReady = new ManualResetEventSlim(false);
+            var releaseHolder = new ManualResetEventSlim(false);
+            var holderThread = StartHolderThread(layout, holderReady, releaseHolder);
+
+            try
+            {
+                Assert.True(holderReady.Wait(TimeSpan.FromSeconds(5)), "holder thread failed to acquire in time");
+
+                var response = EditTools.InsertText(Path.Combine(link, "J.docx"), "Through the junction", "documentEnd");
+
+                Assert.False(response.Ok);
+                Assert.Equal("file_locked", response.Error!.Code);
+                Assert.Equal(before, File.ReadAllBytes(layout));
+            }
+            finally
+            {
+                releaseHolder.Set();
+                Assert.True(holderThread.Join(TimeSpan.FromSeconds(5)), "holder thread failed to exit in time");
+            }
+        }
+        finally
+        {
+            CrossProcessLock.MutatingTimeout = originalTimeout;
+            FileSystemLinks.DeleteJunction(link);
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
     [Fact]
     public void GetLayoutInfo_times_out_with_file_locked_while_another_thread_holds_the_cross_process_lock()
     {

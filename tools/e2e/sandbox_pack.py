@@ -36,7 +36,7 @@ import traceback
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from scenarios import CORPUS_DIR, REPO, McpServer, finding_signature  # noqa: E402
+from scenarios import CORPUS_DIR, REPO, McpServer, describe_error, finding_signature  # noqa: E402
 
 OUT_ROOT = os.path.join(REPO, "preview-output", "sandbox-pack")
 PREVIEW_ROWS = 4
@@ -702,8 +702,10 @@ def build_item(entry: dict, out_dir: str) -> dict:
             if os.path.abspath(preview["pdfPath"]) != os.path.abspath(target):
                 shutil.move(preview["pdfPath"], target)   # move, not copy: one PDF per item, named
                                                           # predictably, so the folder stays obvious
-            server.tool("render_preview_pages", {"pdfPath": target, "maxPages": RENDER_PAGES},
-                        image_dir=os.path.join(out_dir, "mock-pages"))
+            render = server.tool("render_preview_pages", {"pdfPath": target, "maxPages": RENDER_PAGES},
+                                 image_dir=os.path.join(out_dir, "mock-pages"))
+            if not render.get("ok"):
+                raise ItemFailure(f"render_preview_pages failed: {describe_error(render)}")
         record["ok"] = not any(f["severity"] == "Error" for f in new_findings)
         record["layoutFile"] = os.path.basename(work)
     except Exception as exc:                                  # noqa: BLE001 - recorded, not raised

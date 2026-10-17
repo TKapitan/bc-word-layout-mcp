@@ -312,8 +312,8 @@ public static class LayoutEditor
     /// SCOPE (this is the single enforcement chokepoint): <paramref name="location"/>.Part must be
     /// <see cref="LayoutPart.Body"/>. Unlike <see cref="InsertField"/>/<see cref="InsertLabel"/> (which
     /// fully support <see cref="LayoutPart.Header"/>/<see cref="LayoutPart.Footer"/>), a repeater TABLE in a
-    /// header/footer is explicitly out of scope — tracked as GitHub issue #10 ("Repeater tables in
-    /// headers/footers"). This is checked first, before any
+    /// header/footer is out of scope: nothing shows that BC renders a repeating section in a header or
+    /// footer, and GitHub issue #10 closed without the sandbox probe that could. This is checked first, before any
     /// schema/id work, so a rejected call never touches <paramref name="doc"/>.
     /// </remarks>
     /// <exception cref="ArgumentException">
@@ -342,11 +342,11 @@ public static class LayoutEditor
         {
             throw new ArgumentException(
                 $"insert_repeater_table only supports {nameof(Location)}.{nameof(Location.Part)} = "
-                + $"{nameof(LayoutPart)}.{nameof(LayoutPart.Body)} in v1: a repeater TABLE in a header/footer "
-                + "is explicitly deferred (repeaters in headers/footers - tracked as GitHub "
-                + "issue #10). insert_field/insert_label "
-                + "still fully support layoutPart='header'/'footer' - only a repeater TABLE cannot target one "
-                + "yet; omit layoutPart (or pass 'body') to insert this table into the main document instead.",
+                + $"{nameof(LayoutPart)}.{nameof(LayoutPart.Body)}: a repeater TABLE in a header/footer "
+                + "is not supported, because nothing shows that Business Central renders a repeating section "
+                + "there. insert_field/insert_label "
+                + "still fully support layoutPart='header'/'footer' - only a repeater TABLE cannot target one; "
+                + "omit layoutPart (or pass 'body') to insert this table into the main document instead.",
                 nameof(location));
         }
 
@@ -709,9 +709,9 @@ public static class LayoutEditor
     /// single-column cells as a block at <paramref name="location"/> — the missing counterpart to
     /// <see cref="InsertRepeaterTable"/> for the NON-repeating blocks every real BC layout is built from
     /// (side-by-side address columns, label/value header-info grids, right-anchored totals blocks).
-    /// Borderless by default — the corpus shape for those blocks — or with the same explicit single-line
-    /// border set <see cref="SdtFactory.BuildRepeaterTable"/> emits when <paramref name="withBorders"/> is
-    /// true. Each cell carries an explicit <c>w:tcW</c> matching its grid column, and an optional per-column
+    /// Borderless by default — the corpus shape for those blocks — or, when <paramref name="withBorders"/> is
+    /// true, with the explicit single-line grid <see cref="SdtFactory.BuildRepeaterTable"/> emits for
+    /// <c>look='grid'</c>. Each cell carries an explicit <c>w:tcW</c> matching its grid column, and an optional per-column
     /// paragraph justification seeds each cell's alignment (which <see cref="CellTextEditor.SetCellText"/>
     /// and a <c>tableCell</c>-located <see cref="InsertField"/> both preserve afterwards). The result's
     /// <see cref="TableEditResult.TableIndex"/> is the new table's 0-based document-order index — exactly
@@ -722,7 +722,7 @@ public static class LayoutEditor
     /// <paramref name="rows"/>/<paramref name="columns"/> out of range; a width/alignment list whose count
     /// doesn't equal <paramref name="columns"/>; an unrecognized alignment; or
     /// <paramref name="location"/>.Part is not <see cref="LayoutPart.Body"/> (plain tables in
-    /// headers/footers are deferred with the same v1 scope rule as <see cref="InsertRepeaterTable"/>).
+    /// headers/footers are not supported yet, the same body-only scope as <see cref="InsertRepeaterTable"/>).
     /// </exception>
     /// <exception cref="NotFoundException">Propagated from <see cref="LocationResolver.Resolve"/>.</exception>
     public static TableEditResult InsertPlainTable(
@@ -750,9 +750,8 @@ public static class LayoutEditor
         if (location.Part != LayoutPart.Body)
         {
             throw new ArgumentException(
-                "insert_table only supports the main document body in v1 (a plain table in a header/footer "
-                + "is deferred with the same scope rule as insert_repeater_table); omit layoutPart (or pass "
-                + "'body').",
+                "insert_table only supports the main document body (a plain table in a header/footer is "
+                + "not supported yet); omit layoutPart (or pass 'body').",
                 nameof(location));
         }
 
@@ -1129,6 +1128,17 @@ public static class LayoutEditor
         }
 
         var kind = location.Part.ToString().ToLowerInvariant();
+        var hasFirstPagePart = location.Part == LayoutPart.Footer ? roles.HasFirstPageFooter : roles.HasFirstPageHeader;
+        if (!hasFirstPagePart)
+        {
+            // StandardSalesInvoiceVatSpec's shape: w:titlePg with a default part only. There is no part to point
+            // the caller at, and no tool creates one (GitHub issue #99).
+            return $" NOTE: this layout renders a DIFFERENT FIRST PAGE (w:titlePg) but has no first-page {kind}, "
+                + $"so page 1 renders NO {kind} at all — a one-page document will not display what this edit "
+                + $"added. No tool can add a first-page {kind}; if the content must appear on page 1, put it in "
+                + "the body instead.";
+        }
+
         return $" NOTE: this layout renders a DIFFERENT FIRST PAGE (w:titlePg), so the default {kind} this "
             + $"landed in is not shown on page 1 — a one-page document will not display it at all. If it must "
             + $"appear on page 1, target the first-page part instead/as well (see get_layout_info's "

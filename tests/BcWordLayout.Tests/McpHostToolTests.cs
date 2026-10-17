@@ -1557,9 +1557,9 @@ public class McpHostToolTests
     [Fact]
     public void InsertRepeaterTable_layoutPart_header_is_rejected_as_invalid_argument_v1_scopes_repeaters_to_body_only()
     {
-        // Follow-up review (post-Phase-4.3): unlike insert_field/insert_label, a repeater TABLE is v1-scoped
-        // to the main body only - repeaters in headers/footers are explicitly deferred - GitHub
-        // issue #10 (see LayoutEditor.InsertRepeaterTable's own chokepoint rejection). This inverts what was
+        // Follow-up review (post-Phase-4.3): unlike insert_field/insert_label, a repeater TABLE is scoped
+        // to the main body only - nothing shows BC renders a repeating section in a header/footer (GitHub
+        // issue #10 closed without a probe; see LayoutEditor.InsertRepeaterTable's own chokepoint rejection). This inverts what was
         // originally a "lands in a header part" success test.
         var path = CopyOfCorpus(Corpus.SalesInvoice);
         try

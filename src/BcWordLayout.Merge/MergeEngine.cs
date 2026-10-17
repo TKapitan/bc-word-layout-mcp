@@ -189,7 +189,9 @@ public static class MergeEngine
             throw new FileNotFoundException("Layout file not found.", layoutPath);
         }
 
-        if (string.Equals(Path.GetFullPath(layoutPath), Path.GetFullPath(outputPath), StringComparison.OrdinalIgnoreCase))
+        // PathIdentity, not a bare GetFullPath comparison: a junction, symlink or subst/mapped drive spelling
+        // of layoutPath is the same file, and merging into it would overwrite the layout itself.
+        if (PathIdentity.SameFile(layoutPath, outputPath))
         {
             throw new ArgumentException("outputPath must differ from layoutPath.", nameof(outputPath));
         }

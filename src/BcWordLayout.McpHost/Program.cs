@@ -62,6 +62,9 @@ builder.Logging.AddConsole(options =>
 builder.Services
     .AddMcpServer()
     .WithStdioServerTransport()
+    // serverInfo: the server name plus the PRODUCT version (1.1.0, 1.2.0-rc.1) rather than the SDK's fallback, the
+    // four-part assembly version an RC shares with its release - see ServerIdentity. Shared with the host-level tests.
+    .WithBcWordLayoutServerInfo()
     // The tools plus the call-tool filter that keeps the {ok,data,error} envelope guarantee for calls that
     // never reach a tool body (unknown tool, missing or wrong-typed argument) — see ToolCallBoundary. Shared
     // with the host-level tests, which run the same pipeline over an in-memory stream transport.

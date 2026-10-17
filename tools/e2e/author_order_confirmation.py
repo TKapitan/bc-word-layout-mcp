@@ -114,8 +114,8 @@ if THROUGH < 8: sys.exit(0)
 
 # ---- step 8: REAL page header/footer (auto-scaffolded on a from-scratch layout) ----
 # Header: document no, so page 2+ still identifies the document. Stacked caption-over-value
-# paragraphs (chaining two inline controls would concatenate them with no separator - there is no
-# static-inline-text tool yet; see GitHub issue #5).
+# paragraphs, the simplest shape. (One inline line would be the label, then the field with afterControl
+# on the label, then insert_text ' ' with afterControl on the label - the skill's right-to-left rule.)
 edit("insert_label", label="/Header/DocumentNo_Lbl", locationType="documentEnd",
      layoutPart="header", bold=True, fontSizePoints=8)
 edit("insert_field", field="/Header/DocumentNo", locationType="documentEnd",
@@ -125,7 +125,7 @@ edit("insert_field", field="/Header/CompanyLegalStatement", locationType="docume
      layoutPart="footer", fontSizePoints=8)
 edit("insert_field", field="/Header/CompanyVATRegNo", locationType="documentEnd",
      layoutPart="footer", fontSizePoints=8)
-# Body contact strip (a footer cannot hold an insert_table grid yet - see GitHub issue #10).
+# Body contact strip (insert_table builds body tables only, so the grid cannot go in the footer).
 t = edit("insert_table", rows=2, columns=4, locationType="documentEnd")
 contact = [
     ("/Header/CompanyPhoneNo_Lbl", "/Header/CompanyPhoneNo"),

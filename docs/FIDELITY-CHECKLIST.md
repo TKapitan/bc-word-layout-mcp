@@ -129,8 +129,6 @@ passed**; the filled comparison sheet lives with the round's pack output.
 
 ## Manual procedure (per release, 3 corpus reports)
 
-## Manual procedure (per release, 3 corpus reports)
-
 For each of the 3 corpus layouts — `SalesInvoiceForSubscriptionBilling.docx`, `InventoryOrderDetails.docx`,
 `StandardStatement.docx` (`tests/corpus/`):
 
@@ -155,9 +153,8 @@ For each of the 3 corpus layouts — `SalesInvoiceForSubscriptionBilling.docx`, 
 4. **Record pass/fail per dimension** (and per report) wherever the team tracks release sign-off — this
    document intentionally does not prescribe a specific tracker; attach the sandbox PDFs and the
    `fidelity-output/` artifacts as evidence either way.
-5. Any newly discovered gap gets added to this document's dimensions table (or to SOLUTION-DESIGN.md §5's
-   "Known fidelity gaps" list) rather than only living in a ticket, so the next release's pass starts from
-   an up-to-date list.
+5. Any newly discovered gap gets added to this document's dimensions table rather than only living in a
+   ticket, so the next release's pass starts from an up-to-date list.
 
 ## Where the automated artifacts land
 
@@ -169,11 +166,11 @@ clean between runs). One subfolder per layout either way:
 
 ```
 fidelity-output/
-  SalesInvoice/
+  SalesInvoiceForSubscriptionBilling/
     merged.docx     — the merge-engine working copy (sample data filled, repeaters expanded)
     preview.pdf      — present only when a PDF converter (Word COM or LibreOffice) is available
     SUMMARY.md       — converter used/availability, merge stats, merge warnings, mock-render disclaimer
-  CustomerStatement/
+  InventoryOrderDetails/
     ...
   StandardStatement/
     ...

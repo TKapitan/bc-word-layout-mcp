@@ -61,6 +61,32 @@ public sealed class McpHostPipelineTests(McpHostPipeline pipeline) : IClassFixtu
         Assert.Equal("1306", result.Data.GetProperty("report").GetProperty("reportId").GetString());
     }
 
+    // ---- server identity (GitHub issue #112) ----
+
+    [Fact]
+    public void The_handshake_reports_the_server_name_and_its_product_version_not_the_assembly_version()
+    {
+        var assembly = typeof(ServerIdentity).Assembly;
+        var informational = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()!.InformationalVersion;
+
+        var serverInfo = pipeline.Client.ServerInfo;
+
+        Assert.Equal("BcWordLayout.McpHost", serverInfo.Name);
+        Assert.Equal(ServerIdentity.WithoutBuildMetadata(informational), serverInfo.Version);
+        // MAJOR.MINOR.PATCH plus an optional pre-release tag (1.1.0, 1.2.0-rc.1) - never the numeric four-part
+        // assembly version (1.1.0.0) that an RC shares with its release, and never the +commit build metadata.
+        Assert.Matches(@"^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$", serverInfo.Version);
+        Assert.NotEqual(assembly.GetName().Version!.ToString(), serverInfo.Version);
+    }
+
+    [Theory]
+    [InlineData("1.1.0", "1.1.0")]
+    [InlineData("1.2.0-rc.1", "1.2.0-rc.1")]
+    [InlineData("1.2.0-rc.1+3f2a9c1d", "1.2.0-rc.1")]
+    [InlineData("1.1.0+3f2a9c1d.dirty", "1.1.0")]
+    public void WithoutBuildMetadata_strips_only_the_plus_suffix(string informational, string expected) =>
+        Assert.Equal(expected, ServerIdentity.WithoutBuildMetadata(informational));
+
     // ---- missing required argument ----
 
     [Fact]

@@ -39,7 +39,7 @@
     <PackageId>BcWordLayout.Mcp</PackageId>
     <PackageType>McpServer</PackageType>
     <Authors>Tom Kapitan</Authors>
-    <Description>MCP server that lets AI agents create, edit, validate, and preview Microsoft Word report layouts for Microsoft Dynamics 365 Business Central - 23 deterministic, typed tools over stdio, with validate-before-save write safety and an offline mock PDF preview.</Description>
+    <Description>MCP server that lets AI agents create, edit, validate, and preview Microsoft Word report layouts for Microsoft Dynamics 365 Business Central - 26 deterministic, typed tools over stdio, with validate-before-save write safety and an offline mock PDF preview.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageProjectUrl>https://github.com/TKapitan/bc-word-layout-mcp</PackageProjectUrl>
@@ -50,6 +50,13 @@
   <ItemGroup>
     <None Include="..\..\README.md" Pack="true" PackagePath="\" />
     <None Include=".mcp\server.json" Pack="true" PackagePath=".mcp\" />
+    <!-- The license and the third-party notices travel with every distribution (GitHub issue #108):
+         Pack puts them at the root of each NuGet package, and CopyToPublishDirectory puts them in the
+         publish folder, which both the tool packages' tools/<tfm>/<rid>/ folders and the release zips
+         are made from. The Apache-2.0 and BSD components the server redistributes require their
+         notices to ship with the binaries. -->
+    <None Include="..\..\LICENSE" Link="LICENSE" Pack="true" PackagePath="\" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="..\..\THIRD-PARTY-NOTICES.md" Link="THIRD-PARTY-NOTICES.md" Pack="true" PackagePath="\" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
   <!-- SkiaSharp's runtime packages ship enormous NATIVE debug-symbol files (three ~85 MB

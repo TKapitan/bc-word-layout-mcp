@@ -79,6 +79,12 @@ unpacks to a stable location, verifies the checksum, and prints the ready-to-pas
 irm https://github.com/TKapitan/bc-word-layout-mcp/releases/latest/download/install.ps1 | iex
 ```
 
+For a specific version, pre-releases included, run that release's own script with `-Version`:
+
+```pwsh
+& ([scriptblock]::Create((irm https://github.com/TKapitan/bc-word-layout-mcp/releases/download/v1.2.3/install.ps1))) -Version 1.2.3
+```
+
 The documented config then points at the fixed path
 `%LOCALAPPDATA%\bc-word-layout-mcp\current\BcWordLayout.McpHost.exe`.
 
@@ -171,7 +177,7 @@ other tool is conversion-free and works everywhere the server runs.
 
 | Tool | Purpose |
 |---|---|
-| `get_layout_info` | Inspect a layout: report name/id, dataset namespace, `storeItemID`, the full control inventory (kind, alias, tag, xpath, part, parent repeater), per-part details (kind, header/footer role `default`/`first`/`even`, and which part a `partName`-less header/footer edit targets) plus a `hasTitlePage` flag, every table's rows (one per `w:tr`, so each row of a multi-row repeater item is addressable, tagged with the repeater it repeats with) and cells — each cell with both its physical `colIndex` (what the cell tools take) and its `gridColumn`/`gridSpan` (what the column tools take; they differ on any spanned row), each row with its `gridBefore`/`gridAfter` — and a quick validation summary. |
+| `get_layout_info` | Inspect a layout: report name/id, dataset namespace, `storeItemID`, the full control inventory (kind, alias, tag, `xPath`, part, parent repeater), per-part details (kind, header/footer role `default`/`first`/`even`, and which part a `partName`-less header/footer edit targets) plus a `hasTitlePage` flag, every table's rows (one per `w:tr`, so each row of a multi-row repeater item is addressable, tagged with the repeater it repeats with) and cells — each cell with both its physical `colIndex` (what the cell tools take) and its `gridColumn`/`gridSpan` (what the column tools take; they differ on any spanned row), each row with its `gridBefore`/`gridAfter` — and a quick validation summary. |
 | `list_dataset_fields` | List the dataset hierarchy (data items + columns) from a `.docx` layout or a standalone schema `.xml`; flags labels and, for a layout, bound/unbound columns. |
 | `validate_layout` | Validate a layout: `level=quick` (structural + binding checks, including a `repeater-downgraded` error for a repeater a Word save turned into a plain content control, a `top-level-repeater-group` error for a block-level repeater over the top-level data item without the `w:group` wrapper Business Central needs to print it, a warning when a layout containing repeaters declares a Word compatibility mode below 15, and a `duplicate-control-id` warning when two content controls share a `w:id`) or `level=full` (adds a dry-run merge that surfaces every unresolved binding as a finding). |
 | `preview_layout` | Mock preview: merges deterministic (or supplied) sample data into a working copy and converts it to PDF via Word COM or LibreOffice. |
@@ -203,25 +209,32 @@ other tool is conversion-free and works everywhere the server runs.
 Every tool returns a uniform envelope:
 
 ```json
-{ "ok": true, "data": { "...": "tool-specific payload" }, "error": null }
+{ "ok": true, "data": { "...": "tool-specific payload" } }
 ```
+
+Members that would be `null` are omitted rather than sent as `null`: a success has no `error` key, a
+failure has no `data` key, and an optional field inside `data` is simply absent.
 
 One tool extends (never replaces) this shape: `render_preview_pages` returns the same JSON envelope as
 its result's **first text content block**, followed by one MCP **image content block** per rendered page
 — the only way a tool result can carry images over MCP. Its envelope JSON is serialized with the same
 options the SDK applies to every other tool, so parsers see an identical shape either way.
 
-On failure, `data` is `null` and `error` is populated with `{ code, message, hint }` — `hint` is always
+On failure, `error` is populated with `{ code, message, hint }` — `hint` is always
 a non-empty, agent-actionable next step (which argument to fix and its valid values, or which
-inspection tool to call first). Nothing throws across the MCP boundary. The eighteen mutating tools
-(`insert_field`, `insert_label`, `insert_text`, `insert_picture`, `insert_repeater_table`, `remove_control`, `set_cell_text`,
-`clear_cell_text`, `set_column_widths`, `insert_column`, `remove_column`, `merge_cells`, `split_cells`,
-`set_cell_borders`, `refresh_xml_part`) additionally run `OpenXmlValidator` *before* saving — a write that would introduce a
-**new** structural error is rejected (`edit_would_corrupt`) and the file on disk is left untouched. Table
-edits are additionally checked by a grid-consistency guard that rejects (`edit_would_break_table`, file
-untouched) any edit leaving a row's cells inconsistent with its `w:tblGrid` — a corruption class
-`OpenXmlValidator` accepts silently. Every successful mutating response also carries a fresh post-edit
-`quickValidation` summary.
+inspection tool to call first). Nothing throws across the MCP boundary. The 20 mutating tools
+(`insert_field`, `insert_label`, `insert_text`, `insert_page_number`, `insert_picture`, `insert_table`,
+`insert_repeater_table`, `insert_repeater_row`, `insert_subtotal_row`, `insert_table_row`,
+`remove_control`, `set_cell_text`, `clear_cell_text`, `set_column_widths`, `insert_column`,
+`remove_column`, `merge_cells`, `split_cells`, `set_cell_borders`, `refresh_xml_part`) additionally run
+`OpenXmlValidator` *before* saving — a write that would introduce a **new** structural error is
+rejected (`edit_would_corrupt`) and the file on disk is left untouched. Every one of them is also
+checked by a grid-consistency guard that rejects (`edit_would_break_table`, file untouched) any edit
+leaving a row's cells inconsistent with its `w:tblGrid` — a corruption class `OpenXmlValidator`
+accepts silently. Every successful mutating response also carries a fresh post-edit
+`quickValidation` summary. (`create_layout` writes a new file instead: it checks the layout it built
+and returns `quickValidation` too, but a failure of that check is a server bug, reported as
+`internal_error`, never `edit_would_corrupt`.)
 
 **Envelope boundary: malformed calls get the envelope too.** The SDK looks the tool up and binds the
 JSON arguments onto its typed parameters before any tool body runs. The server's call-tool filter wraps
@@ -262,13 +275,14 @@ report body once per top-level record, the mock does not.
 **Final sign-off on any layout is always a real Business Central sandbox render** (AL build → publish
 to dev sandbox → run the report), never this tool's PDF alone.
 
-**What has been validated against a real Business Central sandbox:** a five-layout authoring pack
-built entirely with these tools was uploaded to real BC sandboxes and rendered by the real report
-engine — validated against **BC 28.0 and 28.3** (Cronus AU; the recorded run and what it measured
-live in [`docs/FIDELITY-CHECKLIST.md`](docs/FIDELITY-CHECKLIST.md)). All five passed: BC accepts
-what these tools author, bindings resolve, repeaters expand, and the mock preview's structure
-matched the real render on the dimensions checked. That is what it proves — and no more: five
-layouts, one BC version family, one localization. The mock preview remains a mock; the per-release
+**What has been validated against a real Business Central sandbox:** a pack of layouts made with
+these tools was uploaded to real BC sandboxes and rendered by the real report engine — validated
+against **BC 28.0 and 28.3** (Cronus AU) in two rounds. Round 1 had five items, one of them built
+from scratch; round 2 had seven: three from-scratch builds (P01, P06, P07) and four edits of stock
+layouts. [`docs/FIDELITY-CHECKLIST.md`](docs/FIDELITY-CHECKLIST.md) records both runs and what they
+measured. Every item passed: BC accepts what these tools author, bindings resolve, repeaters
+expand, and the mock preview's structure matched the real render on the dimensions checked. That
+is what it proves — and no more: seven layouts, one BC version family, one localization. The mock preview remains a mock; the per-release
 fidelity procedure and its open manual dimensions live in the same checklist.
 
 ## Public contract and versioning
@@ -279,12 +293,12 @@ codes.** Removing or changing any of those is a breaking change and lands only i
 new tools, new optional parameters, new `data` fields, and new error codes are additive (minor).
 Error `message`/`hint` texts are not part of the contract — never parse them.
 
-- **Business Central versions:** validated against **BC 28.0** (see above). Word report layouts are
+- **Business Central versions:** validated against **BC 28.0 and 28.3** (see above). Word report layouts are
   a long-stable BC format, so the tools are *expected* to work with any BC version that supports
   Word layouts — reports of issues on other versions are welcome — but the compatibility commitment
   extends only to versions a validation has actually covered.
-- **MCP SDK cadence:** the server pins the official `ModelContextProtocol` C# SDK (currently 2.2.0)
-  and upgrades it in **minor** releases, with any behavioral consequence called out in the
+- **MCP SDK cadence:** the server pins an exact version of the official `ModelContextProtocol` C#
+  SDK (the host's project file names it) and upgrades it in **minor** releases, with any behavioral consequence called out in the
   changelog. The envelope boundary above is pinned by a host-level test that runs the real server
   pipeline over the SDK's own transport, so an upgrade that changes it fails the suite.
 
@@ -337,7 +351,7 @@ Prerequisite: the **.NET 10 SDK** (and the nuget.org package source configured).
 
 ```pwsh
 dotnet build     # warnings fail the build (TreatWarningsAsErrors + .NET analyzers)
-dotnet test      # 684 tests
+dotnet test
 ```
 
 The suite includes Word COM PDF-conversion tests and OOXML snapshot tests against the corpus of 10
@@ -403,7 +417,7 @@ Or write the requests to a file of your own and pipe it (`Get-Content requests.j
 | `src/BcWordLayout.Merge` | `SampleDataGenerator` (seeded, type-aware fakes), `MergeEngine` (binding fill, repeater expansion incl. nested/re-anchored XPaths, picture placeholders), `FullValidator` (the dry-run merge behind `validate_layout level=full`). |
 | `src/BcWordLayout.Render` | `IPdfConverter` + `WordComConverter` (primary) / `LibreOfficeConverter` (fallback) + `PdfConverterFactory` (auto-selection) + PDF output sanity checks. |
 | `src/BcWordLayout.McpHost` | The MCP stdio server (console app): the 26 tool definitions (`Tools/ReadTools.cs`, `Tools/EditTools.cs`, `Tools/TableTools.cs`, `Tools/LifecycleTools.cs`, sharing `Tools/ToolGuards.cs`) and the `{ok,data,error}` envelope (`ToolContracts.cs`). |
-| `tests/BcWordLayout.Tests` | 684 xUnit tests: the 10 real corpus layouts in `tests/corpus/` plus synthetic fixtures — reader/validator/merge/editor/refresher/converter coverage, snapshot tests, MCP host tool tests, packaging-manifest guards, and the fidelity harness. |
+| `tests/BcWordLayout.Tests` | xUnit tests: the 10 real corpus layouts in `tests/corpus/` plus synthetic fixtures — reader/validator/merge/editor/refresher/converter coverage, snapshot tests, MCP host tool tests, packaging-manifest guards, and the fidelity harness. |
 
 ## Contributing and security
 

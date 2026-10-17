@@ -26,8 +26,9 @@ public static class ReadTools
 {
     [McpServerTool(Name = "get_layout_info")]
     [Description("Inspect a BC Word report layout (.docx): returns report name/id, dataset namespace, "
-                 + "storeItemID, the full control inventory (kind, alias, tag, xpath, storeItemID, part, "
-                 + "parent repeater, and for each control its structural LEVEL - run/block/cell/row/runRuby - "
+                 + "storeItemId, the full control inventory (kind, alias, tag, xPath, storeItemId, part, "
+                 + "sdtId - the control's w:id, the controlId the edit tools take - usesW15Binding, "
+                 + "parentRepeaterXPath, and for each control its structural LEVEL - run/block/cell/row/runRuby - "
                  + "plus its tableIndex/rowIndex/colIndex when it sits in a table), a TABLES section "
                  + "describing every table's grid (rowCount, columnCount, gridColumnWidths) and its rows - ONE "
                  + "PER w:tr, so each row of a multi-row repeater item (line, nested detail, subtotal, spacer "
@@ -102,7 +103,7 @@ public static class ReadTools
         if (source is null)
         {
             return ToolResponse.Failure(
-                "invalid_argument",
+                ErrorCodes.InvalidArgument,
                 "source must not be null.",
                 "Pass an absolute path to either a .docx layout or a standalone exported schema .xml file.");
         }
@@ -151,20 +152,20 @@ public static class ReadTools
                  + "or a prefix the mappings never declare - Word cannot map such a control; a bare URI that "
                  + "names the right namespace is tolerated, as stock layouts ship it), XPath "
                  + "resolution, repeater shape, attachedTemplate warning, a compatibility-mode warning "
-                 + "when a layout that CONTAINS repeaters declares a Word compatibility mode below 15, and"
-                 + "a repeater-downgraded ERROR when a control's alias names a whole data item but the"
-                 + "control is not a repeating section - the wreckage a Word save leaves when it converts"
-                 + "a repeater to a plain rich-text control, which makes the table render one row instead of"
+                 + "when a layout that CONTAINS repeaters declares a Word compatibility mode below 15, and "
+                 + "a repeater-downgraded ERROR when a control's alias names a whole data item but the "
+                 + "control is not a repeating section - the wreckage a Word save leaves when it converts "
+                 + "a repeater to a plain rich-text control, which makes the table render one row instead of "
                  + "one per record; and a top-level-repeater-group ERROR when a block-level repeating "
                  + "section repeats the top-level data item without a w:group around its item - Business "
                  + "Central prints such a layout as an empty document while preview and the full merge fill "
                  + "it normally), and a duplicate-control-id WARNING when two content controls share a w:id - the "
                  + "file still opens, but remove_control, afterControl and parentRepeaterId refuse that id "
-                 + "rather than act on the first match. One structural complaint is reported as a WARNING rather than an error:"
-                 + "w:rPr/w:w=0, the character scaling Word writes into a content control's placeholder run, which"
-                 + "renders correctly in Word and BC and cannot be edited by any tool here. level='full'"
-                 + "additionally runs a real dry-run merge (sample data fill + repeater expansion) against"
-                 + "a throwaway temp copy and surfaces every merge warning (e.g. unresolved bindings, XPath"
+                 + "rather than act on the first match. One structural complaint is reported as a WARNING rather than an error: "
+                 + "w:rPr/w:w=0, the character scaling Word writes into a content control's placeholder run, which "
+                 + "renders correctly in Word and BC and cannot be edited by any tool here. level='full' "
+                 + "additionally runs a real dry-run merge (sample data fill + repeater expansion) against "
+                 + "a throwaway temp copy and surfaces every merge warning (e.g. unresolved bindings, XPath "
                  + "errors) as a validation finding.")]
     public static ToolResponse ValidateLayout(
         [Description("Absolute path to the .docx layout file.")] string layoutPath,
@@ -177,7 +178,7 @@ public static class ReadTools
             && !string.Equals(level, "quick", StringComparison.OrdinalIgnoreCase))
         {
             return Guard(() => ToolResponse.Failure(
-                "invalid_argument",
+                ErrorCodes.InvalidArgument,
                 $"Unknown validation level '{level}'.",
                 "level must be 'quick' or 'full' (case-insensitive); 'quick' runs fast structural+binding "
                 + "checks, 'full' additionally dry-run merges sample data and surfaces merge warnings."), layoutPath);

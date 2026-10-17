@@ -29,9 +29,12 @@ internal static class ToolGuards
     // ---- mutating-tool edit safety (open read-write copy, mutate, validate BEFORE save, atomic commit) ----
 
     /// <summary>
-    /// Per-path locks serializing concurrent edits targeting the same layout file (keyed by the normalized
-    /// full path, case-insensitively — <see cref="StringComparer.OrdinalIgnoreCase"/> is the dictionary's
-    /// own comparer, so lookups need no manual case-folding). Two <see cref="GuardEdit"/> calls against
+    /// Per-path locks serializing concurrent edits targeting the same layout file (keyed by the file system's
+    /// own spelling of the path, <see cref="PathIdentity.Canonical"/>, case-insensitively —
+    /// <see cref="StringComparer.OrdinalIgnoreCase"/> is the dictionary's own comparer, so lookups need no
+    /// manual case-folding). Keying on the resolved path, not just <see cref="Path.GetFullPath(string)"/>, is
+    /// what makes a junction, symlink, or subst or mapped drive spelling of a layout take the SAME lock as its
+    /// plain spelling (GitHub issue #92). Two <see cref="GuardEdit"/> calls against
     /// DIFFERENT files never contend; two against the SAME file are serialized so their working-copy /
     /// stage-and-swap sequences can never race each other (e.g. both reading the same "pre-existing ids"
     /// snapshot and generating colliding <c>w:id</c>s, or one's atomic swap clobbering the other's). Entries
@@ -68,11 +71,11 @@ internal static class ToolGuards
     /// assumptions about how long the guarded work itself takes.
     /// </summary>
     internal static object EditLockFor(string layoutPath) =>
-        EditLocks.GetOrAdd(Path.GetFullPath(layoutPath), static _ => new object());
+        EditLocks.GetOrAdd(PathIdentity.Canonical(layoutPath), static _ => new object());
 
     /// <summary>
-    /// Shared choreography for every mutating tool (<c>insert_field</c>, <c>insert_label</c>,
-    /// <c>insert_repeater_table</c>, <c>remove_control</c>, <c>refresh_xml_part</c>): copy
+    /// Shared choreography for all 20 mutating tools — every tool that writes through <see cref="GuardEdit"/>,
+    /// <see cref="GuardCellEdit"/>, <see cref="GuardTableEdit"/> or <see cref="GuardRefresh"/>: copy
     /// <paramref name="layoutPath"/> to a private temp working copy, open THAT copy read-write
     /// (<see cref="OpenSettings.AutoSave"/> off), apply <paramref name="mutate"/>, then run
     /// <see cref="OpenXmlValidator"/> both BEFORE and after the edit so only NEWLY introduced structural
@@ -93,8 +96,9 @@ internal static class ToolGuards
     /// <see cref="RefreshResultDto"/>) is therefore structurally incapable of shipping without a populated
     /// <c>QuickValidation</c>; this is not a convention an individual tool could forget to follow. The
     /// <paramref name="mutate"/> result type is generic (<typeparamref name="TResult"/>) precisely because
-    /// different mutating tools return different result shapes — <see cref="EditResult"/> for the four
-    /// content-control edits, <see cref="RefreshResult"/> for <c>refresh_xml_part</c> (which additionally
+    /// different mutating tools return different result shapes — <see cref="EditResult"/> for the nine
+    /// content-control and repeater edits, <see cref="CellEditResult"/> and <see cref="TableEditResult"/> for the
+    /// cell and table-structure edits, <see cref="RefreshResult"/> for <c>refresh_xml_part</c> (which additionally
     /// computes ITS OWN <see cref="RefreshResult.QuickValidation"/> internally, for Domain-level callers
     /// that never go through this tool layer at all — <paramref name="onSuccess"/> is free to reuse that
     /// one instead of the <see cref="ValidationResult"/> passed alongside <typeparamref name="TResult"/>,
@@ -164,10 +168,17 @@ internal static class ToolGuards
                     return CrossProcessLockTimeoutFailure(layoutPath, CrossProcessLock.MutatingTimeout);
                 }
 
+                // The file system's own spelling of layoutPath (see PathIdentity): the folder the commit stages
+                // into and the path it replaces. Through a junction or a subst or mapped drive this is the same
+                // file either way; through a symlink to the FILE, renaming over layoutPath itself would replace
+                // the link with a plain copy and leave the real layout - and every other host editing it under
+                // its real name, behind the same lock - without this edit (GitHub issue #92).
+                var commitPath = PathIdentity.Canonical(layoutPath);
+
                 // Best-effort orphan cleanup: runs on EVERY mutating call,
                 // scoped to layoutPath's OWN directory only — see SweepStaleStagingFiles's own remarks — plus
                 // this method's own %TEMP% working copies, at most hourly (see SweepStaleEditWorkingCopiesIfDue).
-                SweepStaleStagingFiles(layoutPath);
+                SweepStaleStagingFiles(commitPath);
                 SweepStaleEditWorkingCopiesIfDue();
 
                 // CopyWritable, not a bare File.Copy: a read-only layout (a TFVC/Perforce file that is not
@@ -213,7 +224,7 @@ internal static class ToolGuards
                         if (newNesting.Count > 0)
                         {
                             return ToolResponse.Failure(
-                                "edit_would_corrupt",
+                                ErrorCodes.EditWouldCorrupt,
                                 $"This edit would place {newNesting.Count} content control(s), field code(s), "
                                 + "table(s) or drawing(s) inside a plain-text content control, which Word rejects "
                                 + "as a corrupt document; the file was NOT modified.",
@@ -230,7 +241,7 @@ internal static class ToolGuards
                         if (newTableGrid.Count > 0)
                         {
                             return ToolResponse.Failure(
-                                "edit_would_break_table",
+                                ErrorCodes.EditWouldBreakTable,
                                 $"This edit would leave {newTableGrid.Count} table row(s) inconsistent with their "
                                 + "grid (cells covering the wrong number of grid columns, or an empty cell), which "
                                 + "Word renders as a broken/corrupt table; the file was NOT modified.",
@@ -267,8 +278,7 @@ internal static class ToolGuards
                         // In practice this is an unreachable safety net, not a normally-exercised path:
                         // SdtFactory, LocationResolver, and LayoutRefresher are all deliberately engineered
                         // (3.2/3.4/4.1) to only ever emit/target valid OOXML, so no known route
-                        // through insert_field/insert_label/remove_control/insert_repeater_table/
-                        // refresh_xml_part's public surface can actually trigger it today. It is kept as a
+                        // through any mutating tool's public surface can actually trigger it today. It is kept as a
                         // backstop against a future change breaking that invariant, and is deliberately not
                         // force-tested — there is no honest way to reach it from the outside without
                         // fabricating an internal bug to order.
@@ -277,7 +287,7 @@ internal static class ToolGuards
                             var preview = string.Join(
                                 " | ", newErrors.Take(5).Select(e => $"{e.Path?.XPath}: {e.Description}"));
                             return ToolResponse.Failure(
-                                "edit_would_corrupt",
+                                ErrorCodes.EditWouldCorrupt,
                                 $"This edit would introduce {newErrors.Count} new OpenXML structural error(s); "
                                 + "the file was NOT modified.",
                                 $"First new error(s): {preview} - this should not happen for any documented "
@@ -315,13 +325,13 @@ internal static class ToolGuards
                     // Path.GetDirectoryName returns null only for a bare root (e.g. "C:\") - a path-shape
                     // edge case, not a lookup failure; left as a plain InvalidOperationException
                     // (→ internal_error via Guard's generic catch), not NotFoundException.
-                    var targetDir = Path.GetDirectoryName(Path.GetFullPath(layoutPath))
+                    var targetDir = Path.GetDirectoryName(commitPath)
                         ?? throw new InvalidOperationException($"Could not determine the directory of '{layoutPath}'.");
                     var staged = Path.Combine(targetDir, $".bcwl-stage-{Guid.NewGuid():N}.docx");
                     try
                     {
                         RetryTransientFileDenial(() => ScratchFiles.CopyWritable(workingCopy, staged));
-                        RetryTransientFileDenial(() => File.Move(staged, layoutPath, overwrite: true));
+                        RetryTransientFileDenial(() => File.Move(staged, commitPath, overwrite: true));
                     }
                     catch (UnauthorizedAccessException ex)
                     {
@@ -568,7 +578,7 @@ internal static class ToolGuards
         return added;
     }
 
-    /// <summary>Thin <see cref="GuardMutate{TResult}"/> instantiation building the content-control edit tools' <see cref="EditResultDto"/> — used by <see cref="EditTools"/>'s <c>insert_field</c>/<c>insert_label</c>/<c>insert_picture</c>/<c>remove_control</c> and <see cref="TableTools"/>'s <c>insert_repeater_table</c>.</summary>
+    /// <summary>Thin <see cref="GuardMutate{TResult}"/> instantiation building the content-control edit tools' <see cref="EditResultDto"/> — used by <see cref="EditTools"/>'s <c>insert_field</c>/<c>insert_label</c>/<c>insert_text</c>/<c>insert_page_number</c>/<c>insert_picture</c>/<c>remove_control</c> and <see cref="TableTools"/>'s <c>insert_repeater_table</c>/<c>insert_repeater_row</c>/<c>insert_subtotal_row</c>.</summary>
     internal static ToolResponse GuardEdit(string layoutPath, Func<WordprocessingDocument, EditResult> mutate) =>
         GuardMutate(layoutPath, mutate, (editResult, quick) =>
         {
@@ -613,8 +623,9 @@ internal static class ToolGuards
 
     /// <summary>
     /// Thin <see cref="GuardMutate{TResult}"/> instantiation for <see cref="TableTools"/>'s table-STRUCTURE
-    /// tools (<c>set_column_widths</c>, <c>insert_column</c>, <c>remove_column</c>, <c>merge_cells</c>,
-    /// <c>split_cells</c>), building <see cref="TableEditResultDto"/>. Same save-or-reject safety and
+    /// tools (<c>insert_table</c>, <c>insert_table_row</c>, <c>set_column_widths</c>, <c>insert_column</c>,
+    /// <c>remove_column</c>, <c>merge_cells</c>, <c>split_cells</c>, <c>set_cell_borders</c>), building
+    /// <see cref="TableEditResultDto"/>. Same save-or-reject safety and
     /// post-edit QuickValidation guarantee as <see cref="GuardEdit"/>/<see cref="GuardCellEdit"/>, plus the
     /// <see cref="TableGridConsistencyGuard"/> backstop <see cref="GuardMutate{TResult}"/> now runs for every
     /// mutating tool — so a structural table edit that would desync a row's cells from the grid is rejected
@@ -749,7 +760,7 @@ internal static class ToolGuards
     /// </summary>
     internal static ToolResponse CrossProcessLockTimeoutFailure(string layoutPath, TimeSpan timeout) =>
         ToolResponse.Failure(
-            "file_locked",
+            ErrorCodes.FileLocked,
             $"Timed out after {timeout.TotalSeconds:0.#}s waiting for the edit lock on "
             + $"'{Path.GetFullPath(layoutPath)}'.",
             "Another process (e.g. another IDE window's MCP host) is currently editing or previewing this "
@@ -757,7 +768,7 @@ internal static class ToolGuards
             + "host process may have exited while holding the lock; it is released automatically, so a retry "
             + "after a short pause should succeed.");
 
-    // ---- location building (shared by EditTools' insert_field/insert_label and TableTools' insert_repeater_table) ----
+    // ---- location building (shared by every tool with a locationType: EditTools' inserts, TableTools' insert_repeater_table/insert_table) ----
 
     /// <summary>
     /// Builds a <see cref="Location"/> from a tool's flat, MCP-friendly parameters. Only checks that
@@ -1058,7 +1069,7 @@ internal static class ToolGuards
             // may not be the one that was actually missing.
             var missingPath = ex.FileName ?? path;
             return ToolResponse.Failure(
-                "file_not_found",
+                ErrorCodes.FileNotFound,
                 $"{ex.Message} Path checked: '{missingPath}'.",
                 "Pass an absolute path (not relative) to a file that already exists on disk - the parameter "
                 + "named above must point at it; check for typos, a missing drive letter, or a relative path "
@@ -1070,7 +1081,7 @@ internal static class ToolGuards
             // sharing-violation part of the file_locked story (see this method's own remarks above for the
             // other two - a refused write of the target, and a timed-out edit-lock WAIT).
             return ToolResponse.Failure(
-                "file_locked",
+                ErrorCodes.FileLocked,
                 ex.Message,
                 "This file is open in another program (typically Word) or is being read/written by another "
                 + "process right now - close it there (or wait for that other operation to finish) and retry; "
@@ -1084,7 +1095,7 @@ internal static class ToolGuards
             // target constructs; a bare UnauthorizedAccessException (e.g. a source file that cannot be read)
             // still reports internal_error.
             return ToolResponse.Failure(
-                "file_locked",
+                ErrorCodes.FileLocked,
                 ex.Message,
                 $"'{ex.FilePath}' could not be replaced. The likely causes, most common first: (1) it is open "
                 + "in Word or another program - close it there and retry; (2) it is read-only, e.g. a "
@@ -1103,7 +1114,7 @@ internal static class ToolGuards
             // for not_found/invalid_argument). Without this branch such a rejection would fall through to the
             // generic catch (Exception) below and misreport as internal_error instead of invalid_layout.
             return ToolResponse.Failure(
-                "invalid_layout",
+                ErrorCodes.InvalidLayout,
                 ex.Message,
                 "This file exceeds one of this tool's supported size/nesting limits (a package part or "
                 + "schema file too large, too many parts, or schema/document nesting too deep) - "
@@ -1116,7 +1127,7 @@ internal static class ToolGuards
             // (GitHub issue #95) - wrapped at the throw site that knows WHICH file it was reading, so the hint
             // can name it (see the exception type's own remarks for why the BCL types are not mapped wholesale).
             return ToolResponse.Failure(
-                "invalid_layout",
+                ErrorCodes.InvalidLayout,
                 ex.Message,
                 InvalidInputFileHint(ex.Problem, ex.FilePath, ex.LineNumber, ex.LinePosition));
         }
@@ -1129,7 +1140,7 @@ internal static class ToolGuards
             // tool's lazily-parsed package is the file `path` names - an edit's or preview's private copy is
             // a copy OF it, and create_layout's template is wrapped at its own source.
             return ToolResponse.Failure(
-                "invalid_layout",
+                ErrorCodes.InvalidLayout,
                 $"'{path}' contains an XML part that is not well-formed: {ex.Message}",
                 InvalidInputFileHint(
                     InputFileProblem.MalformedPackagePart,
@@ -1140,7 +1151,7 @@ internal static class ToolGuards
         catch (InvalidDataException ex)
         {
             return ToolResponse.Failure(
-                "invalid_layout",
+                ErrorCodes.InvalidLayout,
                 ex.Message,
                 "Confirm the file is either a BC Word layout (.docx) containing a dataset custom XML part, "
                 + "or a standalone exported schema .xml whose root is 'NavWordReportXmlPart' in the "
@@ -1155,7 +1166,7 @@ internal static class ToolGuards
             // that exception type's own remarks). Nothing was written - see LayoutBuilder.Create's own
             // atomic-write behavior.
             return ToolResponse.Failure(
-                "template_not_unbound",
+                ErrorCodes.TemplateNotUnbound,
                 ex.Message,
                 "templatePath must be an UNBOUND branded/styled shell (headers/footers, logo, fonts/styles "
                 + "only) - not a full BC layout with its own bound content controls. If you want to keep "
@@ -1171,23 +1182,23 @@ internal static class ToolGuards
             // The package itself carries a defect this call cannot work around (see LayoutDefectException's
             // own remarks for why that is not just InvalidDataException's generic invalid_layout hint):
             // keyed off the typed Defect, never ex.Message, exactly like NotFoundException's TargetKind.
-            return ToolResponse.Failure("invalid_layout", ex.Message, LayoutDefectHintFor(ex.Defect));
+            return ToolResponse.Failure(ErrorCodes.InvalidLayout, ex.Message, LayoutDefectHintFor(ex.Defect));
         }
         catch (ArgumentException ex)
         {
             return ToolResponse.Failure(
-                "invalid_argument",
+                ErrorCodes.InvalidArgument,
                 ex.Message,
                 ToolSpecificInvalidArgumentHint(tool, ex.ParamName) ?? InvalidArgumentHint(ex.ParamName));
         }
         catch (NotFoundException ex)
         {
-            return ToolResponse.Failure("not_found", ex.Message, NotFoundHintFor(ex.TargetKind));
+            return ToolResponse.Failure(ErrorCodes.NotFound, ex.Message, NotFoundHintFor(ex.TargetKind));
         }
         catch (Exception ex)
         {
             return ToolResponse.Failure(
-                "internal_error",
+                ErrorCodes.InternalError,
                 ex.Message,
                 "This is an unexpected failure, not one of this tool's normal validation outcomes. Confirm "
                 + "the file is a valid, uncorrupted OOXML .docx (e.g. it opens in Word); if the same failure "
@@ -1338,8 +1349,9 @@ internal static class ToolGuards
             + "applies). For set_cell_text/clear_cell_text: the cell must be PLAIN TEXT - a cell that holds a "
             + "bound field/label control is rejected; use remove_control (the cell/column is preserved) or "
             + "insert_field/insert_label for those. For insert_repeater_table: only layoutPart='body' (the "
-            + "default) is supported - a repeater TABLE in a header/footer is deferred (GitHub issue #10) "
-            + "(unlike insert_field/insert_label, which do support 'header'/'footer'). For the insert tools: a "
+            + "default) is supported - a repeater TABLE in a header/footer is not supported, since nothing "
+            + "shows that Business Central renders a repeating section there (unlike insert_field/insert_label, "
+            + "which do support 'header'/'footer'). For the insert tools: a "
             + "location that resolves INSIDE a data-bound field/label/picture control's own content (afterControl "
             + "on a cell-level control, tableCell on a cell that IS such a control, atText matching its text) is "
             + "refused, because Word discards or rejects anything placed there; use tableCell on a plain cell "

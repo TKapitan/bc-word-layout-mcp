@@ -129,11 +129,13 @@ totals table, which is the BC-verified simpler shape [verified: P07]).
   `insert_repeater_table` always marks it `w:tblHeader`, a corpus-observed shape [stock: 1304,
   115]. BC honours it [verified: P07], and since the #19 fix the mock preview repeats it too.
 - Two buildable looks, both BC-proven:
-  - **Open** [stock: 1304, 1322]: no table style, single ½ pt rule under the header row —
-    `set_cell_borders` `row=0, edges="bottom", size=4`.
+  - **Open** [stock: 1304, 1322]: no table style, single ½ pt rule under the header row — exactly
+    what `insert_repeater_table` draws by default (`look="bc"`); add nothing. (For a table built
+    another way, the rule is `set_cell_borders` `row=0, edges="bottom", size=4`.)
   - **Full grid** [verified: P06]: `tableStyle="TableGrid"` — the style reference alone draws the
     ½ pt grid (BC honours `w:tblStyle` against the scaffolded styles part); don't also paint
-    per-cell borders.
+    per-cell borders. (`look="grid"` paints the same grid as explicit cell borders instead; that
+    shape is not BC-verified, so prefer the style.)
   - Stock 1306 additionally rules under *every* data row — a bottom border on the repeater's data
     (template) row should repeat per line, but that exact shape is **not BC-verified**; its solid
     colour header band is template/hand-edit territory (no tool paints shading).
@@ -166,13 +168,14 @@ totals table, which is the BC-verified simpler shape [verified: P07]).
     an edit landing in the default part is invisible on page 1.
 - Stock page numbers are `Page_Lbl` + two literal spaces + Word `PAGE`/`NUMPAGES` field codes
   [stock: 1304, 1322, 1306, 115 — identical construct in all four]. Buildable: `insert_label` the
-  `Page_Lbl`, `insert_text` `"  "` (`afterControl` on the label), then `insert_page_number`
-  (`afterControl` again) — it emits the exact stock field construct (`X / Y` by default;
+  `Page_Lbl`, then `insert_page_number` (`afterControl` on the label), then `insert_text` `"  "`
+  (`afterControl` on the label again) — it emits the exact stock field construct (`X / Y` by default;
   `includeTotal=false` for the bare page number).
-- Inline sequences anywhere: insert the control first, then `insert_text` with
-  `locationType="afterControl"` anchored to it — `documentEnd` appends a NEW paragraph per call.
-  Separators are literal runs (`" "`, `"  |  "`, `", "`) [stock: every multi-control line;
-  verified: P07].
+- Inline sequences anywhere: insert the first control, then the rest **right to left**, each with
+  `locationType="afterControl"` anchored on that first control — every such insert lands directly
+  after the anchor, so for `Label: Value` insert the label, then the value, then the `": "` text.
+  `documentEnd` appends a NEW paragraph per call. Separators are literal runs (`" "`, `"  |  "`,
+  `", "`) [stock: every multi-control line; verified: P07].
 
 ### Typography
 - A blank build ships pinned Calibri 11 pt + `Normal`/`TableGrid` styles, BC-verified to render
@@ -184,7 +187,9 @@ totals table, which is the BC-verified simpler shape [verified: P07]).
   hand-edit the OOXML and re-validate (al-word-layout §3).
 
 ### Widths (twips)
-- Full A4 content width is **10206 twips** — what `insert_table`'s default even split fills.
+- Full A4 content width is **10206 twips** with the stock margins. `insert_table`'s default even
+  split fills the layout's own content width (page width minus margins), and falls back to 10206
+  when the layout declares neither.
 - Verified sums: address 9200, info grid 5800, line tables 9700–10206, totals 8600 — all
   BC-accepted, so table sums need not hit the margin exactly; pick round numbers that keep the
   proportions above.

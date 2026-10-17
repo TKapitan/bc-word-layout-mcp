@@ -23,7 +23,7 @@ public static class Corpus
     /// provenance. Also one of the corpus's two <b>UTF-8</b>-encoded BC custom XML parts (the
     /// other is <see cref="SubcontractorDispatchList"/>; every other file is UTF-16 LE + BOM) and its only
     /// <c>w:tblHeader</c> repeat-header row on a repeater table.
-    /// Validates clean (0 errors, 0 warnings).
+    /// Validates with 0 errors and 1 warning: its dataset part has no itemProps (<c>single-bc-part</c>).
     /// </summary>
     public const string SalespersonCommission = "SalespersonCommission.docx";
 

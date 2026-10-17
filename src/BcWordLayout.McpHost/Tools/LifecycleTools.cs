@@ -310,7 +310,7 @@ public static class LifecycleTools
             if (!TryParseConverterKind(converter, out var kind))
             {
                 return ToolResponse.Failure(
-                    "invalid_argument",
+                    ErrorCodes.InvalidArgument,
                     $"Unknown converter '{converter}'.",
                     "converter must be 'auto', 'word', or 'libreoffice' (case-insensitive); 'auto' prefers "
                     + "Word COM and falls back to LibreOffice.");
@@ -756,9 +756,10 @@ public static class LifecycleTools
     /// the caller supplies an explicit <c>outputDir</c>, the merged/pdf FILE names within it (see
     /// <c>PreviewLayout</c>). The path is case-folded via <see cref="string.ToUpperInvariant"/> before
     /// hashing (Windows paths are case-insensitive; hashing the raw bytes would otherwise treat
-    /// <c>C:\A.docx</c> and <c>c:\a.docx</c> as different files) - the same normalization
-    /// <see cref="ToolGuards.EditLockFor"/> relies on via its <see cref="StringComparer.OrdinalIgnoreCase"/>-keyed
-    /// lock dictionary, so any two path spellings that share an edit lock also share this hash.
+    /// <c>C:\A.docx</c> and <c>c:\a.docx</c> as different files), after the same resolution
+    /// (<see cref="PathIdentity.Canonical"/>) <see cref="ToolGuards.EditLockFor"/> keys its
+    /// <see cref="StringComparer.OrdinalIgnoreCase"/> lock dictionary on, so any two path spellings that share
+    /// an edit lock (a junction spelling included) also share this hash.
     /// <para>
     /// Full SHA-256 (not just <see cref="string.GetHashCode"/>) is used because .NET's own string hash
     /// is randomized per process run - it would defeat the whole point of a STABLE per-layout folder name
@@ -772,7 +773,7 @@ public static class LifecycleTools
     /// </summary>
     internal static string PreviewPathHash(string layoutPath)
     {
-        var normalized = Path.GetFullPath(layoutPath).ToUpperInvariant();
+        var normalized = PathIdentity.Canonical(layoutPath).ToUpperInvariant();
         var hash = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(normalized));
         return Convert.ToHexString(hash)[..12].ToLowerInvariant();
     }
@@ -859,7 +860,7 @@ public static class LifecycleTools
         if (!inlineImages && outputDir is null)
         {
             return EnvelopeOnly(ToolResponse.Failure(
-                "invalid_argument",
+                ErrorCodes.InvalidArgument,
                 "inlineImages=false with no outputDir would render the pages and then discard them.",
                 "Either pass outputDir (the PNGs are written there and their paths come back on "
                 + "pages[].path), or leave inlineImages at its default of true."));
@@ -873,7 +874,7 @@ public static class LifecycleTools
         {
             var (name, value) = firstPage < 1 ? (nameof(firstPage), firstPage) : (nameof(maxPages), maxPages);
             return EnvelopeOnly(ToolResponse.Failure(
-                "invalid_argument",
+                ErrorCodes.InvalidArgument,
                 $"{name} must be 1 or more (got {value}).",
                 "firstPage is the 1-based page to start from (default 1) and maxPages how many pages to render "
                 + "from there (default 3, at most 10 per call); the response's pageCount tells you how many pages "
@@ -886,7 +887,7 @@ public static class LifecycleTools
         if (!File.Exists(pdfPath))
         {
             return EnvelopeOnly(ToolResponse.Failure(
-                "file_not_found",
+                ErrorCodes.FileNotFound,
                 $"pdfPath does not point to an existing file. Path checked: '{pdfPath}'.",
                 "Pass the PdfPath returned by a preview_layout call. Preview outputs are refreshed in "
                 + "place on re-preview (one whose conversion failed removes the old PDF and leaves none) "
@@ -904,7 +905,7 @@ public static class LifecycleTools
         if (!result.Ok)
         {
             return EnvelopeOnly(ToolResponse.Failure(
-                "rasterize_failed",
+                ErrorCodes.RasterizeFailed,
                 result.Error ?? "PDF rasterization failed.",
                 "Confirm pdfPath is the PdfPath from a successful preview_layout call (conversionOk true) "
                 + "and that firstPage is within the document (see the message for the page count when "

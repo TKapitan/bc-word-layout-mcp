@@ -166,6 +166,73 @@ public class PageNumberFieldTests
         }
     }
 
+    /// <summary>
+    /// The runs that follow the <paramref name="labelId"/> control inside its paragraph in
+    /// <paramref name="footerName"/>, as written to <paramref name="path"/>.
+    /// </summary>
+    private static List<Run> RunsAfterLabel(string path, string footerName, int labelId)
+    {
+        using var doc = WordprocessingDocument.Open(path, false);
+        var footer = doc.MainDocumentPart!.FooterParts
+            .Single(f => f.Uri.OriginalString.EndsWith(footerName, StringComparison.Ordinal));
+        var label = footer.Footer!.Descendants<SdtElement>().Single(s => SdtInspector.ReadControlId(s) == labelId);
+        return label.ElementsAfter().OfType<Run>().Select(r => (Run)r.CloneNode(true)).ToList();
+    }
+
+    [Fact]
+    public void The_documented_Page_X_of_Y_recipe_puts_the_spaces_between_the_label_and_the_fields()
+    {
+        // GitHub issue #88: afterControl inserts directly after its anchor, and plain runs have no id to anchor
+        // on, so every part of the idiom anchors on the label and the call made LAST lands FIRST. The documented
+        // order - label, insert_page_number, insert_text - gives the stock run order. The order the docs used
+        // to give - label, insert_text, insert_page_number - rendered "Page1 / 3" with the two spaces trailing.
+        var path = CopyOfCorpus(Corpus.StandardSalesQuote);
+        try
+        {
+            var label = Assert.IsType<EditResultDto>(
+                EditTools.InsertLabel(path, "/Header/Page_Lbl", "documentEnd", layoutPart: "footer").Data);
+            Assert.True(EditTools.InsertPageNumber(path, "afterControl", controlId: label.ControlId, layoutPart: "footer").Ok);
+            Assert.True(EditTools.InsertText(path, "  ", "afterControl", controlId: label.ControlId, layoutPart: "footer").Ok);
+
+            var runs = RunsAfterLabel(path, label.Part, label.ControlId);
+
+            Assert.Equal(12, runs.Count);
+            Assert.Equal("  ", runs[0].GetFirstChild<Text>()?.Text);
+            AssertFieldConstruct(runs, 1, " PAGE  \\* Arabic  \\* MERGEFORMAT ");
+            Assert.Equal(" / ", runs[6].GetFirstChild<Text>()?.Text);
+            AssertFieldConstruct(runs, 7, " NUMPAGES  \\* Arabic  \\* MERGEFORMAT ");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Anchoring_the_spaces_before_the_fields_leaves_the_spaces_trailing()
+    {
+        // The other half of the anchoring rule above, pinned so the documentation cannot drift back: inserted
+        // in the old documented order, the spaces end up after the NUMPAGES field.
+        var path = CopyOfCorpus(Corpus.StandardSalesQuote);
+        try
+        {
+            var label = Assert.IsType<EditResultDto>(
+                EditTools.InsertLabel(path, "/Header/Page_Lbl", "documentEnd", layoutPart: "footer").Data);
+            Assert.True(EditTools.InsertText(path, "  ", "afterControl", controlId: label.ControlId, layoutPart: "footer").Ok);
+            Assert.True(EditTools.InsertPageNumber(path, "afterControl", controlId: label.ControlId, layoutPart: "footer").Ok);
+
+            var runs = RunsAfterLabel(path, label.Part, label.ControlId);
+
+            Assert.Equal(12, runs.Count);
+            AssertFieldConstruct(runs, 0, " PAGE  \\* Arabic  \\* MERGEFORMAT ");
+            Assert.Equal("  ", runs[11].GetFirstChild<Text>()?.Text);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     [Fact]
     public void InsertPageNumber_after_a_control_lands_in_the_same_paragraph_run_flow()
     {

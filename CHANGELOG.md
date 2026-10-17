@@ -34,6 +34,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   repeats, such as a list report's rows, are exempt. The body is still rendered once: there is no
   observed OOXML for how BC joins per-record documents.
 
+### Changed
+
+- **The server reports its product version as `serverInfo.version`** (GitHub issue #112). The MCP
+  handshake answered with the four-part assembly version (`1.1.0.0`), which an RC shares with the
+  release it becomes, so neither a client nor the release smoke test could tell the builds apart.
+  It now reports the informational version without its `+commit` suffix (`1.1.0`, `1.2.0-rc.1`);
+  `serverInfo.name` is unchanged (`BcWordLayout.McpHost`). `tools/release/verify_server.py` checks
+  it with the new `--expect-version`.
+
 ### Fixed
 
 - **Inserts that would land inside a data-bound field, label or picture control are refused**
@@ -316,6 +325,171 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     two layouts' pages into one `outputDir` as the same `preview-page01.png`. The default PDF is
     now `preview-<hash>.pdf`, as with an explicit `outputDir` (`merged.docx` keeps its name). A
     `preview.pdf` an earlier version left in a default folder is removed.
+
+- **Edits made through a junction, a symlink, or a subst or mapped drive now wait for edits made
+  through the plain path** (GitHub issue #92). Both edit locks, the in-process one and the named
+  mutex shared between server processes, were keyed on the full path as written, which does not
+  follow those spellings. Two hosts editing one layout through two spellings therefore never waited
+  for each other, and one host's commit replaced the other's. Of 12 concurrent `insert_text` calls
+  from two server processes, 6 through a folder and 6 through a junction or a subst drive to it, all
+  returned `ok: true` and the file kept 6; it now keeps all 12. Every path is resolved through the
+  file system before it keys a lock, and the same resolution:
+  - commits an edit made through a symlink to the file into the file it points at, instead of
+    replacing the link with a plain copy that holds the edit;
+  - keys `preview_layout`'s default output folder, so every spelling of a layout shares one;
+  - decides "the same file" for `create_layout`'s refusal to overwrite its own `schemaSource` and
+    for the preview merge's output check, so a junction spelling of `schemaSource` is refused too.
+
+- **`preview_layout` never kills a Word it did not start** (GitHub issue #103). The Word converter
+  took the first WINWORD.EXE that appeared while it was creating `Word.Application` as its own, and
+  force-killed it after every conversion, or at once on a timeout. When another server process
+  converted at the same moment (a second IDE window, or the test suite next to an agent's preview),
+  or the user opened Word in that window, it killed that Word instead, unsaved documents included,
+  and could leave its own instance running.
+  - **Positive identification:** the instance now gets a unique window caption, and only the
+    process owning that hidden window, started after the conversion began, counts as its own. A
+    Word that can't be identified that way is only asked to quit, never killed.
+  - **Word hanging at startup** (an invisible first-run, licensing or safe-mode prompt): the
+    timeout used to kill nothing and left that Word running. It now kills the one new WINWORD.EXE
+    that COM started (its command line carries `-Embedding`, which a Word the user starts never
+    does), and only when there is exactly one.
+  - **No late export:** a conversion that has timed out stops before opening or exporting the
+    document if Word recovers later, so it can no longer write a PDF the next preview may own.
+
+- **`tools/scrub_corpus_metadata.py` no longer passes a `customXML/` capture as clean without
+  scrubbing it** (GitHub issue #111). Its bibliography-drop and dataset sample-value rules matched
+  the `customXml/` folder case-sensitively, so a capture whose export spells it `customXML/` (as
+  `StandardStatement.docx` does) skipped both rules and was reported clean. The script now reads
+  package plumbing the way OPC defines it:
+  - **Part names** compare case-insensitively everywhere, and every part keeps the casing the
+    package gives it.
+  - **Relationship targets** resolve against the source part's folder, or from the package root
+    when absolute, so a part referenced by an absolute target is no longer refused.
+  - **Every bibliography part** is dropped in one run (only the first was), so a second run is a
+    true no-op.
+  - **`docProps/app.xml`:** `Company` and `Manager` are now blanked. A missing `core.xml` or
+    `app.xml` no longer crashes the script.
+  - **Exit codes:** `--check` exits 1 only when something would be scrubbed. Errors exit 2: an
+    unknown option (previously ignored), or a package it cannot scrub cleanly, such as one with
+    duplicate Overrides or a reference it cannot resolve. That file is left untouched, and the
+    other files are still processed.
+  - **Atomic rewrite:** the scrubbed package replaces the original in one rename. On Windows the
+    move used to run while the original was still open and fell back to copying over it.
+
+  The corpus was already clean and is unchanged. A standard-library `unittest` suite covers the
+  rules and exit codes (`python -m unittest discover -s tools/tests`), and CI runs it.
+
+- **The documented "Page X / Y" recipe now renders "Page  1 / 3"** (GitHub issue #88).
+  `insert_page_number`'s description and both skills said to insert the two spaces after the
+  `Page_Lbl` label first and the page-number fields second, both anchored on the label. An
+  `afterControl` insert lands directly after its anchor, so that order put the spaces after the
+  fields: "Page1 / 3  ". The recipe now inserts the fields first and the spaces second. The skill's
+  location model states the general rule (an inline line is built right to left, every insert
+  anchored on its first control), and `insert_text`'s description shows it for `Label: Value`. A
+  test pins the run order.
+
+- **The `install.ps1` one-liner no longer changes the caller's PowerShell session or leaves its
+  download behind, and `-FromDirectory` installs the version asked for** (GitHub issue #109).
+  - **Session:** under the documented `irm … | iex`, the script ran in the caller's scope.
+    Afterwards `$ErrorActionPreference` stayed `Stop`, so the next failing command aborted the
+    whole command line; a `$Version` of the caller's own became `latest`; and every script
+    variable stayed behind. The script now runs in a scope of its own however it is started, and
+    `-Version` still binds in a file run and in the scriptblock form.
+  - **Download folder:** every install left `%TEMP%\bcwl-install-<guid>` behind, holding the
+    ~50 MB zip. It is now removed whether the install succeeds or fails.
+  - **`-FromDirectory`:** it took the first zip by file name and ignored `-Version`: with 1.0.0 and
+    1.1.0 present it installed 1.0.0, and with 1.1.0-rc.1 and 1.1.0 the RC. It now installs
+    exactly the `-Version` zip, naming the versions present when it is missing, or without
+    `-Version` the highest SemVer version.
+  - **Architecture:** x64 PowerShell on an ARM64 machine installed the `win-x64` zip. The native
+    architecture now decides.
+  - Windows PowerShell 5.1's progress bar no longer slows the download.
+
+  The README now shows how to install a specific version.
+
+- **Tool descriptions, hints and messages no longer contradict what the tools do** (GitHub issue
+  #99). MCP clients show this text to the model verbatim.
+  - `validate_layout`'s description had nine words glued together ("anda", "thecontrol",
+    "level='full'additionally", …). A test now fails on any join of two string literals in the
+    source that glues two words.
+  - `merge_cells`/`split_cells` said an omitted `partName` means the first part. It means the
+    DEFAULT part, as for every other table tool; the 1.1.0 entry claimed that wording was gone.
+  - `insert_table`'s `withBorders` claimed to draw the grid `insert_repeater_table` draws by
+    default; that grid is `look='grid'` only. Its default width is the layout's own content width
+    (page width minus margins), not always the A4 10206 twips.
+  - `insert_text`/`insert_page_number`: an unstyled run takes the paragraph's and the style's
+    defaults, not the formatting of the runs next to it, so beside a bold caption it renders regular.
+  - The refusal of a repeater table in a header/footer, its hint and the
+    `repeater-in-header-footer` finding called that "deferred (GitHub issue #10)"; #10 is closed.
+    They now say it is not supported, because nothing shows that BC renders a repeating section
+    there.
+  - On a layout with a distinct first page but no first-page header (StandardSalesInvoiceVatSpec)
+    or footer, the insert summary's first-page note sent the caller to "the part with role
+    'first'", which does not exist and no tool can create. It now says page 1 renders no header or
+    footer at all.
+
+- **The e2e and release scripts no longer pass on stale caches, ignore failures, or wait out a dead
+  server** (GitHub issue #112).
+  - `scenarios.py` keyed its cached passes and baselines on `BcWordLayout.McpHost.dll` alone, so a
+    change in `BcWordLayout.Domain`, `Merge` or `Render` that did not recompile the host (a new
+    validator check, say) kept every recorded pass. The caches are now keyed on the content of
+    every `BcWordLayout.*.dll` and the host's `deps.json`, plus the shared harness code and the
+    corpus file a scenario edits. The stale cache had hidden that three scenarios (s02, s05, s06)
+    still expected `insert_column` to widen the table, which it stopped doing in this release
+    (GitHub issue #83); they now check the kept width and re-fit from the original widths.
+  - A failed tool call, a preview with no PDF, a failed render, or a baseline that cannot be
+    captured fails only that scenario, naming the error's code, message and hint; the run continues
+    to its summary and exits 1. A failed baseline used to end the whole run with `KeyError: 'data'`,
+    and a failed render was ignored.
+  - `bc_compare.py` exits 1 when any item fails (it always exited 0) and no longer ignores a failed
+    render.
+  - `verify_server.py` takes `--expect-tools`, `--expect-version` and `--timeout` anywhere before
+    `--`, fails an `initialize` or `tools/list` error instead of reporting 0 tools, and prints the
+    server's stderr on every failure.
+  - A server that dies now fails the pending call at once with its exit code, where the scripts
+    waited out the 300–400 s timeout. Their stdio client could also miss a response that arrived
+    just as it began to wait, and report a timeout for a server that had answered.
+
+- **The skill's tool reference and the README describe what the server actually returns**
+  (GitHub issue #100). Agents drive the tools from `skills/al-word-layout/SKILL.md`, and these
+  mismatches with the live server misled them:
+  - **Return shapes:** the eight table-structure tools, `insert_table` and `insert_table_row`
+    included, return the table-edit result (`operation`, `part`, `tableIndex`, `columnIndex`,
+    `rowsAffected`, `columnCountBefore`, `columnCountAfter`, `summary`, `quickValidation`), not the
+    `insert_field` or `set_cell_text` shape the skill named. `insert_column` therefore returns no id
+    for a control it creates. `insert_repeater_table` also returns `tableIndex` and `dataRowIndex`.
+  - **Field names** are camelCase (`xPath`, `storeItemId`, `parentRepeaterXPath`, `sdtId`), in the
+    skill and in `get_layout_info`'s own description; `refresh_xml_part`'s binding lists carry
+    `sdtId`.
+  - **Nulls are omitted, not sent:** a success has no `error` key, a failure no `data` key, and an
+    unset optional field (an unreferenced part's `role`, a failed conversion's `pdfPath`) is
+    absent.
+  - **Missing parameters:** `insert_repeater_table`'s `look`, `insert_field`/`insert_label`'s
+    `bold`/`fontSizePoints`, and `set_cell_text`'s `bold`/`alignment`/`fontSizePoints`. The design
+    skill's "Open" table look added the header rule `look="bc"` already draws.
+  - **Error codes:** `rasterize_failed` (`render_preview_pages`, also for a `firstPage` past the end)
+    was missing from the skill's list.
+  - **Mutating tools:** there are 20, not "eighteen" (README listed 15), and every one of them runs
+    the grid-consistency guard, not only the table edits. `create_layout`'s own check of the layout
+    it built reports a failure as `internal_error`, as a server bug.
+
+- **Stale counts, versions and references are corrected across the docs and package metadata**
+  (GitHub issue #113). The NuGet package description says 26 tools (it said 23), and the Copilot
+  marketplace entry names both skills. The docs now agree on the validated BC versions (28.0 and
+  28.3) and on the validation pack (two rounds, five then seven items), count 19 e2e journeys, and
+  drop a test count that never matched a release. Questions and issues since settled (#1, #2,
+  #10) are no longer described as open, and the design doc, the fidelity checklist, the
+  contributing guide and the worked example point at the right sections, parameters and folders.
+
+- **The license and third-party notices now ship with every NuGet package and release zip**
+  (GitHub issue #108). `THIRD-PARTY-NOTICES.md` says the Apache-2.0 and BSD components'
+  notices must travel with distributions, yet no package or zip carried it, nor `LICENSE`, while
+  they redistribute `ModelContextProtocol(.Core).dll`, `pdfium.dll` and `libSkiaSharp.dll`. Both
+  files are now at the root of all three NuGet packages, in each tool package's
+  `tools/net10.0/<rid>/` folder, and in the release zips. The notices list components without
+  versions (six rows had drifted from the pinned ones, `ModelContextProtocol` 1.4.1 against a shipped
+  2.2.0), and a test fails when a shipped package has no row; the README no longer quotes the SDK
+  version either.
 
 ### Security
 

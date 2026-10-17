@@ -1,6 +1,8 @@
 # Builds the Channel-B release artifacts (release plan §2): one self-contained zip per Windows RID,
 # a SHA256SUMS.txt covering them, and a copy of install.ps1 — the exact set a GitHub Release carries.
-# CI runs this on tag; running it locally produces byte-equivalent artifacts for rehearsal.
+# CI and release.yml run this, then scripts/smoke-release-artifacts.ps1 checks what it built. Running it
+# locally builds the same files for rehearsal; the zips are not byte-identical between runs, because
+# Compress-Archive stamps each entry with its file's time.
 #
 #   pwsh scripts/build-release-zips.ps1 [-Rids win-x64,win-arm64] [-OutDir artifacts/release]
 
@@ -25,15 +27,26 @@ $sums = @()
 
 foreach ($rid in $Rids) {
     Write-Host "== publish $rid =="
-    dotnet publish $project -c $Configuration -r $rid --self-contained | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed for $rid" }
 
-    $publishDir = Join-Path $project "bin/$Configuration/net10.0/$rid/publish"
+    # A folder of its own, emptied first: the default bin/<config>/net10.0/<rid>/publish is shared with
+    # the framework-dependent publish `dotnet pack` runs for the tool packages, so files from either could
+    # end up in the other's output.
+    $publishDir = Join-Path $repoRoot "artifacts/publish/$rid"
+    if (Test-Path $publishDir) { Remove-Item $publishDir -Recurse -Force }
+
+    # Quiet on success; on failure the publish output is the only record of the cause, so print it.
+    $publishOutput = dotnet publish $project -c $Configuration -r $rid --self-contained -o $publishDir 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        $publishOutput | ForEach-Object { Write-Host $_ }
+        throw "dotnet publish failed for $rid (exit $LASTEXITCODE)"
+    }
+
     $zipName = "bc-word-layout-mcp-$version-$rid.zip"
     $zipPath = Join-Path $out $zipName
     if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
 
-    # Zip the CONTENTS of publish/ (exe at zip root) — the whole folder must travel together.
+    # Zip the CONTENTS of the publish folder (exe at zip root) — the whole folder must travel together,
+    # LICENSE and THIRD-PARTY-NOTICES.md included (the host project copies both into it).
     Compress-Archive -Path (Join-Path $publishDir '*') -DestinationPath $zipPath
     $hash = (Get-FileHash $zipPath -Algorithm SHA256).Hash.ToLowerInvariant()
     $sums += "$hash  $zipName"

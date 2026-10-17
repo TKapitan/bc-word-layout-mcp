@@ -532,8 +532,8 @@ public class RepeaterTableTests
 
     // ---- Follow-up review (post-Phase-4.3): a repeater TABLE is v1-scoped to the body ONLY - unlike
     // insert_field/insert_label, which fully support layoutPart='header'/'footer', insert_repeater_table
-    // must reject Location.Part != Body outright (repeaters in headers/footers are explicitly deferred -
-    // GitHub issue #10). ----
+    // must reject Location.Part != Body outright (nothing shows BC renders a repeating section in a
+    // header/footer; GitHub issue #10 closed without a probe). ----
 
     [Fact]
     public void InsertRepeaterTable_targeting_LayoutPart_Header_is_rejected_and_leaves_the_document_unmodified()
@@ -549,7 +549,7 @@ public class RepeaterTableTests
                 new RepeaterTableOptions()));
 
             Assert.Equal("location", ex.ParamName);
-            Assert.Contains("repeaters in headers/footers", ex.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("a repeater TABLE in a header/footer is not supported", ex.Message, StringComparison.OrdinalIgnoreCase);
             Assert.Contains("insert_field", ex.Message);
 
             // Rejected before any schema/id/table-building work touches the document at all - not just the
@@ -579,7 +579,7 @@ public class RepeaterTableTests
                 new RepeaterTableOptions()));
 
             Assert.Equal("location", ex.ParamName);
-            Assert.Contains("repeaters in headers/footers", ex.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("a repeater TABLE in a header/footer is not supported", ex.Message, StringComparison.OrdinalIgnoreCase);
         }
         finally
         {

@@ -12,6 +12,15 @@ dotnet test  -c Release                    # full suite green
 gitleaks detect --log-opts=--no-textconv   # MUST report "commits scanned" > 0; expect no findings
 ```
 
+CI's `package-smoke` job already builds and smoke-tests the release artifacts on every pull request,
+so a green `main` has passed it. To rehearse it locally (Python 3 and the .NET 10 SDK):
+
+```pwsh
+dotnet pack src/BcWordLayout.McpHost -c Release -o artifacts/nupkg
+pwsh scripts/build-release-zips.ps1
+pwsh scripts/smoke-release-artifacts.ps1   # contents, checksums, and the server from zip and dnx
+```
+
 The `--log-opts=--no-textconv` flag matters: Git-for-Windows' system-level `astextplain` textconv
 chokes on the corpus `.docx` diffs and silently makes gitleaks scan **0 commits** while still
 reporting "no leaks found" — always check the "commits scanned" line before trusting the result.
@@ -60,10 +69,19 @@ this before doing anything else. A tag containing `-` (e.g. `v1.2.3-rc.1`) is pu
 
 ## 4. CI takes over
 
-`release.yml` runs the full test gate, packs and pushes **every** produced `.nupkg` (the top-level
-`BcWordLayout.Mcp` manifest package plus one per RID — they must ship together), builds the per-RID
-zips + `SHA256SUMS.txt` via `scripts/build-release-zips.ps1`, and creates the GitHub Release with
-the zips, checksums, and `install.ps1` as assets.
+`release.yml` publishes nothing until everything that will ship has been built and checked, because
+a NuGet version, once pushed, can never be reclaimed:
+
+1. the full test gate;
+2. packs **every** `.nupkg` (the top-level `BcWordLayout.Mcp` manifest package plus one per RID —
+   they must ship together) and builds the per-RID zips + `SHA256SUMS.txt` via
+   `scripts/build-release-zips.ps1`;
+3. `scripts/smoke-release-artifacts.ps1`: every package and zip holds what it must (the tool,
+   `README.md`, `LICENSE`, `THIRD-PARTY-NOTICES.md`), the checksums match, and the server starts from
+   both the unzipped exe and the local packages via `dnx`, reporting exactly this version and every
+   tool;
+4. only then pushes the packages to NuGet, and creates the GitHub Release with the zips, checksums,
+   and `install.ps1` as assets.
 
 NuGet publishing uses **Trusted Publishing (OIDC)** — no stored API key. Two pieces of setup, once:
 a Trusted Publishing policy on nuget.org (account → Trusted Publishing → repository owner
@@ -75,8 +93,8 @@ inactive, restart its window on nuget.org before tagging.
 ## 5. Post-publish verification — on a machine that is not yours
 
 ```pwsh
-# Channel A: dnx fetches from NuGet and the server answers with all 26 tools
-python tools/release/verify_server.py -- dnx BcWordLayout.Mcp@1.2.3 --yes
+# Channel A: dnx fetches from NuGet and the server answers with all 26 tools and this version
+python tools/release/verify_server.py --expect-version 1.2.3 -- dnx BcWordLayout.Mcp@1.2.3 --yes
 
 # Channel B: the installer downloads, checksum-verifies, unpacks, and the installed exe works
 irm https://github.com/TKapitan/bc-word-layout-mcp/releases/latest/download/install.ps1 | iex
@@ -84,7 +102,7 @@ irm https://github.com/TKapitan/bc-word-layout-mcp/releases/latest/download/inst
 # Verifying an RC: `releases/latest` excludes pre-releases, so download install.ps1 from the RC
 # release's own asset URL and pass -Version explicitly, e.g.
 #   & ([scriptblock]::Create((irm https://github.com/TKapitan/bc-word-layout-mcp/releases/download/v1.2.3-rc.1/install.ps1))) -Version 1.2.3-rc.1
-python tools/release/verify_server.py -- "$env:LOCALAPPDATA\bc-word-layout-mcp\current\BcWordLayout.McpHost.exe"
+python tools/release/verify_server.py --expect-version 1.2.3 -- "$env:LOCALAPPDATA\bc-word-layout-mcp\current\BcWordLayout.McpHost.exe"
 
 # A real tool call against a sample layout
 #   get_layout_info on any corpus layout → ok:true

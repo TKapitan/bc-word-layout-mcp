@@ -56,9 +56,9 @@ situation actually occurs, no standing hotfix machinery exists — that is delib
    becomes the commit subject on `main` (squash merge), so write it in the imperative mood, like
    the existing history.
 5. **Gates.** CI must be green — the required check is the single `ci-result` gate, which passes
-   only when both build legs (`windows-latest` and `ubuntu-latest`) succeeded or were skipped
-   because the change touched only Markdown ([`ci.yml`](../.github/workflows/ci.yml)'s `changes`
-   job) — documentation PRs merge without spending build minutes. The branch must be current with
+   only when every CI job succeeded ([`ci.yml`](../.github/workflows/ci.yml)). Documentation PRs run
+   the full suite too: the tests read the README, both skills and the other docs they guard against
+   drift, so a docs-only change can break them. The branch must be current with
    `main`, and every review conversation must be resolved. External PRs are reviewed by the code owner
    ([`CODEOWNERS`](../.github/CODEOWNERS)); maintainer PRs merge on green CI — the required-check
    gate, not self-review theater, is what protects `main` while there is one maintainer.
@@ -154,7 +154,7 @@ repo; apply them via the appendix below or Settings → Rules → Rulesets → I
 | --- | --- | --- |
 | Require a pull request | required approvals: **0** | A solo maintainer cannot approve their own PR; requiring 1 would dead-lock every merge. Raise to 1 + require code-owner review the day a second maintainer joins. |
 | Allowed merge methods | **squash only** | One functionality per PR → one commit per functionality on `main`; PR titles feed `--generate-notes` in the release workflow. |
-| Required status checks | `ci-result`, **strict** (branch must be up to date) | `ci-result` is an always-run gate that passes only when both CI legs succeeded or were skipped by the Markdown-only rule (see [`ci.yml`](../.github/workflows/ci.yml)). Both legs are load-bearing — Windows is the supported platform, Linux is the rot-guard — but they cannot be required directly: a matrix job skipped by `if:` never expands, so `build-and-test (windows-latest)` would stay "Expected" forever on a docs PR and block the merge. Strict mode means the merged result is exactly what CI tested. |
+| Required status checks | `ci-result`, **strict** (branch must be up to date) | `ci-result` is an always-run gate that passes only when every CI job succeeded (see [`ci.yml`](../.github/workflows/ci.yml)). Both build legs are load-bearing — Windows is the supported platform, Linux is the rot-guard — and requiring the one gate instead of each `build-and-test (<os>)` context keeps this ruleset unchanged when a job is added or renamed. Strict mode means the merged result is exactly what CI tested. |
 | Require conversation resolution | on | Review threads are part of the record. |
 | Require linear history | on | Squash-only already guarantees it; the rule keeps it true if merge settings ever drift. |
 | Block force pushes / deletions | on | `main` is the release source of truth. |

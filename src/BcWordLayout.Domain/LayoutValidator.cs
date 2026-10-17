@@ -857,9 +857,9 @@ public static class LayoutValidator
             {
                 Check = "repeater-in-header-footer",
                 Severity = FindingSeverity.Warning,
-                Message = "This repeating section is located in a header/footer part, outside this tool's v1 "
-                          + "supported matrix (repeaters in headers/footers are deferred - GitHub "
-                          + "issue #10); Business Central may not merge/render it reliably.",
+                Message = "This repeating section is located in a header/footer part, which these tools do "
+                          + "not support: nothing shows that Business Central merges or renders a repeating "
+                          + "section there reliably.",
                 Location = $"{control.Part}: {control.Alias ?? control.XPath}",
             });
         }

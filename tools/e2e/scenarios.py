@@ -10,22 +10,34 @@ before/after PNGs.
     python tools/e2e/scenarios.py s04 s07       # run specific scenarios (prefix match)
     python tools/e2e/scenarios.py --force s04   # rerun even if cached
 
-CACHING: each scenario's output dir carries a done.json with a hash of the scenario's own source
-code; a scenario is skipped when it previously PASSED and its code is unchanged, so adding a new
-scenario never reruns the existing ones. --force overrides.
+CACHING: each scenario's output dir carries a done.json with a hash of everything the scenario's
+outcome depends on (scenario_hash): its own source (decorator arguments included), the corpus layout it
+edits, the shared harness code every scenario runs through (HARNESS) and the server build - every
+BcWordLayout.*.dll plus BcWordLayout.McpHost.deps.json beside the host, by content (build_fingerprint).
+A scenario is skipped when it previously PASSED and none of those changed, so adding a new scenario
+never reruns the existing ones. --force overrides. Each layout's shared baseline is cached the same way
+(baseline_stamp).
+
+FAILURES: a failed tool call, a preview whose PDF conversion failed, a failed render, or a baseline that
+cannot be captured fails THAT scenario only; the run goes on, prints its summary, and exits 1 if anything
+failed. A server that dies fails the running call at once with its exit code and stderr tail (not after the
+timeout), and the next scenario gets a fresh server.
 
 OUTPUT (gitignored, human-review artifacts):
     preview-output/e2e-edits/_baseline/<layout>/   validate findings + page PNGs of the pristine layout
     preview-output/e2e-edits/<scenario>/           work.docx, report.json, done.json, after/page-N.png
 
 The server is the Release build; build it first (dotnet build -c Release). Keeps stdin open until
-responses arrive (stdio EOF race - see the pilot-harness notes).
+responses arrive (stdio EOF race - see the pilot-harness notes). Importing this module starts nothing:
+bc_compare.py, call.py and sandbox_pack.py reuse its McpServer client.
 """
 
 from __future__ import annotations
 
 import argparse
 import base64
+import collections
+import functools
 import hashlib
 import inspect
 import json
@@ -41,64 +53,152 @@ import zipfile
 
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 HOST = os.path.join(REPO, "src", "BcWordLayout.McpHost", "bin", "Release", "net10.0", "BcWordLayout.McpHost.dll")
+BUILD_DIR = os.path.dirname(HOST)
 CORPUS_DIR = os.path.join(REPO, "tests", "corpus")
 OUT_ROOT = os.path.join(REPO, "preview-output", "e2e-edits")
 BASELINE_ROOT = os.path.join(OUT_ROOT, "_baseline")
 RENDER_PAGES = 2
 
+POLL_INTERVAL = 0.5        # seconds between liveness checks of the server while a request is outstanding
+EXIT_GRACE = 2.0           # seconds a dead server's last output gets to drain before a wait gives up on it
+STDERR_TAIL_LINES = 200    # server stderr lines kept in memory (instead of discarded) for failure messages
+STDERR_EXCERPT_LINES = 40  # ...of which a failure message quotes the last this many (a .NET crash's message
+                           # sits above its stack trace)
+
 
 # ---------------------------------------------------------------- MCP driver
 
-class McpServer:
-    """One persistent stdio MCP server shared by every scenario in a run."""
+class ServerExited(RuntimeError):
+    """The server process exited, or closed its stdout, while a request was outstanding."""
 
-    def __init__(self, env: dict | None = None):
+
+def format_exit_code(code: int) -> str:
+    """An exit code as printed in failure messages; a Windows status code (a crashed .NET host exits
+    with 0xE0434352) also in the hex form it is documented under."""
+    return f"{code} (0x{code & 0xFFFFFFFF:08X})" if code < 0 or code > 255 else str(code)
+
+
+class McpServer:
+    """One persistent stdio MCP server shared by every scenario in a run.
+
+    A request waits on a condition that the stdout reader notifies under the same lock, so a response
+    landing between "not here yet" and "wait" cannot be missed - the Event clear()/wait() pair this
+    replaces could lose that wakeup and sit out the whole timeout. The wait also re-checks the process
+    every POLL_INTERVAL: a server that dies fails the call at once with its exit code and the tail of
+    its stderr (drained into a bounded in-memory buffer rather than discarded), not after the timeout.
+    """
+
+    def __init__(self, env: dict | None = None, command: list[str] | None = None):
         """env: extra environment variables for the server process (e.g. the BCWL_LABEL_* knobs,
-        which are read once at startup - a different value needs a different server)."""
+        which are read once at startup - a different value needs a different server).
+        command: the server command line; default the Release build (the tests point it at fakes)."""
         self.proc = subprocess.Popen(
-            ["dotnet", HOST], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL, cwd=REPO,
+            command or ["dotnet", HOST], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, cwd=REPO,
             env={**os.environ, **env} if env else None)
         self.responses: dict[int, dict] = {}
-        self.event = threading.Event()
+        self.stdout_closed = False
+        self.cond = threading.Condition()
+        self.stderr_tail: collections.deque = collections.deque(maxlen=STDERR_TAIL_LINES)
         self.next_id = 0
-        threading.Thread(target=self._reader, daemon=True).start()
-        self._call("initialize", {"protocolVersion": "2024-11-05", "capabilities": {},
-                                  "clientInfo": {"name": "e2e-scenarios", "version": "1"}})
-        self._notify("notifications/initialized")
+        self.stdout_reader = threading.Thread(target=self._read_stdout, daemon=True)
+        self.stderr_reader = threading.Thread(target=self._read_stderr, daemon=True)
+        self.stdout_reader.start()
+        self.stderr_reader.start()
+        try:
+            response = self.request("initialize", {"protocolVersion": "2024-11-05", "capabilities": {},
+                                                   "clientInfo": {"name": "e2e-scenarios", "version": "1"}})
+            if "error" in response:
+                raise RuntimeError(f"the server refused initialize: {json.dumps(response['error'])}"
+                                   + self.stderr_excerpt())
+            self._notify("notifications/initialized")
+        except BaseException:
+            self.close()
+            raise
 
-    def _reader(self):
-        for line in self.proc.stdout:
-            try:
-                msg = json.loads(line.strip() or "{}")
-            except json.JSONDecodeError:
-                continue
-            if "id" in msg:
-                self.responses[msg["id"]] = msg
-                self.event.set()
+    def _read_stdout(self):
+        try:
+            for line in self.proc.stdout:
+                try:
+                    msg = json.loads(line.strip() or "{}")
+                except json.JSONDecodeError:
+                    continue
+                # A response carries an id and no method; one with both is a server-to-client request.
+                if isinstance(msg, dict) and "id" in msg and "method" not in msg:
+                    with self.cond:
+                        self.responses[msg["id"]] = msg
+                        self.cond.notify_all()
+        finally:
+            with self.cond:
+                self.stdout_closed = True
+                self.cond.notify_all()
+
+    def _read_stderr(self):
+        for line in self.proc.stderr:
+            self.stderr_tail.append(line.decode("utf-8", "replace").rstrip())
+
+    def stderr_excerpt(self) -> str:
+        """The last STDERR_EXCERPT_LINES lines the server wrote to stderr, formatted for a message."""
+        tail = list(self.stderr_tail)[-STDERR_EXCERPT_LINES:]
+        if not tail:
+            return "\n  (the server wrote nothing to stderr)"
+        return f"\n  --- server stderr, last {len(tail)} line(s) ---\n" + "\n".join("  " + t for t in tail)
+
+    def describe_exit(self, context: str) -> str:
+        """'server exited with code N <context>' plus its stderr tail: a ServerExited message."""
+        try:
+            what = f"server exited with code {format_exit_code(self.proc.wait(timeout=EXIT_GRACE))}"
+        except subprocess.TimeoutExpired:
+            what = "server closed its pipes without exiting"
+        self.stderr_reader.join(timeout=1.0)  # let the reader catch the server's last words
+        return f"{what} {context}" + self.stderr_excerpt()
+
+    def alive(self) -> bool:
+        return self.proc.poll() is None and not self.stdout_closed
 
     def _send(self, payload: dict):
-        self.proc.stdin.write((json.dumps(payload) + "\n").encode())
-        self.proc.stdin.flush()
+        try:
+            self.proc.stdin.write((json.dumps(payload) + "\n").encode())
+            self.proc.stdin.flush()
+        except (OSError, ValueError) as exc:  # the pipe is gone with the process
+            raise ServerExited(self.describe_exit(f"before {payload['method']} could be sent ({exc})")) from exc
 
     def _notify(self, method: str):
         self._send({"jsonrpc": "2.0", "method": method})
 
-    def _call(self, method: str, params: dict, timeout: int = 300) -> dict:
+    def request(self, method: str, params: dict, timeout: float = 300) -> dict:
+        """Sends one JSON-RPC request and returns its response message (a result or an error).
+
+        Raises ServerExited when the server dies (or closes its stdout) first, TimeoutError after
+        `timeout` seconds without a response from a live server.
+        """
         self.next_id += 1
         mid = self.next_id
         self._send({"jsonrpc": "2.0", "id": mid, "method": method, "params": params})
         deadline = time.monotonic() + timeout
-        while mid not in self.responses:
-            self.event.clear()
-            if not self.event.wait(min(10, max(0.1, deadline - time.monotonic()))) \
-                    and time.monotonic() > deadline:
-                raise TimeoutError(f"MCP call {method} timed out after {timeout}s")
-        return self.responses.pop(mid)
+        gone_since = None
+        with self.cond:
+            while mid not in self.responses:
+                now = time.monotonic()
+                if self.stdout_closed or self.proc.poll() is not None:
+                    # A response written just before the server went is still a response: unless the
+                    # reader already hit end of stream, give it EXIT_GRACE to drain the pipe.
+                    gone_since = now if gone_since is None else gone_since
+                    if self.stdout_closed or now - gone_since >= EXIT_GRACE:
+                        break
+                if now >= deadline:
+                    break
+                self.cond.wait(min(deadline - now, POLL_INTERVAL))
+            response = self.responses.pop(mid, None)
+        if response is not None:
+            return response
+        if gone_since is not None:
+            raise ServerExited(self.describe_exit(f"while waiting for the {method} response"))
+        raise TimeoutError(f"MCP call {method} timed out after {timeout:g}s" + self.stderr_excerpt())
 
     def tool(self, name: str, args: dict, image_dir: str | None = None) -> dict:
         """Call a tool; returns the parsed envelope. Saves image blocks as page-N.png if image_dir."""
-        resp = self._call("tools/call", {"name": name, "arguments": args})
+        resp = self.request("tools/call", {"name": name, "arguments": args})
         result = resp.get("result")
         if result is None:
             return {"ok": False, "error": {"code": "jsonrpc_error", "message": json.dumps(resp.get("error"))}}
@@ -118,16 +218,52 @@ class McpServer:
 
     def close(self):
         try:
-            self.proc.stdin.close()
+            self.proc.stdin.close()  # a stdio MCP server exits on end of input
+        except OSError:
+            pass
+        try:
             self.proc.wait(timeout=10)
-        except Exception:
+        except subprocess.TimeoutExpired:
             self.proc.kill()
+            self.proc.wait(timeout=10)
+        # Each reader stops at end of stream; only then can its pipe be closed (closing one a thread is
+        # still blocked reading would block too).
+        for reader, stream in ((self.stdout_reader, self.proc.stdout), (self.stderr_reader, self.proc.stderr)):
+            reader.join(timeout=1.0)
+            if not reader.is_alive():
+                stream.close()
 
 
 # ---------------------------------------------------------------- scenario context
 
 class StepFailure(Exception):
     pass
+
+
+def describe_error(envelope: dict) -> str:
+    """'[code] message (hint: ...)' of a failure envelope - what a failure message carries."""
+    error = envelope.get("error")
+    if not isinstance(error, dict):
+        return f"no error object in the envelope: {json.dumps(envelope)[:300]}"
+    text = f"[{error.get('code')}] {error.get('message')}"
+    return text + (f" (hint: {error['hint']})" if error.get("hint") else "")
+
+
+def tool_data(name: str, envelope: dict) -> dict:
+    """The data of a successful tool envelope; a StepFailure naming the error's code, message and hint
+    otherwise.
+
+    Every harness-level read of a tool result goes through here. A failure envelope has no data key at
+    all (the server omits nulls, and McpServer.tool's own envelopes for a JSON-RPC error have none either),
+    so a bare envelope["data"] turned a failed call into KeyError: 'data' - and for the baseline, which ran
+    outside any scenario's try, into a crash that ended the whole run.
+    """
+    if not envelope.get("ok"):
+        raise StepFailure(f"{name} failed: {describe_error(envelope)}")
+    data = envelope.get("data")
+    if not isinstance(data, dict):
+        raise StepFailure(f"{name} succeeded without a data object: {json.dumps(envelope)[:300]}")
+    return data
 
 
 class Ctx:
@@ -141,29 +277,33 @@ class Ctx:
         self.checks: list[dict] = []
 
     # -- tool calls --------------------------------------------------------
-    def tool(self, name: str, args: dict, expect_ok: bool = True) -> dict:
-        env = self.server.tool(name, args)
+    def tool(self, name: str, args: dict, expect_ok: bool = True, image_dir: str | None = None) -> dict:
+        env = self.server.tool(name, args, image_dir=image_dir)
         self.steps.append({"tool": name, "args": args, "ok": env.get("ok"),
                            "summary": (env.get("data") or {}).get("summary") if isinstance(env.get("data"), dict) else None,
                            "error": env.get("error")})
         if expect_ok and not env.get("ok"):
-            raise StepFailure(f"{name} failed: {json.dumps(env.get('error'))[:300]}")
+            raise StepFailure(f"{name} failed: {describe_error(env)}")
         if not expect_ok and env.get("ok"):
             raise StepFailure(f"{name} unexpectedly SUCCEEDED (a rejection was the expected behavior)")
         return env
+
+    def data(self, name: str, args: dict, image_dir: str | None = None) -> dict:
+        """A call that must succeed, returning its data (see tool_data)."""
+        return tool_data(name, self.tool(name, args, image_dir=image_dir))
 
     def edit(self, name: str, expect_ok: bool = True, **kwargs) -> dict:
         return self.tool(name, {"layoutPath": self.work, **kwargs}, expect_ok=expect_ok)
 
     # -- layout inspection -------------------------------------------------
     def info(self) -> dict:
-        return self.tool("get_layout_info", {"layoutPath": self.work})["data"]
+        return self.data("get_layout_info", {"layoutPath": self.work})
 
     def fields_root(self) -> dict:
-        return self.tool("list_dataset_fields", {"source": self.work})["data"]["root"]
+        return self.data("list_dataset_fields", {"source": self.work})["root"]
 
     def validate(self) -> dict:
-        return self.tool("validate_layout", {"layoutPath": self.work, "level": "full"})["data"]
+        return self.data("validate_layout", {"layoutPath": self.work, "level": "full"})
 
     # -- discovery helpers ---------------------------------------------------
     @staticmethod
@@ -259,81 +399,179 @@ def finding_signature(finding: dict) -> tuple:
     return (finding.get("severity"), finding.get("check"), finding.get("location"))
 
 
-def scenario_hash(entry: dict) -> str:
-    """Cache key for a scenario's recorded pass: its own source AND the server build it ran against.
+def file_digest(path: str) -> str:
+    """sha256 of a file's content."""
+    digest = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def is_build_file(name: str) -> bool:
+    """A file the server build is identified by: any BcWordLayout.*.dll, or the host's deps.json."""
+    lower = name.lower()
+    return (lower.startswith("bcwordlayout.") and lower.endswith(".dll")) \
+        or lower == "bcwordlayout.mcphost.deps.json"
+
+
+def build_fingerprint(build_dir: str | None = None) -> str:
+    """Identity of the server build in build_dir (default: the folder HOST is in), or "no-build": the
+    CONTENT of every BcWordLayout.*.dll there plus BcWordLayout.McpHost.deps.json.
+
+    Every server assembly, not just the host: BcWordLayout.Domain/Merge/Render build reference assemblies,
+    so a change to a method BODY in one of them - a new LayoutValidator check, say - need not recompile
+    BcWordLayout.McpHost.dll at all, and caches keyed on the host alone kept every pass and baseline
+    recorded before it (GitHub issue #112). The deps.json pins the third-party package versions the host
+    loads. By content rather than timestamp and size: a same-size rewrite within one timestamp tick is
+    still a change, and a rebuild that reproduces the same bytes is not.
+    """
+    build_dir = BUILD_DIR if build_dir is None else build_dir
+    try:
+        names = sorted(n for n in os.listdir(build_dir) if is_build_file(n))
+    except OSError:
+        return "no-build"
+    if not names:
+        return "no-build"
+    digest = hashlib.sha256()
+    for name in names:
+        try:
+            content = file_digest(os.path.join(build_dir, name))
+        except OSError:
+            content = "unreadable"
+        digest.update(f"{name}={content}\n".encode())
+    return digest.hexdigest()[:16]
+
+
+def corpus_digest(layout: str | None) -> str:
+    """Content hash of a corpus layout: '-' for a scenario that creates its own, 'missing' if absent."""
+    if not layout:
+        return "-"
+    try:
+        return file_digest(os.path.join(CORPUS_DIR, layout))
+    except OSError:
+        return "missing"
+
+
+def scenario_hash(entry: dict, build: str | None = None) -> str:
+    """Cache key for a scenario's recorded pass: everything its outcome depends on.
+
+    That is its own source (decorator arguments included) and registration, the corpus layout it edits,
+    the shared harness code every scenario runs through (harness_source), and the server build it ran
+    against (build: a build_fingerprint, computed when not given).
 
     Source alone is not enough. A change in the SERVER can flip a scenario's outcome while its source is
     untouched, and the cached pass then keeps the stale expectation alive indefinitely - s02 pinned interior
     insert_column as a rejection for a full release after it had been implemented, because nothing invalidated
-    its 'PASSED' record.
+    its 'PASSED' record. A harness change (a stricter post-check, a Ctx helper that reads the XML differently)
+    or an edited corpus file flips outcomes just the same.
     """
-    try:
-        st = os.stat(HOST)
-        build = f"{st.st_mtime_ns}:{st.st_size}"
-    except OSError:
-        build = "no-build"
-    return hashlib.sha256((inspect.getsource(entry["fn"]) + "|" + build).encode()).hexdigest()[:16]
+    registration = json.dumps({k: v for k, v in entry.items() if k != "fn"}, sort_keys=True)
+    parts = (inspect.getsource(entry["fn"]), registration, harness_source(), corpus_digest(entry["layout"]),
+             build_fingerprint() if build is None else build)
+    return hashlib.sha256("\0".join(parts).encode()).hexdigest()[:16]
 
 
-def baseline_stamp(layout: str) -> str:
-    """Identity of the inputs a cached baseline depends on: the server build and the corpus file itself.
+def baseline_stamp(layout: str, build: str | None = None) -> str:
+    """Identity of the inputs a cached baseline depends on: the server build (build: a build_fingerprint,
+    computed when not given), the corpus file's content, and the code that captures it (ensure_baseline).
 
     Without this the cache silently outlives the thing it describes. A change to LayoutValidator's checks
     makes every cached "before" set incomplete, so each scenario's no-NEW-findings check reports the new
     findings as if the EDIT introduced them - three scenarios failed exactly that way after the 2026-08-01
     binding-namespace check landed, and `--force` does not help because it only reruns scenarios. Worse than
     the false failures: a stale baseline can also hide a real new finding whose signature it happens to
-    contain already.
+    contain already. Those checks live in BcWordLayout.Domain.dll, which is why the build is every server
+    assembly and not just the host (GitHub issue #112).
     """
-    parts = []
-    for path in (HOST, os.path.join(CORPUS_DIR, layout)):
-        try:
-            st = os.stat(path)
-            parts.append(f"{os.path.basename(path)}:{st.st_mtime_ns}:{st.st_size}")
-        except OSError:
-            parts.append(f"{os.path.basename(path)}:missing")
-    return hashlib.sha256("|".join(parts).encode()).hexdigest()[:16]
+    parts = (build_fingerprint() if build is None else build, corpus_digest(layout),
+             inspect.getsource(ensure_baseline))
+    return hashlib.sha256("\0".join(parts).encode()).hexdigest()[:16]
 
 
-def ensure_baseline(server: McpServer, layout: str) -> dict:
-    """Validate + preview + render the PRISTINE corpus layout once per layout (shared 'before')."""
+def read_json(path: str) -> dict | None:
+    """The JSON object stored at path; None when it is missing or unreadable, so a corrupt cache entry
+    is a cache miss rather than a crash."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def render_preview(ctx: Ctx, preview: dict, max_pages: int, image_dir: str) -> str:
+    """Renders a preview_layout result's PDF into image_dir as page-N.png; returns 'rendered/total'.
+
+    A preview whose PDF conversion failed, and a render that fails or yields no page, fail the scenario:
+    the page images are what this harness exists to produce, and a run that silently went without them
+    used to pass.
+    """
+    if not preview.get("conversionOk") or not preview.get("pdfPath"):
+        raise StepFailure(f"preview_layout produced no PDF (converter {preview.get('converterUsed')}, "
+                          f"available={preview.get('converterAvailable')}): "
+                          f"{preview.get('conversionError') or 'no conversion error reported'}")
+    render = ctx.data("render_preview_pages", {"pdfPath": preview["pdfPath"], "maxPages": max_pages},
+                      image_dir=image_dir)
+    if not render.get("pagesRendered"):
+        raise StepFailure(f"render_preview_pages rendered no page of {preview['pdfPath']}")
+    return f"{render['pagesRendered']}/{render.get('pageCount')}"
+
+
+def ensure_baseline(server: McpServer, layout: str, build: str | None = None) -> dict:
+    """Validate + preview + render the PRISTINE corpus layout once per layout (shared 'before').
+
+    Nothing is cached unless all three succeed: a failure raises StepFailure for the scenario that needed
+    the baseline (run_scenario calls this inside its try), and the next run captures it afresh.
+    """
     base_dir = os.path.join(BASELINE_ROOT, os.path.splitext(layout)[0])
     report_path = os.path.join(base_dir, "report.json")
-    stamp = baseline_stamp(layout)
-    if os.path.exists(report_path):
-        with open(report_path) as f:
-            cached = json.load(f)
+    stamp = baseline_stamp(layout, build)
+    cached = read_json(report_path)
+    if cached is not None:
         if cached.get("stamp") == stamp:
             return cached
-        print(f"      baseline for {layout} is stale (server or corpus file changed) - recapturing")
+        print(f"      baseline for {layout} is stale (server build, corpus file or capture code changed) "
+              "- recapturing")
     os.makedirs(base_dir, exist_ok=True)
     source = os.path.join(CORPUS_DIR, layout)
-    validation = server.tool("validate_layout", {"layoutPath": source, "level": "full"})["data"]
-    preview = server.tool("preview_layout", {"layoutPath": source, "outputDir": base_dir})
+    capture = Ctx(server, None, base_dir)
+    try:
+        validation = capture.data("validate_layout", {"layoutPath": source, "level": "full"})
+        preview = capture.data("preview_layout", {"layoutPath": source, "outputDir": base_dir})
+        pages = render_preview(capture, preview, RENDER_PAGES, base_dir)
+    except StepFailure as failure:
+        raise StepFailure(f"baseline of {layout}: {failure}") from failure
     report = {"layout": layout, "stamp": stamp, "validation": validation,
-              "previewStats": preview["data"]["stats"] if preview.get("ok") else None}
-    if preview.get("ok") and preview["data"].get("pdfPath"):
-        server.tool("render_preview_pages",
-                    {"pdfPath": preview["data"]["pdfPath"], "maxPages": RENDER_PAGES}, image_dir=base_dir)
-    with open(report_path, "w") as f:
+              "previewStats": preview["stats"], "pages": pages}
+    with open(report_path, "w", encoding="utf-8") as f:
         json.dump(report, f, indent=2)
     return report
 
 
-def run_scenario(server: McpServer, entry: dict) -> dict:
+def run_scenario(server: McpServer, entry: dict, build: str | None = None) -> dict:
+    """Runs one scenario plus the common post-verification and records the outcome. build is the
+    build_fingerprint the run started with (computed when not given).
+
+    Everything that can fail on the scenario's behalf - its baseline, the corpus copy, every tool call, the
+    post-checks - runs inside the try, so a failure is recorded as THIS scenario's and the run moves on.
+    The baseline and the copy used to run before the try: one layout whose baseline could not be captured
+    ended the whole run with a traceback and no summary (GitHub issue #112).
+    """
+    build = build_fingerprint() if build is None else build
     name = entry["name"]
     out_dir = os.path.join(OUT_ROOT, name)
     os.makedirs(out_dir, exist_ok=True)
     work = os.path.join(out_dir, "work.docx")
 
-    baseline = None
-    if entry["layout"]:
-        baseline = ensure_baseline(server, entry["layout"])
-        shutil.copyfile(os.path.join(CORPUS_DIR, entry["layout"]), work)
-
     ctx = Ctx(server, work if entry["layout"] else None, out_dir)
     report = {"scenario": name, "desc": entry["desc"], "layout": entry["layout"], "passed": False}
     try:
+        baseline = None
+        if entry["layout"]:
+            baseline = ensure_baseline(server, entry["layout"], build)
+            shutil.copyfile(os.path.join(CORPUS_DIR, entry["layout"]), work)
+
         entry["fn"](ctx)
 
         # ---- common post-verification: validate (no NEW findings), preview, render ----
@@ -347,29 +585,41 @@ def run_scenario(server: McpServer, entry: dict) -> dict:
                 ctx.expect(not new, f"no NEW validation findings vs the pristine layout (got {len(new)}: "
                                     + "; ".join(f"{f['check']}: {f['message'][:60]}" for f in new[:3]) + ")")
             after_dir = os.path.join(out_dir, "after")
-            preview = ctx.tool("preview_layout", {"layoutPath": ctx.work, "outputDir": after_dir})
-            report["previewStats"] = preview["data"]["stats"]
-            report["previewWarnings"] = [w.get("kind") for w in preview["data"].get("warnings", [])]
-            if preview["data"].get("pdfPath"):
-                render = ctx.server.tool(
-                    "render_preview_pages",
-                    {"pdfPath": preview["data"]["pdfPath"], "maxPages": entry["render_pages"]},
-                    image_dir=after_dir)
-                report["pages"] = f"{render['data']['pagesRendered']}/{render['data']['pageCount']}"
+            preview = ctx.data("preview_layout", {"layoutPath": ctx.work, "outputDir": after_dir})
+            report["previewStats"] = preview["stats"]
+            report["previewWarnings"] = [w.get("kind") for w in preview.get("warnings") or []]
+            report["pages"] = render_preview(ctx, preview, entry["render_pages"], after_dir)
         report["passed"] = all(c["passed"] for c in ctx.checks) if ctx.checks else True
     except StepFailure as failure:
         report["failure"] = str(failure)
-    except Exception:
-        report["failure"] = traceback.format_exc(limit=4)
+    except Exception as exc:  # noqa: BLE001 - recorded as this scenario's failure, never raised
+        report["failure"] = f"{type(exc).__name__}: {exc}"
+        report["trace"] = traceback.format_exc(limit=4)
 
     report["steps"] = ctx.steps
     report["checks"] = ctx.checks
     with open(os.path.join(out_dir, "report.json"), "w") as f:
         json.dump(report, f, indent=2)
     with open(os.path.join(out_dir, "done.json"), "w") as f:
-        json.dump({"hash": scenario_hash(entry), "passed": report["passed"],
+        json.dump({"hash": scenario_hash(entry, build), "passed": report["passed"],
                    "when": time.strftime("%Y-%m-%d %H:%M:%S")}, f, indent=2)
     return report
+
+
+# The shared harness code a scenario's outcome depends on besides its own function, the corpus file it
+# edits and the server build: the stdio client, the tool-call/assertion context, the runner and its
+# post-checks. Its source is part of every scenario's cache key (scenario_hash), so a harness change - a
+# stricter post-check, a Ctx helper that reads the XML differently - reruns every scenario instead of
+# leaving the passes recorded under the old harness standing. A new helper that the runner or a scenario
+# relies on belongs in this tuple.
+HARNESS = (McpServer, StepFailure, describe_error, tool_data, Ctx, scenario, finding_signature,
+           render_preview, ensure_baseline, run_scenario)
+
+
+@functools.lru_cache(maxsize=None)
+def harness_source() -> str:
+    """The source of everything in HARNESS, read once per process."""
+    return "\n".join(inspect.getsource(obj) for obj in HARNESS)
 
 
 # ================================================================ SCENARIOS
@@ -401,16 +651,22 @@ def s02(ctx: Ctx):
     # source, so a change in the SERVER that flips a scenario's outcome went unnoticed until the cache was
     # keyed on the build too. Interior insertion now has its own coverage in TableStructureEditorTests
     # (synthetic + corpus, including a gridAfter table), so this scenario keeps to its stated purpose.
-    total_before = ctx.grid_total(ctx.info()["tables"][3])
+    before = ctx.info()["tables"][3]
+    total_before = ctx.grid_total(before)
     ctx.edit("insert_column", tableIndex=3, mode="field",
              dataPath="/Purchase_Header/Purchase_Line/LineDisc_PurchLine",
              headerLabelPath="/Purchase_Header/Purchase_Line/PurchLineLineDisc_Lbl", width=1000)
-    # Re-fit: take the added width back out of the (widest) description column.
-    widths = ctx.info()["tables"][3]["gridColumnWidths"]
+    appended = ctx.info()["tables"][3]
+    ctx.expect(ctx.grid_total(appended) == total_before,
+               "insert_column kept the table's width (issue #83: the new width comes from the others)")
+    # Re-fit: insert_column took the new column's width from every column; give the original columns their
+    # widths back and take it all out of the (widest) description column instead.
+    widths = before["gridColumnWidths"] + [1000]
     widths[1] -= 1000
     ctx.edit("set_column_widths", tableIndex=3, widths=",".join(map(str, widths)))
     after = ctx.info()["tables"][3]
     ctx.expect(after["columnCount"] == 8, "8 columns after the append")
+    ctx.expect(after["gridColumnWidths"] == widths, "the re-fit widths are exactly the ones set")
     ctx.expect(ctx.grid_total(after) == total_before, "table re-fitted to its original width")
 
 
@@ -455,15 +711,19 @@ def s04(ctx: Ctx):
           desc="Add two columns to the PO lines (Line Discount with bound label; Item Reference with "
                "static header), then one set_column_widths re-fit for both.")
 def s05(ctx: Ctx):
-    total_before = ctx.grid_total(ctx.info()["tables"][3])
+    before = ctx.info()["tables"][3]
+    total_before = ctx.grid_total(before)
     ctx.edit("insert_column", tableIndex=3, mode="field",
              dataPath="/Purchase_Header/Purchase_Line/LineDisc_PurchLine",
              headerLabelPath="/Purchase_Header/Purchase_Line/PurchLineLineDisc_Lbl", width=900)
     ctx.edit("insert_column", tableIndex=3, mode="field",
              dataPath="/Purchase_Header/Purchase_Line/ItemReferenceNo_PurchLine",
              headerText="Item Reference", width=1100)
-    widths = ctx.info()["tables"][3]["gridColumnWidths"]
-    widths[1] -= 2000  # take both added widths back out of the description column
+    ctx.expect(ctx.grid_total(ctx.info()["tables"][3]) == total_before,
+               "both appends kept the table's width (issue #83)")
+    # Re-fit: the original columns back at their widths, both new widths out of the description column.
+    widths = before["gridColumnWidths"] + [900, 1100]
+    widths[1] -= 2000
     ctx.expect(widths[1] > 500, "description column still has usable width after the refit")
     ctx.edit("set_column_widths", tableIndex=3, widths=",".join(map(str, widths)))
     after = ctx.info()["tables"][3]
@@ -487,10 +747,14 @@ def s05(ctx: Ctx):
 def s06(ctx: Ctx):
     total_before = ctx.grid_total(ctx.info()["tables"][3])
     ctx.edit("remove_column", tableIndex=3, column=3)  # UOM
+    removed = ctx.info()["tables"][3]
     ctx.edit("insert_column", tableIndex=3, mode="field",
              dataPath="/Purchase_Header/Purchase_Line/VendorItemNo_PurchLine",
              headerText="Vendor Item No", width=1200)
-    widths = ctx.info()["tables"][3]["gridColumnWidths"]
+    ctx.expect(ctx.grid_total(ctx.info()["tables"][3]) == total_before,
+               "remove and append both kept the table's width (issue #83)")
+    # Re-fit: the remaining columns back at their post-removal widths, the new one out of the description.
+    widths = removed["gridColumnWidths"] + [1200]
     widths[1] -= 1200
     ctx.edit("set_column_widths", tableIndex=3, widths=",".join(map(str, widths)))
     info = ctx.info()
@@ -812,12 +1076,20 @@ def s19(ctx: Ctx):
 
 # ================================================================ CLI
 
-def main() -> int:
+def print_failure(name: str, failure: str):
+    """One FAIL line, plus any further lines of the message (a dead server's stderr tail)."""
+    first, *rest = failure.splitlines() or [""]
+    print(f"FAIL  {name}: {first[:300]}")
+    for line in rest:
+        print(f"      {line}")
+
+
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("names", nargs="*", help="scenario name prefixes to run (default: all)")
     parser.add_argument("--force", action="store_true", help="rerun even if cached as passed")
     parser.add_argument("--list", action="store_true", help="list scenarios and cached status")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     selected = [s for s in SCENARIOS
                 if not args.names or any(s["name"].startswith(p) for p in args.names)]
@@ -825,16 +1097,14 @@ def main() -> int:
         print(f"no scenario matches {args.names}", file=sys.stderr)
         return 2
 
+    build = build_fingerprint()  # once: every record of this run is keyed on the build it started with
     if args.list:
         for s in SCENARIOS:
-            done_path = os.path.join(OUT_ROOT, s["name"], "done.json")
+            done = read_json(os.path.join(OUT_ROOT, s["name"], "done.json"))
             status = "not run"
-            if os.path.exists(done_path):
-                with open(done_path) as f:
-                    done = json.load(f)
-                fresh = done.get("hash") == scenario_hash(s)
-                status = ("PASSED" if done.get("passed") else "FAILED") + \
-                         ("" if fresh else " (code changed - stale)")
+            if done is not None:
+                fresh = done.get("hash") == scenario_hash(s, build)
+                status = ("PASSED" if done.get("passed") else "FAILED") + ("" if fresh else " (stale)")
             print(f"{s['name']:45s} {status:28s} {s['desc'][:80]}")
         return 0
 
@@ -842,29 +1112,45 @@ def main() -> int:
         print(f"server not built: {HOST}\nrun: dotnet build -c Release", file=sys.stderr)
         return 2
 
-    server = McpServer()
-    failures = 0
+    server = None
+    ran = skipped = failures = 0
     try:
         for entry in selected:
-            done_path = os.path.join(OUT_ROOT, entry["name"], "done.json")
-            if not args.force and os.path.exists(done_path):
-                with open(done_path) as f:
-                    done = json.load(f)
-                if done.get("passed") and done.get("hash") == scenario_hash(entry):
-                    print(f"SKIP  {entry['name']} (passed {done['when']})")
-                    continue
+            done = read_json(os.path.join(OUT_ROOT, entry["name"], "done.json"))
+            if not args.force and done and done.get("passed") and done.get("hash") == scenario_hash(entry, build):
+                print(f"SKIP  {entry['name']} (passed {done.get('when')})")
+                skipped += 1
+                continue
+            ran += 1
+            if server is None or not server.alive():
+                if server is not None:
+                    print("      the server is gone - starting a fresh one")
+                    server.close()
+                try:
+                    server = McpServer()
+                except (RuntimeError, OSError) as exc:  # ServerExited, TimeoutError, a refused handshake
+                    server = None
+                    failures += 1
+                    print_failure(entry["name"], f"could not start the server: {exc}")
+                    break
             print(f"RUN   {entry['name']} ...", flush=True)
-            report = run_scenario(server, entry)
+            try:
+                report = run_scenario(server, entry, build)
+            except Exception as exc:  # noqa: BLE001 - run_scenario records its own failures; this is the runner's
+                report = {"passed": False, "checks": [], "failure": f"harness error: {type(exc).__name__}: {exc}"}
             if report["passed"]:
                 print(f"PASS  {entry['name']}  pages={report.get('pages', '-')} "
                       f"checks={len(report['checks'])}")
             else:
                 failures += 1
-                print(f"FAIL  {entry['name']}: {report.get('failure', 'a check failed')[:200]}")
+                print_failure(entry["name"], report.get("failure", "a check failed"))
     finally:
-        server.close()
+        if server is not None:
+            server.close()
 
-    print(f"\n{len(selected)} selected, {failures} failed -> {OUT_ROOT}")
+    not_run = len(selected) - ran - skipped
+    print(f"\n{len(selected)} selected, {skipped} skipped (cached), {failures} failed"
+          + (f", {not_run} not run" if not_run else "") + f" -> {OUT_ROOT}")
     return 1 if failures else 0
 
 
