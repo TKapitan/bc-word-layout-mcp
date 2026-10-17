@@ -41,8 +41,12 @@ unreliable in a file format where a single misplaced element silently corrupts t
   ships one.
 - **RDL→Word conversion, Excel layouts.**
 - **BC add-in conditional controls** (*Hide Field if Zero*, *Hide Empty Table*, *Hide Empty Table Row*,
-  layout comments). Their OOXML encoding is undocumented and has never been captured, and this project does
-  not emit OOXML it has not seen (§6). Issue [#8](https://github.com/TKapitan/bc-word-layout-mcp/issues/8).
+  layout comments). Their OOXML encoding is undocumented, and this project does not emit OOXML it has not
+  seen (§6). Two are captured: *Hide Empty Table Row* and *Hide Empty Table* appear in SalespersonCommission
+  and SubcontractorDispatchList as a cell-level wrapper tagged `#BC:HideTableRowIfEmpty` /
+  `#BC:HideTableIfEmpty`, which the table tools see through ([#85](https://github.com/TKapitan/bc-word-layout-mcp/issues/85)). Authoring them waits on a
+  sandbox check of what BC treats as empty ([#123](https://github.com/TKapitan/bc-word-layout-mcp/issues/123)). *Hide Field if Zero* and layout comments
+  have never been captured ([#8](https://github.com/TKapitan/bc-word-layout-mcp/issues/8)).
 - **Broad cosmetic formatting** (colours, fonts, margins). A deliberate exception exists: `bold`,
   `fontSizePoints` and cell/column `alignment` are supported, because a control inserted into a freshly
   authored table cell has no styling to inherit and would otherwise look obviously wrong. Where there IS
@@ -408,5 +412,6 @@ live list. The ones that would change this document:
 
 | Question | Issue |
 |---|---|
-| What OOXML do the BC add-in's conditional controls produce? Blocks the largest missing capability. | [#8](https://github.com/TKapitan/bc-word-layout-mcp/issues/8) |
+| What does BC treat as "empty" for the captured *Hide Empty Table Row* / *Hide Empty Table* controls? Blocks authoring them. | [#123](https://github.com/TKapitan/bc-word-layout-mcp/issues/123) |
+| What OOXML do *Hide Field if Zero* and layout comments produce? Needs the real BC add-in. | [#8](https://github.com/TKapitan/bc-word-layout-mcp/issues/8) |
 | Is the LibreOffice path good enough to be the non-Windows experience? | [#7](https://github.com/TKapitan/bc-word-layout-mcp/issues/7) |

@@ -209,9 +209,10 @@ removed, or the grid column an edited cell starts at; absent for a whole-table o
 
 **NOT supported:**
 - **Hide-if-empty / BC add-in conditional controls** (Hide Field if Zero, Hide Empty Table, Hide Empty
-  Table Row, layout comment) — there is no `set_hide_if_empty` tool. Deferred pending research: the BC
-  Word add-in's OOXML encoding for these has never been reverse-engineered (and no corpus layout
-  happens to use them either, so there's nothing to imitate yet).
+  Table Row, layout comment) — there is no `set_hide_if_empty` tool. *Hide Empty Table Row* and *Hide
+  Empty Table* are captured in two corpus layouts, and the table tools address cells inside their
+  wrapper, but authoring them waits on what BC treats as empty (GitHub issue #123). *Hide Field if
+  Zero* and layout comments have never been captured (#8).
 - **Repeater tables in headers/footers** — not supported: nothing shows BC renders a repeating section there. `insert_repeater_table` and `insert_table`
   reject any `layoutPart` other than `body` with `invalid_argument`; `validate_layout` (`quick`)
   still flags a pre-existing/hand-authored header or footer repeater with a
