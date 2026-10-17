@@ -44,6 +44,9 @@
     <None Include="..\..\plugin.json" Link="packaging\copilot-plugin.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+    <None Include="..\..\THIRD-PARTY-NOTICES.md" Link="packaging\THIRD-PARTY-NOTICES.md">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
 
   <!-- The public docs whose tool tables must match the [McpServerTool] names exactly

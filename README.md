@@ -297,8 +297,8 @@ Error `message`/`hint` texts are not part of the contract — never parse them.
   a long-stable BC format, so the tools are *expected* to work with any BC version that supports
   Word layouts — reports of issues on other versions are welcome — but the compatibility commitment
   extends only to versions a validation has actually covered.
-- **MCP SDK cadence:** the server pins the official `ModelContextProtocol` C# SDK (currently 2.2.0)
-  and upgrades it in **minor** releases, with any behavioral consequence called out in the
+- **MCP SDK cadence:** the server pins an exact version of the official `ModelContextProtocol` C#
+  SDK (the host's project file names it) and upgrades it in **minor** releases, with any behavioral consequence called out in the
   changelog. The envelope boundary above is pinned by a host-level test that runs the real server
   pipeline over the SDK's own transport, so an upgrade that changes it fails the suite.
 

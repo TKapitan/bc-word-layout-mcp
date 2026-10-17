@@ -481,6 +481,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   #10) are no longer described as open, and the design doc, the fidelity checklist, the
   contributing guide and the worked example point at the right sections, parameters and folders.
 
+- **The license and third-party notices now ship with every NuGet package and release zip**
+  (GitHub issue #108). `THIRD-PARTY-NOTICES.md` says the Apache-2.0 and BSD components'
+  notices must travel with distributions, yet no package or zip carried it, nor `LICENSE`, while
+  they redistribute `ModelContextProtocol(.Core).dll`, `pdfium.dll` and `libSkiaSharp.dll`. Both
+  files are now at the root of all three NuGet packages, in each tool package's
+  `tools/net10.0/<rid>/` folder, and in the release zips. The notices list components without
+  versions (six rows had drifted from the pinned ones, `ModelContextProtocol` 1.4.1 against a shipped
+  2.2.0), and a test fails when a shipped package has no row; the README no longer quotes the SDK
+  version either.
+
 ### Security
 
 - **A crafted layout can no longer kill the server through the OpenXml SDK's own parse** (GitHub

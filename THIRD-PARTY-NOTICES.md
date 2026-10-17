@@ -1,23 +1,27 @@
 # Third-party notices
 
 `bc-word-layout-mcp` is licensed under the [MIT License](LICENSE). It incorporates the third-party
-components below. License expressions were verified against each package's NuGet metadata on
-2026-08-01 (versions as pinned by the project files on that date); all are compatible with
-distribution under this repository's MIT license. Apache-2.0 and BSD-licensed components require
-their notices to travel with distributions — this file is that notice.
+components below. Their license expressions were checked against each package's NuGet metadata, most
+recently on 2026-10-17; all are compatible with distribution under this repository's MIT license.
+Apache-2.0 and BSD-licensed components require their notices to travel with distributions — this file
+is that notice, and it ships next to `LICENSE` in every NuGet package and release zip.
 
-## Runtime dependencies (redistributed in self-contained builds)
+The tables name components, not versions: the versions in use are the ones the project files pin, and a
+version bump does not change a license. A test fails the build when a package the server ships is
+missing from the runtime table, so a new dependency cannot ship without its notice.
 
-| Component | Version | License | Project |
-|---|---|---|---|
-| ModelContextProtocol (+ `.Core`) | 1.4.1 | **Apache-2.0** | <https://github.com/modelcontextprotocol/csharp-sdk> |
-| DocumentFormat.OpenXml (+ `.Framework`) | 3.5.1 | MIT | <https://github.com/dotnet/Open-XML-SDK> |
-| Microsoft.Extensions.Hosting (+ transitive `Microsoft.Extensions.*`, `System.Diagnostics.EventLog`, `System.IO.Packaging`) | 10.0.x | MIT | <https://github.com/dotnet/runtime> |
-| Microsoft.Extensions.AI.Abstractions | 10.5.2 | MIT | <https://github.com/dotnet/extensions> |
-| PDFtoImage | 5.3.0 | MIT | <https://github.com/sungaila/PDFtoImage> |
-| SkiaSharp (+ `SkiaSharp.NativeAssets.*`) | 4.150.1 | MIT | <https://github.com/mono/SkiaSharp> |
-| bblanchon.PDFium.Win32 | 152.0.7961 | **Apache-2.0** (packaging) | <https://github.com/bblanchon/pdfium-binaries> |
-| .NET runtime (self-contained publish payload) | 10.0.x | MIT | <https://github.com/dotnet/runtime> |
+## Runtime dependencies (redistributed in the NuGet tool packages and the release zips)
+
+| Component | License | Project |
+|---|---|---|
+| ModelContextProtocol (+ `.Core`) | **Apache-2.0** | <https://github.com/modelcontextprotocol/csharp-sdk> |
+| DocumentFormat.OpenXml (+ `.Framework`, which brings `System.IO.Packaging`) | MIT | <https://github.com/dotnet/Open-XML-SDK> |
+| Microsoft.Extensions.Hosting (+ transitive `Microsoft.Extensions.*`, `System.Diagnostics.EventLog`) | MIT | <https://github.com/dotnet/runtime> |
+| Microsoft.Extensions.AI.Abstractions | MIT | <https://github.com/dotnet/extensions> |
+| PDFtoImage | MIT | <https://github.com/sungaila/PDFtoImage> |
+| SkiaSharp (+ `SkiaSharp.NativeAssets.*`) | MIT | <https://github.com/mono/SkiaSharp> |
+| bblanchon.PDFium.Win32 | **Apache-2.0** (packaging) | <https://github.com/bblanchon/pdfium-binaries> |
+| .NET runtime (the release zips' self-contained publish payload) | MIT | <https://github.com/dotnet/runtime> |
 
 ### Bundled native libraries
 
@@ -28,11 +32,12 @@ their notices to travel with distributions — this file is that notice.
 
 ## Test / development-only dependencies (not redistributed)
 
-| Component | Version | License |
-|---|---|---|
-| xunit, xunit.runner.visualstudio | 2.5.3 | Apache-2.0 |
-| coverlet.collector | 6.0.0 | MIT |
-| Microsoft.NET.Test.Sdk | 17.14.1 | MIT |
+| Component | License |
+|---|---|
+| xunit | Apache-2.0 |
+| xunit.runner.visualstudio | Apache-2.0 |
+| coverlet.collector | MIT |
+| Microsoft.NET.Test.Sdk | MIT |
 
 ## Corpus layouts
 
