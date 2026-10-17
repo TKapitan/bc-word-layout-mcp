@@ -398,6 +398,27 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
   The README now shows how to install a specific version.
 
+- **Tool descriptions, hints and messages no longer contradict what the tools do** (GitHub issue
+  #99). MCP clients show this text to the model verbatim.
+  - `validate_layout`'s description had nine words glued together ("anda", "thecontrol",
+    "level='full'additionally", …). A test now fails on any join of two string literals in the
+    source that glues two words.
+  - `merge_cells`/`split_cells` said an omitted `partName` means the first part. It means the
+    DEFAULT part, as for every other table tool; the 1.1.0 entry claimed that wording was gone.
+  - `insert_table`'s `withBorders` claimed to draw the grid `insert_repeater_table` draws by
+    default; that grid is `look='grid'` only. Its default width is the layout's own content width
+    (page width minus margins), not always the A4 10206 twips.
+  - `insert_text`/`insert_page_number`: an unstyled run takes the paragraph's and the style's
+    defaults, not the formatting of the runs next to it, so beside a bold caption it renders regular.
+  - The refusal of a repeater table in a header/footer, its hint and the
+    `repeater-in-header-footer` finding called that "deferred (GitHub issue #10)"; #10 is closed.
+    They now say it is not supported, because nothing shows that BC renders a repeating section
+    there.
+  - On a layout with a distinct first page but no first-page header (StandardSalesInvoiceVatSpec)
+    or footer, the insert summary's first-page note sent the caller to "the part with role
+    'first'", which does not exist and no tool can create. It now says page 1 renders no header or
+    footer at all.
+
 ### Security
 
 - **A crafted layout can no longer kill the server through the OpenXml SDK's own parse** (GitHub

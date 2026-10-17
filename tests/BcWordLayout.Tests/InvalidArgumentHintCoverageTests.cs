@@ -97,7 +97,7 @@ public class InvalidArgumentHintCoverageTests
         {
             var response = TableTools.InsertRepeaterTable(
                 path, "/Header/Line", "ItemNo_Line", "documentEnd", layoutPart: "header");
-            AssertActionableFailure(response, "invalid_argument", "issue #10");
+            AssertActionableFailure(response, "invalid_argument", "repeating section");
         }
         finally
         {

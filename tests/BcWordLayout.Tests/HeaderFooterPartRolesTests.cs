@@ -184,6 +184,50 @@ public class HeaderFooterPartRolesTests
     }
 
     [Fact]
+    public void VatSpec_has_a_first_page_footer_but_no_first_page_header()
+    {
+        // StandardSalesInvoiceVatSpec sets w:titlePg with a default-only header but a first-page footer, so
+        // page 1 renders no header at all and the first-page footer instead of the default one.
+        using var doc = WordprocessingDocument.Open(Corpus.Path(Corpus.SalesInvoiceVatSpec), false);
+        var roles = HeaderFooterPartRoles.Read(doc.MainDocumentPart!);
+
+        Assert.True(roles.HasTitlePage);
+        Assert.False(roles.HasFirstPageHeader);
+        Assert.True(roles.HasFirstPageFooter);
+
+        using var purchaseOrder = WordprocessingDocument.Open(Corpus.Path(Corpus.StandardPurchaseOrder), false);
+        var purchaseOrderRoles = HeaderFooterPartRoles.Read(purchaseOrder.MainDocumentPart!);
+        Assert.True(purchaseOrderRoles.HasFirstPageHeader);
+        Assert.True(purchaseOrderRoles.HasFirstPageFooter);
+    }
+
+    [Fact]
+    public void Insert_into_the_default_header_when_page_1_has_no_header_says_so_instead_of_naming_a_first_part()
+    {
+        // GitHub issue #99: the note always sent the caller to "the part with role 'first'", which this layout's
+        // headers do not have and no tool can create. Its footers do have one, so the footer note still does.
+        var path = CopyOfCorpus(Corpus.SalesInvoiceVatSpec);
+        try
+        {
+            var header = Assert.IsType<McpHost.EditResultDto>(
+                McpHost.Tools.EditTools.InsertText(path, "Header text", "documentEnd", layoutPart: "header").Data);
+            var footer = Assert.IsType<McpHost.EditResultDto>(
+                McpHost.Tools.EditTools.InsertText(path, "Footer text", "documentEnd", layoutPart: "footer").Data);
+
+            Assert.Contains("no first-page header", header.Summary, StringComparison.Ordinal);
+            Assert.Contains("page 1 renders NO header at all", header.Summary, StringComparison.Ordinal);
+            Assert.DoesNotContain("role 'first'", header.Summary, StringComparison.Ordinal);
+
+            Assert.Contains("DIFFERENT FIRST PAGE", footer.Summary, StringComparison.Ordinal);
+            Assert.Contains("role 'first'", footer.Summary, StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void Insert_with_an_explicit_partName_gets_no_first_page_note_even_on_a_titlePg_layout()
     {
         // The caller who NAMES the default part chose it deliberately; the note exists for the

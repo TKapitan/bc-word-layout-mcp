@@ -32,10 +32,14 @@ public sealed class HeaderFooterPartRoles
 {
     private readonly IReadOnlyDictionary<string, HeaderFooterRole> _rolesByPartName;
 
-    private HeaderFooterPartRoles(IReadOnlyDictionary<string, HeaderFooterRole> rolesByPartName, bool hasTitlePage)
+    private HeaderFooterPartRoles(
+        IReadOnlyDictionary<string, HeaderFooterRole> rolesByPartName, bool hasTitlePage,
+        bool hasFirstPageHeader, bool hasFirstPageFooter)
     {
         _rolesByPartName = rolesByPartName;
         HasTitlePage = hasTitlePage;
+        HasFirstPageHeader = hasFirstPageHeader;
+        HasFirstPageFooter = hasFirstPageFooter;
     }
 
     /// <summary>
@@ -44,6 +48,16 @@ public sealed class HeaderFooterPartRoles
     /// NOT the <c>default</c> one.
     /// </summary>
     public bool HasTitlePage { get; }
+
+    /// <summary>
+    /// True when the FIRST section references a <c>first</c>-role header part the package contains. With
+    /// <see cref="HasTitlePage"/> set and no such part (StandardSalesInvoiceVatSpec's shape), page 1 renders
+    /// no header at all, and no tool can create one.
+    /// </summary>
+    public bool HasFirstPageHeader { get; }
+
+    /// <summary>The footer counterpart of <see cref="HasFirstPageHeader"/>.</summary>
+    public bool HasFirstPageFooter { get; }
 
     /// <summary>
     /// The role the first section-reference in document order assigns to the header/footer part named
@@ -62,10 +76,12 @@ public sealed class HeaderFooterPartRoles
         var body = main.Document?.Body;
         if (body is null)
         {
-            return new HeaderFooterPartRoles(roles, hasTitlePage: false);
+            return new HeaderFooterPartRoles(roles, hasTitlePage: false, hasFirstPageHeader: false, hasFirstPageFooter: false);
         }
 
         var sections = body.Descendants<SectionProperties>().ToList();
+        var hasFirstPageHeader = false;
+        var hasFirstPageFooter = false;
         foreach (var sectPr in sections)
         {
             foreach (var child in sectPr.ChildElements)
@@ -97,11 +113,19 @@ public sealed class HeaderFooterPartRoles
 
                 // First reference to a part wins: the first section's view is the one that governs the
                 // opening page(s), which is what a caller reasons about.
-                roles.TryAdd(PartWalker.PartFileName(part), ToRole(type));
+                var role = ToRole(type);
+                roles.TryAdd(PartWalker.PartFileName(part), role);
+
+                // Page 1 is governed by the FIRST section alone: it has no earlier section to inherit from.
+                if (ReferenceEquals(sectPr, sections[0]) && role == HeaderFooterRole.First)
+                {
+                    hasFirstPageHeader |= child is HeaderReference;
+                    hasFirstPageFooter |= child is FooterReference;
+                }
             }
         }
 
-        return new HeaderFooterPartRoles(roles, FirstSectionHasTitlePage(sections));
+        return new HeaderFooterPartRoles(roles, FirstSectionHasTitlePage(sections), hasFirstPageHeader, hasFirstPageFooter);
     }
 
     /// <summary>An absent <c>w:type</c> is <c>default</c> per the spec — same rule as <see cref="LocationResolver"/>.</summary>

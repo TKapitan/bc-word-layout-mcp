@@ -142,8 +142,9 @@ public static class EditTools
                      + "'header2.xml' (see get_layout_info's controls[].part for the names actually present). "
                      + "Omit to target the DEFAULT part - the everyday header/footer, which is often NOT the first "
                      + "part in the package (get_layout_info's partDetails gives each part's role).")] string? partName = null,
-        [Description("Optional: true makes the text bold, false strips bold; omit to leave it unstyled so it "
-                     + "inherits whatever surrounds it.")] bool? bold = null,
+        [Description("Optional: true makes the text bold, false strips bold; omit to leave the run unstyled, "
+                     + "so it takes the paragraph's and the style's defaults - NOT the formatting of the runs "
+                     + "next to it (beside a bold caption it renders regular; pass bold=true to match).")] bool? bold = null,
         [Description("Optional font size in points (4-96, halves allowed); omit to leave it unstyled.")]
         double? fontSizePoints = null)
     {
@@ -193,7 +194,8 @@ public static class EditTools
                      + "each part's role; in a hasTitlePage layout, page 1 renders the 'first'-role part "
                      + "instead of the default one).")] string? partName = null,
         [Description("Optional: true makes the field runs bold, false strips bold; omit to leave them "
-                     + "unstyled so they inherit whatever surrounds them.")] bool? bold = null,
+                     + "unstyled, so they take the paragraph's and the style's defaults - NOT the formatting "
+                     + "of the runs next to them (pass bold=true to match a bold caption).")] bool? bold = null,
         [Description("Optional font size in points (4-96, halves allowed); omit to leave the runs "
                      + "unstyled.")] double? fontSizePoints = null)
     {

@@ -61,11 +61,11 @@ public static class TableTools
                  + "Hosting a whole nested TABLE inside a cell (locationType='tableCell' with "
                  + "this call's tableIndex/dataRowIndex) also works but is NOT how standard BC documents "
                  + "are laid out - prefer insert_repeater_row. "
-                 + "v1 SCOPE: only supports the main "
+                 + "SCOPE: only supports the main "
                  + "document body (layoutPart='body', the only supported value) - a repeater table in a "
-                 + "header/footer is explicitly deferred (unlike insert_field/insert_label, which do support "
-                 + "layoutPart='header'/'footer'). Same write/validate/save-or-reject safety and response "
-                 + "shape as insert_field.")]
+                 + "header/footer is not supported, because nothing shows that Business Central renders a "
+                 + "repeating section there (unlike insert_field/insert_label, which do support "
+                 + "layoutPart='header'/'footer'). Same write/validate/save-or-reject safety as insert_field.")]
     public static ToolResponse InsertRepeaterTable(
         [Description("Absolute path to the .docx layout file.")] string layoutPath,
         [Description("Dataset path to a repeating data item, e.g. '/Header/Line' (see list_dataset_fields).")]
@@ -102,10 +102,10 @@ public static class TableTools
                      + "explicit single-line border on every edge and between every cell. Use "
                      + "set_cell_borders afterwards for the other rules a BC document has (e.g. above a "
                      + "totals block).")] string look = "bc",
-        [Description("v1 SCOPE: only 'body' (the default) is supported for a repeater table - passing "
-                     + "'header'/'footer' here is rejected with invalid_argument (repeaters in headers/"
-                     + "footers are deferred - GitHub issue #10). Present for parameter-shape consistency "
-                     + "with insert_field/insert_label, which DO support 'header'/'footer'.")]
+        [Description("SCOPE: only 'body' (the default) is supported for a repeater table - passing "
+                     + "'header'/'footer' here is rejected with invalid_argument (nothing shows that Business "
+                     + "Central renders a repeating section in a header or footer). Present for parameter-shape "
+                     + "consistency with insert_field/insert_label, which DO support 'header'/'footer'.")]
         string layoutPart = "body",
         [Description("Not supported for insert_repeater_table (see layoutPart) - always omit this.")]
         string? partName = null)
@@ -341,9 +341,12 @@ public static class TableTools
                  + "table bound to a repeating data item use insert_repeater_table instead, and for the "
                  + "stock totals-INSIDE-the-lines-table shape use insert_table_row on that table.) The table is rows x columns of "
                  + "empty single-column cells, borderless by default (the corpus shape for those blocks; pass "
-                 + "withBorders=true for the same explicit single-line grid insert_repeater_table draws). "
+                 + "withBorders=true for an explicit single-line border on every edge and between every cell, "
+                 + "the grid insert_repeater_table draws with look='grid'). "
                  + "columnWidths (twips, comma-separated, one per column) defaults to an even split of the "
-                 + "full A4 content width (10206); columnAlignments (left/center/right, comma-separated, one "
+                 + "layout's own content width (its page width minus the left and right margins, or 10206 - "
+                 + "the A4 content width - when the layout declares no page size or margins); "
+                 + "columnAlignments (left/center/right, comma-separated, one "
                  + "per column) seeds each cell's paragraph justification - set_cell_text and "
                  + "insert_field/insert_label (locationType 'tableCell') preserve it afterwards. The result's "
                  + "tableIndex is the new table's 0-based document-order index: EXACTLY the index to pass to "
@@ -364,15 +367,17 @@ public static class TableTools
         [Description("Required for 'atText': substring to search for in existing run text (ordinal match).")]
         string? searchText = null,
         [Description("Optional comma-separated column widths in twips (each 1-31680), one per column; omit for an even "
-                     + "split of the full content width (10206 twips). The widths are BINDING, not "
+                     + "split of the layout's content width (page width minus margins; 10206 twips when the "
+                     + "layout declares neither). The widths are BINDING, not "
                      + "advisory: the table is emitted with w:tblLayout='fixed' and a w:tblW total equal to "
                      + "their sum, so Word renders the grid as specified instead of autofitting the columns "
                      + "to their content.")] string? columnWidths = null,
         [Description("Optional comma-separated per-column alignments ('left'/'center'/'right', one per "
                      + "column) seeding each cell's paragraph justification; omit for the default (left).")]
         string? columnAlignments = null,
-        [Description("When true, draw the same explicit single-line borders insert_repeater_table draws; "
-                     + "default false (borderless - the shape of BC's own address/info/totals blocks).")]
+        [Description("When true, draw an explicit single-line border on every edge and between every cell "
+                     + "(the grid insert_repeater_table draws with look='grid'); default false (borderless - "
+                     + "the shape of BC's own address/info/totals blocks).")]
         bool withBorders = false,
         [Description("v1 SCOPE: only 'body' (the default) is supported - 'header'/'footer' are rejected "
                      + "with invalid_argument (same scope rule as insert_repeater_table).")]
@@ -573,7 +578,8 @@ public static class TableTools
         [Description("0-based physical cell index of the LAST cell to merge (inclusive); must be > fromColumn.")] int toColumn,
         [Description("Which OOXML part the table is in: 'body' (default), 'header', or 'footer'.")] string layoutPart = "body",
         [Description("Only used when layoutPart is 'header'/'footer': a specific part file name; omit for the "
-                     + "first.")] string? partName = null)
+                     + "DEFAULT part - the everyday header/footer, which is often NOT the first part in the "
+                     + "package (get_layout_info's partDetails gives each part's role).")] string? partName = null)
     {
         return GuardTableEdit(layoutPath, doc =>
         {
@@ -599,7 +605,8 @@ public static class TableTools
         [Description("0-based physical cell index of the spanned cell to split.")] int cellIndex,
         [Description("Which OOXML part the table is in: 'body' (default), 'header', or 'footer'.")] string layoutPart = "body",
         [Description("Only used when layoutPart is 'header'/'footer': a specific part file name; omit for the "
-                     + "first.")] string? partName = null)
+                     + "DEFAULT part - the everyday header/footer, which is often NOT the first part in the "
+                     + "package (get_layout_info's partDetails gives each part's role).")] string? partName = null)
     {
         return GuardTableEdit(layoutPath, doc =>
         {
