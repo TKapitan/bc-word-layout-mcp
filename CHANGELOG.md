@@ -473,6 +473,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     the grid-consistency guard, not only the table edits. `create_layout`'s own check of the layout
     it built reports a failure as `internal_error`, as a server bug.
 
+- **`insert_picture` now says that a non-square frame does not survive a Word save** (GitHub
+  issue #53). Opening and saving a layout in Word squares every data-bound picture's frame to its
+  shorter side: 35×18 mm comes back 18×18. Microsoft's own layouts behave the same way
+  (StandardSalesInvoiceVatSpec's 60×30 mm logo comes back 30×30), so no change to the emitted shape
+  can prevent it. The tool description and both skills now say to make any Word edits first and
+  insert the picture last.
+
 - **Stale counts, versions and references are corrected across the docs and package metadata**
   (GitHub issue #113). The NuGet package description says 26 tools (it said 23), and the Copilot
   marketplace entry names both skills. The docs now agree on the validated BC versions (28.0 and
