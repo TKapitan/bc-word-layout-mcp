@@ -34,6 +34,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   repeats, such as a list report's rows, are exempt. The body is still rendered once: there is no
   observed OOXML for how BC joins per-record documents.
 
+### Changed
+
+- **The server reports its product version as `serverInfo.version`** (GitHub issue #112). The MCP
+  handshake answered with the four-part assembly version (`1.1.0.0`), which an RC shares with the
+  release it becomes, so neither a client nor the release smoke test could tell the builds apart.
+  It now reports the informational version without its `+commit` suffix (`1.1.0`, `1.2.0-rc.1`);
+  `serverInfo.name` is unchanged (`BcWordLayout.McpHost`). `tools/release/verify_server.py` checks
+  it with the new `--expect-version`.
+
 ### Fixed
 
 - **Inserts that would land inside a data-bound field, label or picture control are refused**
@@ -418,6 +427,28 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     or footer, the insert summary's first-page note sent the caller to "the part with role
     'first'", which does not exist and no tool can create. It now says page 1 renders no header or
     footer at all.
+
+- **The e2e and release scripts no longer pass on stale caches, ignore failures, or wait out a dead
+  server** (GitHub issue #112).
+  - `scenarios.py` keyed its cached passes and baselines on `BcWordLayout.McpHost.dll` alone, so a
+    change in `BcWordLayout.Domain`, `Merge` or `Render` that did not recompile the host (a new
+    validator check, say) kept every recorded pass. The caches are now keyed on the content of
+    every `BcWordLayout.*.dll` and the host's `deps.json`, plus the shared harness code and the
+    corpus file a scenario edits. The stale cache had hidden that three scenarios (s02, s05, s06)
+    still expected `insert_column` to widen the table, which it stopped doing in this release
+    (GitHub issue #83); they now check the kept width and re-fit from the original widths.
+  - A failed tool call, a preview with no PDF, a failed render, or a baseline that cannot be
+    captured fails only that scenario, naming the error's code, message and hint; the run continues
+    to its summary and exits 1. A failed baseline used to end the whole run with `KeyError: 'data'`,
+    and a failed render was ignored.
+  - `bc_compare.py` exits 1 when any item fails (it always exited 0) and no longer ignores a failed
+    render.
+  - `verify_server.py` takes `--expect-tools`, `--expect-version` and `--timeout` anywhere before
+    `--`, fails an `initialize` or `tools/list` error instead of reporting 0 tools, and prints the
+    server's stderr on every failure.
+  - A server that dies now fails the pending call at once with its exit code, where the scripts
+    waited out the 300–400 s timeout. Their stdio client could also miss a response that arrived
+    just as it began to wait, and report a timeout for a server that had answered.
 
 ### Security
 

@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Text.Json;
+using BcWordLayout.McpHost;
 using BcWordLayout.McpHost.Tools;
 
 namespace BcWordLayout.Tests;
@@ -29,15 +30,12 @@ public class PackagingMetadataTests
     /// <summary>
     /// The product version as built, from the McpHost assembly's informational version with any
     /// SourceLink <c>+&lt;commit&gt;</c> suffix stripped — the exact value <c>&lt;Version&gt;</c> in
-    /// <c>Directory.Build.props</c> declares.
+    /// <c>Directory.Build.props</c> declares. Stripped by the server's own
+    /// <see cref="ServerIdentity.WithoutBuildMetadata"/>, the helper that also makes it the reported
+    /// <c>serverInfo.version</c>.
     /// </summary>
-    private static string ProductVersion()
-    {
-        var informational = typeof(ToolGuards).Assembly
-            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()!.InformationalVersion;
-        var plus = informational.IndexOf('+');
-        return plus < 0 ? informational : informational[..plus];
-    }
+    private static string ProductVersion() => ServerIdentity.WithoutBuildMetadata(
+        typeof(ToolGuards).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()!.InformationalVersion);
 
     [Fact]
     public void NuGet_server_manifest_matches_the_built_product_version_and_identity()

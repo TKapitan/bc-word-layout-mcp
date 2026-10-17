@@ -12,7 +12,8 @@ namespace BcWordLayout.Tests;
 
 /// <summary>
 /// The REAL server pipeline, in process: a generic host configured exactly like <c>Program.cs</c>
-/// (<see cref="ToolCallBoundary.WithBcWordLayoutTools"/> — the tools plus the call-tool filter), talking to an
+/// (<see cref="ServerIdentity.WithBcWordLayoutServerInfo"/> — the reported <c>serverInfo</c> — and
+/// <see cref="ToolCallBoundary.WithBcWordLayoutTools"/> — the tools plus the call-tool filter), talking to an
 /// SDK <see cref="McpClient"/> over a pair of in-memory pipes instead of stdio. Every call therefore goes
 /// through the SDK's JSON-RPC framing, tool lookup and argument binding, and the filter, which the direct
 /// static-method calls in <see cref="McpHostToolTests"/> skip entirely. No process is spawned and nothing is
@@ -34,6 +35,7 @@ public sealed class McpHostPipeline : IAsyncLifetime
         builder.Services
             .AddMcpServer()
             .WithStreamServerTransport(clientToServer.Reader.AsStream(), serverToClient.Writer.AsStream())
+            .WithBcWordLayoutServerInfo()
             .WithBcWordLayoutTools()
             .WithTools([typeof(SwallowedFailureTestTool)]);
         host = builder.Build();
