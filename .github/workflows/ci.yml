@@ -88,6 +88,12 @@ jobs:
       - name: Test
         run: dotnet test --no-build -c Release
 
+      # The Python tooling (corpus scrubber, e2e and release harnesses) is standard-library only, so
+      # its tests need nothing installed; once is enough, on the Linux leg.
+      - name: Python tool tests
+        if: runner.os == 'Linux'
+        run: python3 -m unittest discover -s tools/tests -v
+
   # The single required status check (see the header comment). `if: always()` makes it report on
   # every run; it passes only when both legs succeeded, or were skipped because nothing outside
   # Markdown changed. Any other combination — a failed leg, a failed/cancelled `changes` job — fails.

@@ -347,6 +347,29 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - **No late export:** a conversion that has timed out stops before opening or exporting the
     document if Word recovers later, so it can no longer write a PDF the next preview may own.
 
+- **`tools/scrub_corpus_metadata.py` no longer passes a `customXML/` capture as clean without
+  scrubbing it** (GitHub issue #111). Its bibliography-drop and dataset sample-value rules matched
+  the `customXml/` folder case-sensitively, so a capture whose export spells it `customXML/` (as
+  `StandardStatement.docx` does) skipped both rules and was reported clean. The script now reads
+  package plumbing the way OPC defines it:
+  - **Part names** compare case-insensitively everywhere, and every part keeps the casing the
+    package gives it.
+  - **Relationship targets** resolve against the source part's folder, or from the package root
+    when absolute, so a part referenced by an absolute target is no longer refused.
+  - **Every bibliography part** is dropped in one run (only the first was), so a second run is a
+    true no-op.
+  - **`docProps/app.xml`:** `Company` and `Manager` are now blanked. A missing `core.xml` or
+    `app.xml` no longer crashes the script.
+  - **Exit codes:** `--check` exits 1 only when something would be scrubbed. Errors exit 2: an
+    unknown option (previously ignored), or a package it cannot scrub cleanly, such as one with
+    duplicate Overrides or a reference it cannot resolve. That file is left untouched, and the
+    other files are still processed.
+  - **Atomic rewrite:** the scrubbed package replaces the original in one rename. On Windows the
+    move used to run while the original was still open and fell back to copying over it.
+
+  The corpus was already clean and is unchanged. A standard-library `unittest` suite covers the
+  rules and exit codes (`python -m unittest discover -s tools/tests`), and CI runs it.
+
 ### Security
 
 - **A crafted layout can no longer kill the server through the OpenXml SDK's own parse** (GitHub

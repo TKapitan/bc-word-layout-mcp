@@ -21,7 +21,8 @@ The full suite must be green before and after your change. Tests locate the corp
 `call.py` makes a one-shot tool call from the CLI (handy while debugging);
 `author_order_confirmation.py` is the worked example that authors a complete layout from scratch
 through the tools alone; `sandbox_pack.py`/`bc_compare.py` build and re-check the BC-sandbox
-validation pack (see `docs/FIDELITY-CHECKLIST.md`).
+validation pack (see `docs/FIDELITY-CHECKLIST.md`). The Python tools have their own standard-library
+tests, which CI runs on its Linux leg: `python -m unittest discover -s tools/tests`.
 
 ## The design constraints (read before proposing)
 
