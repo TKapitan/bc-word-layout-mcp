@@ -89,11 +89,14 @@ public static class LayoutEditor
                 nameof(text));
         }
 
-        var run = new Run(new Text(text) { Space = SpaceProcessingModeValues.Preserve });
-        ApplyRunFormat(run, format, "insert_text");
+        TryPrepareRunFormat(format, "insert_text", out var halfPoints);
 
         var scaffolded = EnsureTargetPartExists(doc, location);
         var anchor = LocationResolver.Resolve(location, doc);
+        var inherited = anchor.InheritedRunProperties();
+
+        var run = new Run(new Text(text) { Space = SpaceProcessingModeValues.Preserve });
+        StyleRun(run, inherited, format?.Bold, halfPoints);
         anchor.InsertInline(run);
 
         return new EditResult
@@ -105,6 +108,7 @@ public static class LayoutEditor
             Summary = $"Inserted the static text \"{text}\" at {DescribeLocation(location, anchor.PartName)}. "
                 + "It is a plain run, not a content control, so it has no controlId and cannot be targeted by "
                 + "remove_control or used as an afterControl anchor."
+                + InheritedFormatNote(inherited)
                 + (scaffolded
                     ? $" The layout had no {location.Part.ToString().ToLowerInvariant()} part, so an empty "
                       + $"{anchor.PartName} was created and wired into the page setup first."
@@ -146,16 +150,22 @@ public static class LayoutEditor
         ArgumentNullException.ThrowIfNull(doc);
         ArgumentNullException.ThrowIfNull(location);
 
+        TryPrepareRunFormat(format, "insert_page_number", out var halfPoints);
+
+        var scaffolded = EnsureTargetPartExists(doc, location);
+        var anchor = LocationResolver.Resolve(location, doc);
+        var inherited = anchor.InheritedRunProperties();
+
         var runs = includeTotal
             ? PageNumberFieldFactory.BuildPageOfTotal()
             : PageNumberFieldFactory.BuildPageNumber();
         foreach (var run in runs)
         {
-            ApplyRunFormat(run, format, "insert_page_number");
+            // Every run of the construct, field characters included, as the stock captures do it: in
+            // InventoryOrderDetails and SalespersonCommission each run carries the surrounding text's Segoe UI
+            // 8/7 pt, and the cached result adds its w:noProof.
+            StyleRun(run, inherited, format?.Bold, halfPoints);
         }
-
-        var scaffolded = EnsureTargetPartExists(doc, location);
-        var anchor = LocationResolver.Resolve(location, doc);
 
         // The construct is a SEQUENCE of sibling runs; InsertInline places the first one per the anchor's
         // own rule (in the existing run flow, or a fresh paragraph), and the rest chain directly after it
@@ -177,6 +187,7 @@ public static class LayoutEditor
                 + "They are plain field-code runs, not a content control, so there is no controlId and they "
                 + "cannot be targeted by remove_control or used as an afterControl anchor. Word/BC "
                 + "recalculates the numbers on render; the visible '1' is only the cached placeholder."
+                + InheritedFormatNote(inherited)
                 + (scaffolded
                     ? $" The layout had no {location.Part.ToString().ToLowerInvariant()} part, so an empty "
                       + $"{anchor.PartName} was created and wired into the page setup first."
@@ -976,16 +987,56 @@ public static class LayoutEditor
         return true;
     }
 
-    /// <summary>Applies the inline run-format knobs to a single plain run (see <see cref="InsertText"/>).</summary>
-    private static void ApplyRunFormat(Run run, CellTextFormat? format, string opName)
+    private const string ControlFormatOpName = "insert_field/insert_label";
+
+    /// <summary>
+    /// Gives a freshly built run its formatting: <paramref name="inherited"/> (the text before the insertion
+    /// point — see <see cref="InsertionAnchor.InheritedRunProperties"/>) underneath whatever run properties the
+    /// run was built with (the cached page-number result's <c>w:noProof</c>), then the explicit knobs on top.
+    /// </summary>
+    private static void StyleRun(Run run, RunProperties? inherited, bool? bold, string? halfPoints)
     {
-        if (!TryPrepareRunFormat(format, opName, out var halfPoints))
+        if (inherited is not null)
+        {
+            run.RunProperties = Underlay(inherited, run.RunProperties);
+        }
+
+        if (bold is null && halfPoints is null)
         {
             return;
         }
 
         run.RunProperties ??= new RunProperties();
-        ApplyRunProperties(run.RunProperties, format!.Bold, halfPoints);
+        ApplyRunProperties(run.RunProperties, bold, halfPoints);
+    }
+
+    /// <summary>
+    /// <see cref="StyleRun"/> for a freshly built control: every run inside its content AND its
+    /// <c>w:sdtPr/w:rPr</c>, which is what Word formats the control's value with and where every stock control
+    /// carries its formatting. The corpus-verified child order puts that <c>w:rPr</c> first in the
+    /// <c>w:sdtPr</c> (see <see cref="SdtFactory.BuildRepeaterTable"/>'s remarks).
+    /// </summary>
+    private static void StyleControl(SdtRun sdt, RunProperties? inherited, bool? bold, string? halfPoints)
+    {
+        foreach (var run in sdt.Descendants<Run>().ToList())
+        {
+            StyleRun(run, inherited, bold, halfPoints);
+        }
+
+        if (sdt.SdtProperties is not { } sdtPr || (inherited is null && bold is null && halfPoints is null))
+        {
+            return;
+        }
+
+        var own = sdtPr.GetFirstChild<RunProperties>();
+        var rPr = inherited is null ? own ?? new RunProperties() : Underlay(inherited, own);
+        if (!ReferenceEquals(rPr, own))
+        {
+            own?.Remove();
+            sdtPr.PrependChild(rPr);
+        }
+
+        ApplyRunProperties(rPr, bold, halfPoints);
     }
 
     /// <summary>
@@ -994,39 +1045,82 @@ public static class LayoutEditor
     /// rejection message) so <see cref="TableStructureEditor.InsertStaticRow"/> can style its bound cells
     /// through the exact same path <c>insert_field</c>/<c>insert_label</c> use.
     /// </summary>
-    internal static void ApplyControlRunFormat(SdtRun sdt, CellTextFormat? format, string opName = "insert_field/insert_label")
+    internal static void ApplyControlRunFormat(SdtRun sdt, CellTextFormat? format, string opName = ControlFormatOpName)
     {
-        if (!TryPrepareRunFormat(format, opName, out var halfPoints))
+        if (TryPrepareRunFormat(format, opName, out var halfPoints))
         {
-            return;
+            StyleControl(sdt, inherited: null, format!.Bold, halfPoints);
         }
+    }
 
-        var targets = sdt.Descendants<Run>().Select(r => (OpenXmlElement)r).ToList();
-        foreach (var target in targets)
+    /// <summary>
+    /// A copy of <paramref name="inherited"/> with each child of <paramref name="own"/> replacing the inherited
+    /// child of the same type, so what the run was built with wins over what it inherits. Children land in
+    /// schema order (<see cref="OpenXmlCompositeElement.AddChild"/>).
+    /// </summary>
+    private static RunProperties Underlay(RunProperties inherited, RunProperties? own)
+    {
+        var merged = (RunProperties)inherited.CloneNode(true);
+        foreach (var child in own?.ChildElements.ToList() ?? [])
         {
-            var run = (Run)target;
-            run.RunProperties ??= new RunProperties();
-            ApplyRunProperties(run.RunProperties, format!.Bold, halfPoints);
-        }
-
-        if (sdt.SdtProperties is { } sdtPr)
-        {
-            var rPr = sdtPr.GetFirstChild<RunProperties>();
-            if (rPr is null)
+            foreach (var same in merged.ChildElements.Where(c => c.GetType() == child.GetType()).ToList())
             {
-                rPr = new RunProperties();
-                sdtPr.PrependChild(rPr);
+                same.Remove();
             }
 
-            ApplyRunProperties(rPr, format!.Bold, halfPoints);
+            merged.AddChild(child.CloneNode(true), throwOnError: false);
         }
+
+        return merged;
+    }
+
+    /// <summary>
+    /// The sentence an insert summary carries when the inserted content took <paramref name="inherited"/>
+    /// from the text before it — so a caller who sees bold or small text it did not ask for knows where it
+    /// came from and how to override it.
+    /// </summary>
+    private static string InheritedFormatNote(RunProperties? inherited)
+    {
+        if (inherited is null)
+        {
+            return string.Empty;
+        }
+
+        var traits = new List<string>();
+        if (inherited.RunStyle?.Val?.Value is { } style)
+        {
+            traits.Add($"character style '{style}'");
+        }
+
+        if (inherited.RunFonts?.Ascii?.Value is { } font)
+        {
+            traits.Add(font);
+        }
+
+        if (inherited.FontSize?.Val?.Value is { } size
+            && double.TryParse(size, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var halfPoints))
+        {
+            traits.Add($"{(halfPoints / 2).ToString(System.Globalization.CultureInfo.InvariantCulture)} pt");
+        }
+
+        if (inherited.Bold is { } b && (b.Val is null || b.Val.Value))
+        {
+            traits.Add("bold");
+        }
+
+        return " It takes the formatting of the text before it"
+            + (traits.Count > 0 ? $" ({string.Join(", ", traits)})" : string.Empty)
+            + "; pass bold/fontSizePoints to override.";
     }
 
     private static void ApplyRunProperties(RunProperties rPr, bool? bold, string? halfPoints)
     {
         if (bold is { } b)
         {
-            rPr.Bold = b ? new Bold() : null;
+            // false must beat bold the run INHERITED: removing w:b does that for a w:b, but not for a bold
+            // character style (StandardSalesQuote's 'Strong'), which needs the explicit w:b w:val="0" the
+            // corpus also carries (SalespersonCommission's add-in wrapper). With neither, nothing is written.
+            rPr.Bold = b ? new Bold() : rPr.RunStyle is not null ? new Bold { Val = false } : null;
         }
 
         if (halfPoints is not null)
@@ -1067,7 +1161,7 @@ public static class LayoutEditor
         var sdt = isLabel
             ? SdtFactory.BuildLabel(schema, datasetPath, id: id)
             : SdtFactory.BuildField(schema, datasetPath, id: id);
-        ApplyControlRunFormat(sdt, format);
+        TryPrepareRunFormat(format, ControlFormatOpName, out var halfPoints);
 
         var scaffolded = EnsureTargetPartExists(doc, location);
 
@@ -1075,6 +1169,8 @@ public static class LayoutEditor
         // default) and reports it back via anchor.PartName, so this method's own Part/Summary are always
         // accurate — not assumed to be document.xml.
         var anchor = LocationResolver.Resolve(location, doc);
+        var inherited = anchor.InheritedRunProperties();
+        StyleControl(sdt, inherited, format?.Bold, halfPoints);
         anchor.InsertInline(sdt);
 
         var alias = sdt.SdtProperties!.GetFirstChild<SdtAlias>()?.Val?.Value;
@@ -1091,6 +1187,7 @@ public static class LayoutEditor
             Part = anchor.PartName,
             Summary = $"Inserted {kind.ToString().ToLowerInvariant()} '{datasetPath}' (id {id}) at "
                 + $"{DescribeLocation(location, anchor.PartName)}."
+                + InheritedFormatNote(inherited)
                 + (scaffolded
                     ? $" The layout had no {location.Part.ToString().ToLowerInvariant()} part, so an empty "
                       + $"{anchor.PartName} was created and wired into the page setup first."

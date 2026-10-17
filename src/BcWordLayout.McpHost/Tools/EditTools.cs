@@ -57,11 +57,13 @@ public static class EditTools
                      + "'header2.xml' (see get_layout_info's controls[].part for the names actually present). "
                      + "Omit to target the DEFAULT part - the everyday header/footer, which is often NOT the first "
                      + "part in the package (get_layout_info's partDetails gives each part's role).")] string? partName = null,
-        [Description("Optional: true makes the control's text bold, false strips bold; omit to leave the "
-                     + "control's runs unstyled (a control in a fresh plain-table cell has nothing to "
-                     + "inherit).")] bool? bold = null,
+        [Description("Optional: true makes the control's text bold, false turns bold off (bold it took from "
+                     + "its neighbour included); omit to keep the formatting it takes from the text before it - "
+                     + "the anchor control for afterControl, the paragraph's last text for tableCell/atText, or "
+                     + "an empty paragraph's own mark. A control that opens a new paragraph, or lands in a fresh "
+                     + "plain-table cell, has nothing to take and stays unstyled.")] bool? bold = null,
         [Description("Optional font size in points (4-96, halves allowed) for the control's text; omit to "
-                     + "leave it unstyled.")] double? fontSizePoints = null)
+                     + "keep the size it takes from the text before it.")] double? fontSizePoints = null)
     {
         return GuardEdit(layoutPath, doc =>
         {
@@ -94,11 +96,13 @@ public static class EditTools
                      + "'header2.xml' (see get_layout_info's controls[].part for the names actually present). "
                      + "Omit to target the DEFAULT part - the everyday header/footer, which is often NOT the first "
                      + "part in the package (get_layout_info's partDetails gives each part's role).")] string? partName = null,
-        [Description("Optional: true makes the control's text bold, false strips bold; omit to leave the "
-                     + "control's runs unstyled (a control in a fresh plain-table cell has nothing to "
-                     + "inherit).")] bool? bold = null,
+        [Description("Optional: true makes the control's text bold, false turns bold off (bold it took from "
+                     + "its neighbour included); omit to keep the formatting it takes from the text before it - "
+                     + "the anchor control for afterControl, the paragraph's last text for tableCell/atText, or "
+                     + "an empty paragraph's own mark. A control that opens a new paragraph, or lands in a fresh "
+                     + "plain-table cell, has nothing to take and stays unstyled.")] bool? bold = null,
         [Description("Optional font size in points (4-96, halves allowed) for the control's text; omit to "
-                     + "leave it unstyled.")] double? fontSizePoints = null)
+                     + "keep the size it takes from the text before it.")] double? fontSizePoints = null)
     {
         return GuardEdit(layoutPath, doc =>
         {
@@ -142,10 +146,13 @@ public static class EditTools
                      + "'header2.xml' (see get_layout_info's controls[].part for the names actually present). "
                      + "Omit to target the DEFAULT part - the everyday header/footer, which is often NOT the first "
                      + "part in the package (get_layout_info's partDetails gives each part's role).")] string? partName = null,
-        [Description("Optional: true makes the text bold, false strips bold; omit to leave the run unstyled, "
-                     + "so it takes the paragraph's and the style's defaults - NOT the formatting of the runs "
-                     + "next to it (beside a bold caption it renders regular; pass bold=true to match).")] bool? bold = null,
-        [Description("Optional font size in points (4-96, halves allowed); omit to leave it unstyled.")]
+        [Description("Optional: true makes the text bold, false turns bold off (bold it took from its "
+                     + "neighbour included); omit to keep the formatting it takes from the text before it - "
+                     + "beside a bold caption it comes out bold, in a Segoe UI 8 pt line it is Segoe UI 8 pt. "
+                     + "Text that opens a new paragraph (documentEnd in the body) has nothing to take and stays "
+                     + "unstyled.")] bool? bold = null,
+        [Description("Optional font size in points (4-96, halves allowed); omit to keep the size it takes from "
+                     + "the text before it.")]
         double? fontSizePoints = null)
     {
         return GuardEdit(layoutPath, doc =>
@@ -193,11 +200,12 @@ public static class EditTools
                      + "is often NOT the first part in the package (get_layout_info's partDetails gives "
                      + "each part's role; in a hasTitlePage layout, page 1 renders the 'first'-role part "
                      + "instead of the default one).")] string? partName = null,
-        [Description("Optional: true makes the field runs bold, false strips bold; omit to leave them "
-                     + "unstyled, so they take the paragraph's and the style's defaults - NOT the formatting "
-                     + "of the runs next to them (pass bold=true to match a bold caption).")] bool? bold = null,
-        [Description("Optional font size in points (4-96, halves allowed); omit to leave the runs "
-                     + "unstyled.")] double? fontSizePoints = null)
+        [Description("Optional: true makes the field runs bold, false turns bold off (bold they took from "
+                     + "their neighbour included); omit to keep the formatting they take from the text before "
+                     + "them - after a bold Page_Lbl they come out bold. Fields that open a new paragraph have "
+                     + "nothing to take and stay unstyled.")] bool? bold = null,
+        [Description("Optional font size in points (4-96, halves allowed); omit to keep the size the runs take "
+                     + "from the text before them.")] double? fontSizePoints = null)
     {
         return GuardEdit(layoutPath, doc =>
         {

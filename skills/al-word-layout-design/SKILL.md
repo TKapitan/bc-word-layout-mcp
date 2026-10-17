@@ -181,6 +181,9 @@ totals table, which is the BC-verified simpler shape [verified: P07]).
 - A blank build ships pinned Calibri 11 pt + `Normal`/`TableGrid` styles, BC-verified to render
   identically in Word and BC [verified: all three]. Don't fight it — layer `bold`/`fontSizePoints`
   where needed (a 16 pt bold section heading over the pinned base is verified [P06]).
+- Editing a stock layout: inline inserts take the run formatting of the text before them (#122), so a
+  field or separator added to a stock line already matches its `Strong` or Segoe UI 8 pt neighbours.
+  Pass `bold`/`fontSizePoints` only to differ from them.
 - Stock caption text is smaller and bolder than its values (9 pt bold captions over 11 pt values
   [1304, 1322]); totals amounts are bold everywhere [stock + verified].
 - Broad styling (colours, shading, other fonts) has no tool: use a branded `templatePath` shell or

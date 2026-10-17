@@ -45,8 +45,11 @@ unreliable in a file format where a single misplaced element silently corrupts t
   not emit OOXML it has not seen (§6). Issue [#8](https://github.com/TKapitan/bc-word-layout-mcp/issues/8).
 - **Broad cosmetic formatting** (colours, fonts, margins). A deliberate exception exists: `bold`,
   `fontSizePoints` and cell/column `alignment` are supported, because a control inserted into a freshly
-  authored table cell has no styling to inherit and would otherwise look obviously wrong. Anything beyond
-  that stays a hand-edit, which `validate_layout` makes safe.
+  authored table cell has no styling to inherit and would otherwise look obviously wrong. Where there IS
+  styling to inherit, inline inserts take the run formatting of the text before them, as typing in Word
+  does, so they match a stock layout's own runs without any knob (issue
+  [#122](https://github.com/TKapitan/bc-word-layout-mcp/issues/122)). Anything beyond that stays a
+  hand-edit, which `validate_layout` makes safe.
 
 ### Users and workflow context
 

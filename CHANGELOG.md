@@ -45,6 +45,24 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Inline inserts now take the formatting of the text before them** (GitHub issue #122).
+  `insert_text`, `insert_field`, `insert_label` and `insert_page_number` built bare runs, which
+  render with the paragraph's and the style's defaults. Stock layouts format their runs directly, so
+  inserts stood out: a `" / "` or a field placed after `DocumentNo` in StandardSalesQuote's bold
+  title line came out regular, and nothing could match the Segoe UI 7–8 pt other layouts set on each
+  run. An inline insert now copies the run properties of the text before it, as typing in Word does:
+  - after an inline control (`afterControl`), that control's own `w:sdtPr/w:rPr`, or failing that
+    its text's;
+  - at the end of a paragraph (`tableCell`, `atText`), the paragraph's last text;
+  - into an empty paragraph, the paragraph mark's formatting.
+
+  Placeholder styling, tracked-change marks and hidden text are not copied, and pictures are skipped.
+  A new control carries the formatting on its `w:sdtPr/w:rPr` too, where stock controls carry it.
+  `bold`/`fontSizePoints` still override it, and `bold=false` now writes `w:b w:val="0"` when the
+  run took over a character style, so it beats a bold style such as `Strong`. The insert summary
+  names what was taken. An insert that opens a new paragraph, or lands in a fresh `insert_table`
+  cell, has nothing to take and is unchanged.
+
 - **Inserts that would land inside a data-bound field, label or picture control are refused**
   (GitHub issue #76). Three locations could resolve inside a bound control's content:
   - `afterControl` on a cell-level field;
@@ -417,8 +435,6 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - `insert_table`'s `withBorders` claimed to draw the grid `insert_repeater_table` draws by
     default; that grid is `look='grid'` only. Its default width is the layout's own content width
     (page width minus margins), not always the A4 10206 twips.
-  - `insert_text`/`insert_page_number`: an unstyled run takes the paragraph's and the style's
-    defaults, not the formatting of the runs next to it, so beside a bold caption it renders regular.
   - The refusal of a repeater table in a header/footer, its hint and the
     `repeater-in-header-footer` finding called that "deferred (GitHub issue #10)"; #10 is closed.
     They now say it is not supported, because nothing shows that BC renders a repeating section
