@@ -53,7 +53,7 @@ the table index the insert response returns. The whole recipe below rendered cor
 | # | Block | Calls | Verified shape |
 |---|---|---|---|
 | 1 | Title | (from `create_layout headingText`) | All-caps report/document name, bold heading paragraph |
-| 2 | Logo | `insert_picture` | `/…/CompanyPicture`, 35×18 mm |
+| 2 | Logo | `insert_picture` | `/…/CompanyPicture`, 35×18 mm. A Word save squares it to 18×18, so if the layout will be edited in Word, do that first |
 | 3 | Address block | `insert_table` 6×2, `columnWidths "4600,4600"`, then 12× `insert_field` (`tableCell`) | Borderless; company addresses down col 0, counterparty (customer/vendor) down col 1, one bound field per cell, filled row-major |
 | 4 | Info grid | `insert_table` 3×2, `columnWidths "2800,3000"`, then per row `insert_label` col 0 + `insert_field` col 1 | Caption **beside** value — see §4 for the caption-**above** stock alternative |
 | 5 | Section heading *(optional)* | `insert_text` | `bold=true, fontSizePoints=16` heading (e.g. `"ORDER LINES"`), plus a default-size note line [verified: P06] |
