@@ -169,25 +169,6 @@ public class PlainTableTests
     }
 
     [Fact]
-    public void Inserted_control_rejects_the_alignment_knob_with_guidance()
-    {
-        var path = CopyOfCorpus(Corpus.SalesInvoice);
-        try
-        {
-            using var doc = WordprocessingDocument.Open(path, true);
-            var ex = Assert.Throws<ArgumentException>(() => LayoutEditor.InsertField(
-                doc, "/Header/ExternalDocumentNo",
-                new Location { Type = LocationKind.DocumentEnd },
-                new BcWordLayout.Domain.Models.CellTextFormat { Alignment = "right" }));
-            Assert.Contains("columnAlignments", ex.Message);
-        }
-        finally
-        {
-            File.Delete(path);
-        }
-    }
-
-    [Fact]
     public void Stacked_block_tables_get_a_separator_paragraph_so_Word_never_merges_them()
     {
         // Word renders two adjacent w:tbl siblings as ONE merged table; authoring in Word always keeps a

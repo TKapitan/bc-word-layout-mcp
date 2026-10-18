@@ -208,7 +208,7 @@ public static class TableTools
         {
             var format = bold is null && fontSizePoints is null
                 ? null
-                : new CellTextFormat { Bold = bold, FontSizePoints = fontSizePoints };
+                : new TextFormat { Bold = bold, FontSizePoints = fontSizePoints };
             return LayoutEditor.InsertSubtotalRow(
                 doc, parentControlId, ParseRepeaterRowCells(cells, alignments), format);
         });
@@ -331,7 +331,7 @@ public static class TableTools
             var cellList = ParseRepeaterRowCells(cells, alignments);
             var format = bold is null && fontSizePoints is null
                 ? null
-                : new CellTextFormat { Bold = bold, FontSizePoints = fontSizePoints };
+                : new TextFormat { Bold = bold, FontSizePoints = fontSizePoints };
             return TableStructureEditor.InsertStaticRow(doc, part, partName, tableIndex, atRow, cellList, format);
         });
     }

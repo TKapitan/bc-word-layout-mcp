@@ -978,8 +978,8 @@ public static class TableStructureEditor
     /// <exception cref="ArgumentException">
     /// <paramref name="cells"/> is empty or its spans do not sum to the grid column count;
     /// <paramref name="atRow"/> is out of range, or falls between two rows of the same row-level control
-    /// (see <see cref="RejectPositionInsideRowControl"/>); <paramref name="format"/> sets an alignment (per-cell
-    /// alignments belong on <paramref name="cells"/>); the table uses vMerge; or (propagated from
+    /// (see <see cref="RejectPositionInsideRowControl"/>); <paramref name="format"/> has a bad member (see
+    /// <see cref="RunFormatter.Prepare"/>); the table uses vMerge; or (propagated from
     /// <see cref="SdtFactory.BuildStaticRow"/>) a path does not resolve to a leaf column.
     /// </exception>
     /// <exception cref="NotFoundException"><paramref name="tableIndex"/> is out of range for the part.</exception>
@@ -990,7 +990,7 @@ public static class TableStructureEditor
         int tableIndex,
         int? atRow,
         IReadOnlyList<RepeaterRowCell> cells,
-        CellTextFormat? format = null)
+        TextFormat? format = null)
     {
         ArgumentNullException.ThrowIfNull(doc);
         ArgumentNullException.ThrowIfNull(cells);
@@ -1000,17 +1000,7 @@ public static class TableStructureEditor
             throw new ArgumentException("At least one cell spec is required (cells was empty).", nameof(cells));
         }
 
-        if (format?.Alignment is not null)
-        {
-            // Checked HERE rather than left to ApplyControlRunFormat below, which only runs for BOUND
-            // cells: an all-spacer row (a legitimate call — the corpus spacer rows) would otherwise
-            // silently swallow the unsupported knob instead of refusing it.
-            throw new ArgumentException(
-                "alignment is not supported as a row-level format on insert_table_row; pass per-cell "
-                + "alignments alongside the cell specs instead (one 'left'/'center'/'right' or '-' per cell).",
-                nameof(format));
-        }
-
+        var prepared = RunFormatter.Prepare(format, doc);
         var (table, partFile, gridCount) = ResolveTable(doc, part, partName, tableIndex);
         RejectUnsupportedShape(table, "insert_table_row");
 
@@ -1048,7 +1038,7 @@ public static class TableStructureEditor
         var boundControlIds = new List<int>();
         foreach (var sdt in row.Descendants<SdtRun>())
         {
-            LayoutEditor.ApplyControlRunFormat(sdt, format, "insert_table_row");
+            LayoutEditor.ApplyControlRunFormat(sdt, prepared);
             if (SdtInspector.ReadControlId(sdt) is { } id)
             {
                 boundControlIds.Add(id);

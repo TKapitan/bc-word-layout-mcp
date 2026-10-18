@@ -259,8 +259,8 @@ public static class EditTools
     }
 
     /// <summary>Maps the insert tools' optional run-formatting knobs (bold, fontSizePoints) to the domain record (null when both omitted).</summary>
-    private static CellTextFormat? ControlFormat(bool? bold, double? fontSizePoints) =>
-        bold is null && fontSizePoints is null ? null : new CellTextFormat { Bold = bold, FontSizePoints = fontSizePoints };
+    private static TextFormat? ControlFormat(bool? bold, double? fontSizePoints) =>
+        bold is null && fontSizePoints is null ? null : new TextFormat { Bold = bold, FontSizePoints = fontSizePoints };
 
     [McpServerTool(Name = "wrap_in_repeater")]
     [Description("Wrap a run of EXISTING body blocks (paragraphs, tables, block controls) in a BLOCK-level "
@@ -372,10 +372,7 @@ public static class EditTools
         return GuardCellEdit(layoutPath, doc =>
         {
             var location = BuildLocation("tableCell", null, tableIndex, row, col, null, layoutPart, partName);
-            var format = bold is null && alignment is null && fontSizePoints is null
-                ? null
-                : new CellTextFormat { Bold = bold, Alignment = alignment, FontSizePoints = fontSizePoints };
-            return CellTextEditor.SetCellText(doc, location, text, format);
+            return CellTextEditor.SetCellText(doc, location, text, ControlFormat(bold, fontSizePoints), alignment);
         });
     }
 

@@ -64,7 +64,7 @@ public class SubtotalRowTests
                         new RepeaterRowCell { Span = 2, Columns = ["/Header/Line/Description_Line_Lbl"] },
                         new RepeaterRowCell { Span = 1, Columns = ["/Header/Line/AmountExcludingVAT_Line"], Alignment = "right" },
                     ],
-                    new CellTextFormat { Bold = true });
+                    new TextFormat { Bold = true });
 
                 Assert.Empty(new OpenXmlValidator(FileFormatVersions.Office2021).Validate(doc));
                 doc.MainDocumentPart!.Document!.Save();
@@ -303,26 +303,6 @@ public class SubtotalRowTests
                 LayoutEditor.InsertSubtotalRow(doc, repeater.ControlId, [new RepeaterRowCell { Span = 2 }]));
             Assert.Contains("spans sum to 2", ex.Message, StringComparison.Ordinal);
             Assert.Contains("a subtotal row must cover the grid exactly", ex.Message, StringComparison.Ordinal);
-        }
-        finally
-        {
-            File.Delete(path);
-        }
-    }
-
-    [Fact]
-    public void A_row_level_alignment_is_refused_up_front()
-    {
-        var path = CopyOfCorpus(Corpus.SalesInvoice);
-        try
-        {
-            using var doc = WordprocessingDocument.Open(path, true);
-            var repeater = BuildLineRepeater(doc);
-
-            var ex = Assert.Throws<ArgumentException>(() => LayoutEditor.InsertSubtotalRow(
-                doc, repeater.ControlId, [new RepeaterRowCell { Span = 3 }],
-                new CellTextFormat { Alignment = "right" }));
-            Assert.Contains("per-cell alignments", ex.Message, StringComparison.Ordinal);
         }
         finally
         {

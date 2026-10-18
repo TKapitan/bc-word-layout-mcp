@@ -58,22 +58,41 @@ public sealed class EditResult
 }
 
 /// <summary>
-/// Optional formatting for <see cref="BcWordLayout.Domain.CellTextEditor.SetCellText"/>: every null member
-/// means "keep whatever the cell already had" (the pre-format behavior exactly), so a plain re-label never
-/// disturbs existing styling. Needed because a cell in a freshly authored plain table
-/// (<c>insert_table</c>) has NO styling to inherit — caption cells need bold, amount columns need right
-/// alignment, a document title needs a bigger size.
+/// The run formatting every text-creating tool and <c>set_text_format</c> accept, as one record so each member
+/// means the same thing everywhere (GitHub issue #15). Every null member means "keep what the text would
+/// otherwise have": on an insert, the formatting it takes from the text before it (GitHub issue #122); on
+/// <c>set_cell_text</c> and <c>set_text_format</c>, what the text already has. Checked and written by
+/// <see cref="BcWordLayout.Domain.RunFormatter"/>, which documents the OOXML each member writes and the corpus
+/// evidence for it. Alignment is deliberately NOT a member: it belongs to the whole paragraph, so on an inline
+/// insert it would realign the existing line; the tools that own the paragraph take it separately.
 /// </summary>
-public sealed record CellTextFormat
+public sealed record TextFormat
 {
-    /// <summary>True adds bold, false removes it, null keeps the inherited weight.</summary>
+    /// <summary>True makes the text bold, false not bold (overriding a character style's bold), null keeps it.</summary>
     public bool? Bold { get; init; }
 
-    /// <summary><c>left</c>/<c>center</c>/<c>right</c> (case-insensitive); null keeps the inherited alignment.</summary>
-    public string? Alignment { get; init; }
+    /// <summary>True makes the text italic, false not italic (overriding a character style's italic), null keeps it.</summary>
+    public bool? Italic { get; init; }
 
-    /// <summary>Font size in points (4–96, halves allowed); null keeps the inherited size.</summary>
+    /// <summary>True underlines the text with a single line, false removes the underline, null keeps it.</summary>
+    public bool? Underline { get; init; }
+
+    /// <summary>Font size in points (4–96, halves allowed); null keeps the size.</summary>
     public double? FontSizePoints { get; init; }
+
+    /// <summary>A font family name such as <c>Segoe UI</c>; null keeps the font.</summary>
+    public string? FontName { get; init; }
+
+    /// <summary>Text colour as <c>RRGGBB</c> hex (a leading <c>#</c> is accepted) or <c>auto</c>; null keeps it.</summary>
+    public string? Color { get; init; }
+
+    /// <summary>The style id of a CHARACTER style the layout's styles part defines (e.g. <c>Strong</c>); null keeps it.</summary>
+    public string? CharacterStyle { get; init; }
+
+    /// <summary>True when no member is set, so there is nothing to apply.</summary>
+    public bool IsEmpty =>
+        Bold is null && Italic is null && Underline is null && FontSizePoints is null
+        && FontName is null && Color is null && CharacterStyle is null;
 }
 
 /// <summary>

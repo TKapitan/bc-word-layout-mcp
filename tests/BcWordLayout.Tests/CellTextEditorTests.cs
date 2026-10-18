@@ -98,7 +98,7 @@ public class CellTextEditorTests
             using (var doc = WordprocessingDocument.Open(path, true))
             {
                 CellTextEditor.SetCellText(doc, Cell(0, 0, 0), "Order Confirmation",
-                    new CellTextFormat { Bold = true, Alignment = "right", FontSizePoints = 16 });
+                    new TextFormat { Bold = true, FontSizePoints = 16 }, alignment: "right");
                 doc.MainDocumentPart!.Document!.Save();
             }
 
@@ -129,7 +129,7 @@ public class CellTextEditorTests
         {
             using (var doc = WordprocessingDocument.Open(path, true))
             {
-                CellTextEditor.SetCellText(doc, Cell(0, 0, 0), "Plain now", new CellTextFormat { Bold = false });
+                CellTextEditor.SetCellText(doc, Cell(0, 0, 0), "Plain now", new TextFormat { Bold = false });
                 doc.MainDocumentPart!.Document!.Save();
             }
 
@@ -496,7 +496,7 @@ public class CellTextEditorTests
                 Assert.Equal("Logo caption", cleared.PreviousText);
                 Assert.Contains("a picture", cleared.Summary, StringComparison.Ordinal);
 
-                CellTextEditor.SetCellText(doc, Cell(0, 0, 0), "Caption", new CellTextFormat { Bold = true });
+                CellTextEditor.SetCellText(doc, Cell(0, 0, 0), "Caption", new TextFormat { Bold = true });
                 doc.MainDocumentPart!.Document!.Save();
             }
 

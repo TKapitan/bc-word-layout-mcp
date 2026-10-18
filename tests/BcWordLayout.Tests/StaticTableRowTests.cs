@@ -60,7 +60,7 @@ public class StaticTableRowTests
             {
                 result = TableStructureEditor.InsertStaticRow(
                     doc, LayoutPart.Body, null, QuoteLinesTable, atRow: null, TotalsRowCells(),
-                    new CellTextFormat { Bold = true });
+                    new TextFormat { Bold = true });
 
                 // The edit introduces no structural error and no grid desync on this heavily spanned table.
                 Assert.Empty(new OpenXmlValidator(FileFormatVersions.Office2021).Validate(doc));
@@ -228,27 +228,6 @@ public class StaticTableRowTests
                 doc, LayoutPart.Body, null, QuoteLinesTable, atRow: 99,
                 [new RepeaterRowCell { Span = 8 }]));
             Assert.Contains("atRow 99 is out of range", ex.Message, StringComparison.Ordinal);
-        }
-        finally
-        {
-            File.Delete(path);
-        }
-    }
-
-    [Fact]
-    public void A_row_level_alignment_is_refused_even_for_an_all_spacer_row()
-    {
-        // Alignment is per-cell (RepeaterRowCell.Alignment); a row-level one would be silently swallowed
-        // for a spacer row (no controls to style), so it must be refused up front instead.
-        var path = CopyOfCorpus(Corpus.StandardSalesQuote);
-        try
-        {
-            using var doc = WordprocessingDocument.Open(path, true);
-            var ex = Assert.Throws<ArgumentException>(() => TableStructureEditor.InsertStaticRow(
-                doc, LayoutPart.Body, null, QuoteLinesTable, atRow: null,
-                [new RepeaterRowCell { Span = 8 }],
-                new CellTextFormat { Alignment = "right" }));
-            Assert.Contains("per-cell alignments", ex.Message, StringComparison.Ordinal);
         }
         finally
         {
