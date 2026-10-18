@@ -9,6 +9,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **New tool `set_text_format`: restyle text that is already in the layout** (GitHub issue #15).
+  The insert tools only format what they create, so making a stock field blue or a header row bold
+  meant hand-editing the OOXML. `set_text_format` takes the same `format` object, plus an optional
+  alignment, and one of four targets:
+  - `control` (by id, in any part): all of the control's text and its own `w:sdtPr/w:rPr`, which
+    is what Business Central formats the bound value with;
+  - `cell`, or every cell of a `row`: the cell's text outside a nested table, any field or label in
+    it, and the paragraph marks. An empty cell formatted first gives text inserted later the same
+    look;
+  - `text`: exactly one occurrence of a substring, split out of its run when it is only part of one.
+    Text that occurs more than once, or sits inside a data-bound control, is refused.
+
+  Alignment goes on the target's paragraphs, or for an inline control or a text match on the line it
+  sits in. A target given an argument it does not use is refused.
+
 - **New tool `wrap_in_repeater`: repeat body content per record without a table** (GitHub issue
   #31). Repeaters could only be table rows, so two stock shapes could not be authored: a statement
   that gives every customer its own page, and a paragraph per record of a nested item such as the

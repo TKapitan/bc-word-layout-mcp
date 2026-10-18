@@ -95,6 +95,53 @@ public sealed record TextFormat
         && FontName is null && Color is null && CharacterStyle is null;
 }
 
+/// <summary>What <see cref="BcWordLayout.Domain.TextFormatEditor.SetTextFormat"/> formats.</summary>
+public enum TextFormatTargetKind
+{
+    /// <summary>A content control by <c>w:id</c>, in any part: all of its text.</summary>
+    Control,
+
+    /// <summary>One table cell by table/row/col: all of its text, outside any nested table.</summary>
+    Cell,
+
+    /// <summary>Every cell of one table row by table/row.</summary>
+    Row,
+
+    /// <summary>The one place a substring occurs in a part: exactly that text.</summary>
+    Text,
+}
+
+/// <summary>
+/// The target of <see cref="BcWordLayout.Domain.TextFormatEditor.SetTextFormat"/>: a <see cref="Kind"/> plus the
+/// members that kind uses (and no others — see the editor's checks).
+/// </summary>
+public sealed record TextFormatTarget
+{
+    /// <summary>What kind of target this is.</summary>
+    public required TextFormatTargetKind Kind { get; init; }
+
+    /// <summary>For <see cref="TextFormatTargetKind.Control"/>: the control's <c>w:id</c>.</summary>
+    public int? ControlId { get; init; }
+
+    /// <summary>For <see cref="TextFormatTargetKind.Cell"/>/<see cref="TextFormatTargetKind.Row"/>: the 0-based table index.</summary>
+    public int? TableIndex { get; init; }
+
+    /// <summary>For <see cref="TextFormatTargetKind.Cell"/>/<see cref="TextFormatTargetKind.Row"/>: the 0-based row index.</summary>
+    public int? Row { get; init; }
+
+    /// <summary>For <see cref="TextFormatTargetKind.Cell"/>: the 0-based physical cell index within the row.</summary>
+    public int? Col { get; init; }
+
+    /// <summary>For <see cref="TextFormatTargetKind.Text"/>: a substring that occurs exactly once in the part.</summary>
+    public string? SearchText { get; init; }
+
+    /// <summary>The part a cell, row or text target is in; a control is found by id in any part.</summary>
+    public BcWordLayout.Domain.LayoutPart Part { get; init; } = BcWordLayout.Domain.LayoutPart.Body;
+
+    /// <summary>A specific header/footer part file name, as for every other part-addressed tool.</summary>
+    public string? PartName { get; init; }
+}
+
 /// <summary>
 /// Describes a single plain-text table-cell mutation performed by
 /// <see cref="BcWordLayout.Domain.CellTextEditor"/> (<c>set_cell_text</c>/<c>clear_cell_text</c>). Unlike

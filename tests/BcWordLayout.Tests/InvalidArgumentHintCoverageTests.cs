@@ -440,6 +440,24 @@ public class InvalidArgumentHintCoverageTests
         }
     }
 
+    // ---- "target" — EditTools.ParseTextFormatTargetOrThrow and TextFormatEditor's target-shape check ----
+
+    [Fact]
+    public void SetTextFormat_target_missing_its_arguments_hint_lists_each_target_and_what_it_needs()
+    {
+        var path = CopyOfCorpus(Corpus.SalesInvoice);
+        try
+        {
+            var response = EditTools.SetTextFormat(
+                path, "cell", tableIndex: 0, format: new TextFormatArgument { Bold = true });
+            AssertActionableFailure(response, "invalid_argument", "'row' (with tableIndex and row");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     // ---- "alignment" — CellTextEditor.ParseAlignment, from set_cell_text ----
 
     [Fact]

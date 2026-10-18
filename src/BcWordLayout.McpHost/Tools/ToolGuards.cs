@@ -1369,7 +1369,16 @@ internal static class ToolGuards
         "searchtext" =>
             "atText requires a non-empty searchText substring that actually appears in a run of text in the "
             + "document body; inspect the layout's visible text (e.g. via get_layout_info or by opening the "
-            + "file) and retry with an exact substring that is really present.",
+            + "file) and retry with an exact substring that is really present. set_text_format's 'text' target "
+            + "also needs it to occur exactly once in the part, outside any data-bound field/label (format such "
+            + "text with target 'control' and the control's id instead).",
+
+        "target" =>
+            "set_text_format's target must be 'control' (with controlId - any control's w:id from "
+            + "get_layout_info's controls[]; a control is found in any part, so pass no layoutPart/partName), "
+            + "'cell' (with tableIndex, row and col), 'row' (with tableIndex and row - every cell of the row) or "
+            + "'text' (with searchText), and the call must pass only the arguments that target uses. A picture "
+            + "control has no text to format.",
 
         "datasetpath" or "dataitempath" =>
             "The dataset path must name a real column/data item exactly as reported by list_dataset_fields, "

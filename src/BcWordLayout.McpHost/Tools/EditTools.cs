@@ -346,6 +346,82 @@ public static class EditTools
         });
     }
 
+    [McpServerTool(Name = "set_text_format")]
+    [Description("Change the formatting of text that is ALREADY in the layout, without changing the text - "
+                 + "the insert tools only format what they create. target picks what to format: "
+                 + "'control' (controlId, in any part): all of a control's text, including the control's own "
+                 + "formatting that Business Central renders the bound value with - e.g. make a stock "
+                 + "CompanyName field blue; 'cell' (tableIndex, row, col) or 'row' (tableIndex, row - every "
+                 + "cell): all of the cell's text outside a nested table, including any field/label in it, plus "
+                 + "the paragraph marks, so text inserted into an empty cell later takes the formatting too - "
+                 + "e.g. a bold 8 pt header row in one call; 'text' (searchText): exactly that text, split out of "
+                 + "its run if it is only part of one - it must occur exactly once in the part, and text inside a "
+                 + "data-bound control is refused (format the control instead). format is the same object the "
+                 + "insert tools take; alignment ('left'/'center'/'right') goes on the target's paragraphs (for "
+                 + "an inline control or a text match, the whole line it sits in). Pass at least one of them. "
+                 + "layoutPart/partName pick the part for 'cell', 'row' and 'text'. Same "
+                 + "write/validate/save-or-reject safety as insert_field.")]
+    public static ToolResponse SetTextFormat(
+        [Description("Absolute path to the .docx layout file.")] string layoutPath,
+        [Description("What to format: 'control', 'cell', 'row' or 'text' (case-insensitive). Pass only the "
+                     + "arguments that target uses.")] string target,
+        [Description("For target 'control': the control's w:id (get_layout_info's controls[].sdtId).")]
+        int? controlId = null,
+        [Description("For 'cell'/'row': 0-based table index in document order (see get_layout_info's tables[]).")]
+        int? tableIndex = null,
+        [Description("For 'cell'/'row': 0-based row index within the table.")] int? row = null,
+        [Description("For 'cell': 0-based physical cell index within the row (the cell's colIndex).")] int? col = null,
+        [Description("For 'text': the exact text to format (ordinal match); it must occur exactly once in the part.")]
+        string? searchText = null,
+        [Description("The formatting to apply, the same object the insert tools take (bold, italic, underline, "
+                     + "fontSizePoints, fontName, color, characterStyle), e.g. {\"bold\": true}. A member you omit "
+                     + "is left as the text has it.")] TextFormatArgument? format = null,
+        [Description("Optional paragraph alignment 'left'/'center'/'right' for the target's paragraphs.")]
+        string? alignment = null,
+        [Description("For 'cell'/'row'/'text': which part the target is in - 'body' (default), 'header', or "
+                     + "'footer'. A control is found by its id in any part.")] string layoutPart = "body",
+        [Description("Only used when layoutPart is 'header'/'footer': a specific part file name (e.g. "
+                     + "'header2.xml'); omit to target the DEFAULT header/footer part (see get_layout_info's "
+                     + "partDetails for each part's role).")] string? partName = null)
+    {
+        return GuardEdit(layoutPath, doc =>
+        {
+            if (!TryParseLayoutPart(layoutPart, out var part))
+            {
+                throw new ArgumentException(
+                    $"Unknown layoutPart '{layoutPart}'. Use 'body', 'header', or 'footer'.", nameof(layoutPart));
+            }
+
+            var formatTarget = new TextFormatTarget
+            {
+                Kind = ParseTextFormatTargetOrThrow(target),
+                ControlId = controlId,
+                TableIndex = tableIndex,
+                Row = row,
+                Col = col,
+                SearchText = searchText,
+                Part = part,
+                PartName = partName,
+            };
+            return TextFormatEditor.SetTextFormat(doc, formatTarget, TextFormatArgument.ToDomain(format), alignment);
+        });
+    }
+
+    /// <summary>
+    /// Parses <c>set_text_format</c>'s <c>target</c> (case-insensitive). It is required with no default, so an
+    /// explicit JSON <c>null</c> is refused as <c>invalid_argument</c> rather than guessed.
+    /// </summary>
+    private static TextFormatTargetKind ParseTextFormatTargetOrThrow(string? target) => target?.Trim().ToLowerInvariant() switch
+    {
+        "control" => TextFormatTargetKind.Control,
+        "cell" => TextFormatTargetKind.Cell,
+        "row" => TextFormatTargetKind.Row,
+        "text" => TextFormatTargetKind.Text,
+        _ => throw new ArgumentException(
+            (target is null ? "target is required (got null)." : $"Unknown target '{target}'.")
+            + " Use 'control', 'cell', 'row', or 'text'.", nameof(target)),
+    };
+
     [McpServerTool(Name = "clear_cell_text")]
     [Description("Remove all PLAIN TEXT from a table cell, addressed by its 0-based table/row/column index "
                  + "(the SAME indices get_layout_info reports), leaving a valid EMPTY cell. This is the "

@@ -189,8 +189,10 @@ totals table, which is the BC-verified simpler shape [verified: P07]).
 - `format` also takes italic, underline, a font (Segoe UI is what Microsoft's own layouts set on
   nearly every run [stock]), a colour (`0070C0` is the stock accent blue [stock]) and a character
   style the layout defines (`Strong` in the stock document layouts [stock]).
-- Cell shading and restyling content that is already there have no tool: use a branded `templatePath`
-  shell or hand-edit the OOXML and re-validate (al-word-layout §3).
+- Restyle what is already there with `set_text_format`: a stock control by id, a header row in one
+  call (`target="row"`), or one exact piece of text.
+- Cell shading has no tool: use a branded `templatePath` shell or hand-edit the OOXML and re-validate
+  (al-word-layout §3).
 
 ### Widths (twips)
 - Full A4 content width is **10206 twips** with the stock margins. `insert_table`'s default even

@@ -49,8 +49,8 @@ unreliable in a file format where a single misplaced element silently corrupts t
   have never been captured ([#8](https://github.com/TKapitan/bc-word-layout-mcp/issues/8)).
 - **Broad cosmetic formatting** (margins, page setup). Text formatting is supported: one `format` object
   (bold, italic, underline, size, font, colour, character style; issue
-  [#15](https://github.com/TKapitan/bc-word-layout-mcp/issues/15)) on every tool that writes text, plus
-  cell/column `alignment`, because a control inserted into a freshly authored table cell has no styling to
+  [#15](https://github.com/TKapitan/bc-word-layout-mcp/issues/15)) on every tool that writes text and on
+  `set_text_format`, which restyles text already in the layout, plus cell/column `alignment`, because a control inserted into a freshly authored table cell has no styling to
   inherit and would otherwise look obviously wrong. Where there IS
   styling to inherit, inline inserts take the run formatting of the text before them, as typing in Word
   does, so they match a stock layout's own runs without any knob (issue
@@ -185,7 +185,7 @@ alongside the quick checks in `Domain.LayoutValidator`.
 
 ## 4. Tool surface
 
-**27 tools.** The per-parameter reference is the companion skill's §2
+**28 tools.** The per-parameter reference is the companion skill's §2
 ([`skills/al-word-layout/SKILL.md`](../skills/al-word-layout/SKILL.md)); this is the shape and the grouping.
 
 | Group | Tools |
