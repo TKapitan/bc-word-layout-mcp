@@ -1445,6 +1445,17 @@ internal static class ToolGuards
             + "this is set internally by insert_picture, so reaching this message indicates a tool bug "
             + "rather than a mistake in your call.",
 
+        "format" =>
+            "format is one object of optional members: bold, italic and underline (true or false), "
+            + "fontSizePoints (4 to 96, halves allowed), fontName (a font family name such as 'Segoe UI'), color "
+            + "(six hex digits RRGGBB such as '0070C0', or 'auto') and characterStyle (the id of a CHARACTER style "
+            + "the layout's styles part defines - the message above lists them). Omit a member to leave that "
+            + "property as it is.",
+
+        "alignment" =>
+            "alignment must be 'left', 'center' or 'right' (case-insensitive); omit it to keep the paragraph's "
+            + "existing alignment.",
+
         "look" =>
             "insert_repeater_table's look must be 'bc' (the default - no drawn table grid, just a rule under "
             + "the header row, matching every real BC lines table) or 'grid' (an explicit single-line border "

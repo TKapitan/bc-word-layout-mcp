@@ -1026,7 +1026,7 @@ def s18(ctx: Ctx):
     ctx.edit("insert_table_row", tableIndex=2, cells="8:-")  # the stock spacer row
     result = ctx.edit("insert_table_row", tableIndex=2,
                       cells="-,-,-,-,3:/Header/Totals/TotalExcludingVATText,/Header/Totals/TotalSubTotal",
-                      alignments="-,-,-,-,-,right", bold=True)["data"]
+                      alignments="-,-,-,-,-,right", format={"bold": True})["data"]
     ctx.expect("renders exactly once" in result["summary"],
                "summary pins the static (non-repeating) semantics")
 
@@ -1057,13 +1057,13 @@ def s19(ctx: Ctx):
     ctx.edit("insert_subtotal_row", parentControlId=table["controlId"], cells="4:-")
     subtotal = ctx.edit("insert_subtotal_row", parentControlId=table["controlId"],
                         cells="2:-,/Header/Line/AmountExcludingVAT_Line_Lbl,/Header/Line/AmountExcludingVAT_Line",
-                        alignments="-,right,right", bold=True)["data"]
+                        alignments="-,right,right", format={"bold": True})["data"]
     ctx.expect(subtotal["controlId"] == 0, "a static row carries no controlId of its own")
     ctx.expect("once per group" in subtotal["summary"], "summary pins the per-group semantics")
 
     grand = ctx.edit("insert_table_row", tableIndex=table["tableIndex"],
                      cells="2:-,/Header/Totals/TotalIncludingVATText,/Header/Totals/TotalAmountIncludingVAT",
-                     alignments="-,right,right", bold=True)["data"]
+                     alignments="-,right,right", format={"bold": True})["data"]
     ctx.expect("renders exactly once" in grand["summary"], "the grand total is table-static, not per-group")
 
     after = ctx.info()["tables"][table["tableIndex"]]

@@ -182,7 +182,7 @@ public static class TableTools
                  + "label-shaped paths become label controls), 'a+b' chains paths in one cell, optional "
                  + "'N:' span prefix; spans must sum to the parent table's columnCount. Repeated calls "
                  + "stack rows in order - the stock shape is one all-spacer row (e.g. '9:-') then the bold "
-                 + "subtotal row (bold=true, right-aligned amount cells). The GROUP-HEADER half of the "
+                 + "subtotal row (format {\"bold\": true}, right-aligned amount cells). The GROUP-HEADER half of the "
                  + "stock group shape needs no extra call: the repeater's own line row (built by "
                  + "insert_repeater_table) is the per-group header. The response's controlId is 0 (the row "
                  + "is a plain w:tr; its bound cells' ids are in the summary). Same "
@@ -199,18 +199,12 @@ public static class TableTools
         [Description("Optional comma-separated per-cell alignments ('left'/'center'/'right', or '-' to keep "
                      + "the default), one per cell spec - subtotal amounts are right-aligned in the corpus.")]
         string? alignments = null,
-        [Description("Optional: true makes every bound cell's text bold (the corpus subtotal look), false "
-                     + "strips bold; omit to leave the controls unstyled.")] bool? bold = null,
-        [Description("Optional font size in points (4-96, halves allowed) for the bound cells' text; omit "
-                     + "to leave it unstyled.")] double? fontSizePoints = null)
+        [Description(TextFormatArgument.RowDescription)] TextFormatArgument? format = null)
     {
         return GuardEdit(layoutPath, doc =>
         {
-            var format = bold is null && fontSizePoints is null
-                ? null
-                : new TextFormat { Bold = bold, FontSizePoints = fontSizePoints };
             return LayoutEditor.InsertSubtotalRow(
-                doc, parentControlId, ParseRepeaterRowCells(cells, alignments), format);
+                doc, parentControlId, ParseRepeaterRowCells(cells, alignments), TextFormatArgument.ToDomain(format));
         });
     }
 
@@ -299,7 +293,7 @@ public static class TableTools
                  + "(before it) or of the row after its last (after it). Omit atRow to append after the "
                  + "last row, where a totals row goes. The row renders exactly ONCE - it is never part of a "
                  + "repeating section (for "
-                 + "per-group subtotal rows inside a repeater's item, use insert_subtotal_row). Use bold=true "
+                 + "per-group subtotal rows inside a repeater's item, use insert_subtotal_row). Use format {\"bold\": true} "
                  + "for the stock grand-total look and alignments for right-anchored amounts, then "
                  + "set_cell_borders for the rule and set_cell_text for any literal caption. REJECTED for "
                  + "tables using w:vMerge. Same write/validate/save-or-reject safety as insert_field, plus "
@@ -316,10 +310,7 @@ public static class TableTools
         [Description("Optional comma-separated per-cell alignments ('left'/'center'/'right', or '-' to keep "
                      + "the default), one per cell spec - amounts in a BC totals row are right-aligned.")]
         string? alignments = null,
-        [Description("Optional: true makes every bound cell's text bold (the stock grand-total look), false "
-                     + "strips bold; omit to leave the controls unstyled.")] bool? bold = null,
-        [Description("Optional font size in points (4-96, halves allowed) for the bound cells' text; omit "
-                     + "to leave it unstyled.")] double? fontSizePoints = null,
+        [Description(TextFormatArgument.RowDescription)] TextFormatArgument? format = null,
         [Description("Which OOXML part the table is in: 'body' (default), 'header', or 'footer'.")] string layoutPart = "body",
         [Description("Only used when layoutPart is 'header'/'footer': a specific part file name (e.g. "
                      + "'header2.xml'); omit to target the DEFAULT header/footer part (see get_layout_info's "
@@ -329,10 +320,7 @@ public static class TableTools
         {
             var part = ParseLayoutPartOrThrow(layoutPart);
             var cellList = ParseRepeaterRowCells(cells, alignments);
-            var format = bold is null && fontSizePoints is null
-                ? null
-                : new TextFormat { Bold = bold, FontSizePoints = fontSizePoints };
-            return TableStructureEditor.InsertStaticRow(doc, part, partName, tableIndex, atRow, cellList, format);
+            return TableStructureEditor.InsertStaticRow(doc, part, partName, tableIndex, atRow, cellList, TextFormatArgument.ToDomain(format));
         });
     }
 

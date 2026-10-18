@@ -148,7 +148,7 @@ public class PlainTableTests
 
             var response = EditTools.InsertLabel(
                 path, "/Header/ExternalDocumentNo_Lbl", "tableCell",
-                tableIndex: dto.TableIndex, row: 0, col: 0, bold: true, fontSizePoints: 8);
+                tableIndex: dto.TableIndex, row: 0, col: 0, format: new TextFormatArgument { Bold = true, FontSizePoints = 8 });
             Assert.True(response.Ok, response.Error?.Message);
 
             using var reopened = WordprocessingDocument.Open(path, false);

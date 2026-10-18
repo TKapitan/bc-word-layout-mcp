@@ -422,6 +422,41 @@ public class InvalidArgumentHintCoverageTests
         }
     }
 
+    // ---- "format" — RunFormatter.Prepare (a member out of range, malformed, or an undefined style) ----
+
+    [Fact]
+    public void InsertText_bad_format_member_hint_lists_every_member_and_its_values()
+    {
+        var path = CopyOfCorpus(Corpus.SalesInvoice);
+        try
+        {
+            var response = EditTools.InsertText(
+                path, "x", "documentEnd", format: new TextFormatArgument { Color = "blue" });
+            AssertActionableFailure(response, "invalid_argument", "six hex digits RRGGBB");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    // ---- "alignment" — CellTextEditor.ParseAlignment, from set_cell_text ----
+
+    [Fact]
+    public void SetCellText_bad_alignment_hint_names_the_valid_alignments()
+    {
+        var path = SyntheticLayout.Create(SyntheticLayout.SimpleTable(rows: 1, cols: 2));
+        try
+        {
+            var response = EditTools.SetCellText(path, 0, 0, 0, "x", alignment: "middle");
+            AssertActionableFailure(response, "invalid_argument", "'left', 'center' or 'right'");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     // ---- "look" — TableTools.ParseTableBorderLookOrThrow ----
 
     [Fact]

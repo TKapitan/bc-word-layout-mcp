@@ -349,7 +349,7 @@ public class SubtotalRowTests
                 path, tableDto.ControlId,
                 cells: "2:/Header/Line/Description_Line_Lbl,/Header/Line/AmountExcludingVAT_Line",
                 alignments: "-,right",
-                bold: true);
+                format: new TextFormatArgument { Bold = true });
             Assert.True(subtotal.Ok, subtotal.Error?.Message);
             var dto = Assert.IsType<EditResultDto>(subtotal.Data);
             Assert.Equal("insert_subtotal_row", dto.Operation);

@@ -294,7 +294,7 @@ public class StaticTableRowTests
                 QuoteLinesTable,
                 cells: $"-,-,-,-,3:{CaptionPath},{AmountPath}",
                 alignments: "-,-,-,-,-,right",
-                bold: true);
+                format: new TextFormatArgument { Bold = true });
 
             Assert.True(response.Ok, response.Error?.Message);
             var dto = Assert.IsType<TableEditResultDto>(response.Data);

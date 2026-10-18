@@ -137,6 +137,7 @@ internal static class ToolCallBoundary
         }
 
         var arguments = context.Params?.Arguments;
+        DecodeObjectsSentAsStrings(tool, arguments);
         if (RejectUnknownArguments(tool, arguments) is { } unknownArguments)
         {
             return unknownArguments;
@@ -227,9 +228,83 @@ internal static class ToolCallBoundary
             : [];
 
     /// <summary>
+    /// The tool's OBJECT-typed parameters (today the <c>format</c> argument, GitHub issue #15), each with the
+    /// member names its input schema lists — read from the same schema tools/list advertises.
+    /// </summary>
+    private static List<(string Name, List<string> Members)> ObjectParameters(McpServerTool tool)
+    {
+        var objects = new List<(string, List<string>)>();
+        if (!tool.ProtocolTool.InputSchema.TryGetProperty("properties", out var properties)
+            || properties.ValueKind != JsonValueKind.Object)
+        {
+            return objects;
+        }
+
+        foreach (var parameter in properties.EnumerateObject())
+        {
+            if (parameter.Value.ValueKind == JsonValueKind.Object
+                && parameter.Value.TryGetProperty("properties", out var members)
+                && members.ValueKind == JsonValueKind.Object
+                && IsObjectType(parameter.Value))
+            {
+                objects.Add((parameter.Name, members.EnumerateObject().Select(m => m.Name).ToList()));
+            }
+        }
+
+        return objects;
+    }
+
+    private static bool IsObjectType(JsonElement schema) =>
+        schema.TryGetProperty("type", out var type)
+        && (type.ValueKind == JsonValueKind.String
+            ? type.GetString() == "object"
+            : type.ValueKind == JsonValueKind.Array && type.EnumerateArray().Any(t => t.GetString() == "object"));
+
+    /// <summary>
+    /// Replaces an object-typed argument that arrived as a STRING holding a JSON object (<c>"{\"bold\":true}"</c>
+    /// instead of <c>{"bold":true}</c>) with the object itself. Models do send nested objects that way, and the
+    /// string is unambiguous, so reading it is not a guess (ADR-0003); refusing it would only cost the agent a
+    /// round trip. A string that is not a JSON object is left alone for the binder to reject, which
+    /// <see cref="DescribeTypeMismatch"/> then explains.
+    /// </summary>
+    private static void DecodeObjectsSentAsStrings(McpServerTool tool, IDictionary<string, JsonElement>? arguments)
+    {
+        if (arguments is null || arguments.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var (name, _) in ObjectParameters(tool))
+        {
+            if (!arguments.TryGetValue(name, out var value)
+                || value.ValueKind != JsonValueKind.String
+                || value.GetString() is not { } text
+                || !text.TrimStart().StartsWith('{'))
+            {
+                continue;
+            }
+
+            try
+            {
+                using var parsed = JsonDocument.Parse(text);
+                if (parsed.RootElement.ValueKind == JsonValueKind.Object)
+                {
+                    arguments[name] = parsed.RootElement.Clone();
+                }
+            }
+            catch (JsonException)
+            {
+                // Not JSON after all: the binder refuses it, and DescribeTypeMismatch names the argument.
+            }
+        }
+    }
+
+    /// <summary>
     /// Refuses a call carrying any argument key that is not a property of the tool's input schema (matched
-    /// ordinally — argument names are case-sensitive, so <c>layoutpart</c> is unknown, not <c>layoutPart</c>).
-    /// Null when every key is known. See the class remarks for why an ignored key is worse than a refusal.
+    /// ordinally — argument names are case-sensitive, so <c>layoutpart</c> is unknown, not <c>layoutPart</c>),
+    /// or an object argument carrying a member its schema does not list (<c>format.size</c>; the binder would
+    /// drop it just as silently). Null when every key is known. See the class remarks for why an ignored key is
+    /// worse than a refusal.
     /// </summary>
     private static CallToolResult? RejectUnknownArguments(McpServerTool tool, IDictionary<string, JsonElement>? arguments)
     {
@@ -240,20 +315,46 @@ internal static class ToolCallBoundary
 
         var known = SchemaParameters(tool);
         var unknown = arguments.Keys.Where(key => !known.Contains(key, StringComparer.Ordinal)).ToList();
-        if (unknown.Count == 0)
+        if (unknown.Count > 0)
         {
-            return null;
+            var described = unknown.Select(key =>
+                ClosestName(key, known) is { } closest ? $"'{key}' (did you mean '{closest}'?)" : $"'{key}'");
+            return EnvelopeError(
+                ErrorCodes.InvalidArgument,
+                $"{tool.ProtocolTool.Name} has no argument named {string.Join(", ", described)}; the call was refused "
+                + "rather than run as if the argument had not been sent.",
+                "Argument names are case-sensitive and must match the tool's input schema exactly. An unknown name is "
+                + "refused rather than ignored, because a misspelled optional argument would otherwise silently fall "
+                + $"back to its default. {tool.ProtocolTool.Name} takes: {string.Join(", ", known)}.");
         }
 
-        var described = unknown.Select(key =>
-            ClosestName(key, known) is { } closest ? $"'{key}' (did you mean '{closest}'?)" : $"'{key}'");
-        return EnvelopeError(
-            ErrorCodes.InvalidArgument,
-            $"{tool.ProtocolTool.Name} has no argument named {string.Join(", ", described)}; the call was refused "
-            + "rather than run as if the argument had not been sent.",
-            "Argument names are case-sensitive and must match the tool's input schema exactly. An unknown name is "
-            + "refused rather than ignored, because a misspelled optional argument would otherwise silently fall "
-            + $"back to its default. {tool.ProtocolTool.Name} takes: {string.Join(", ", known)}.");
+        foreach (var (name, members) in ObjectParameters(tool))
+        {
+            if (!arguments.TryGetValue(name, out var value) || value.ValueKind != JsonValueKind.Object)
+            {
+                continue;
+            }
+
+            var unknownMembers = value.EnumerateObject()
+                .Select(m => m.Name)
+                .Where(member => !members.Contains(member, StringComparer.Ordinal))
+                .ToList();
+            if (unknownMembers.Count == 0)
+            {
+                continue;
+            }
+
+            var described = unknownMembers.Select(member =>
+                ClosestName(member, members) is { } closest ? $"'{member}' (did you mean '{closest}'?)" : $"'{member}'");
+            return EnvelopeError(
+                ErrorCodes.InvalidArgument,
+                $"{tool.ProtocolTool.Name}'s {name} has no member named {string.Join(", ", described)}; the call was "
+                + "refused rather than run as if the member had not been sent.",
+                $"Member names are case-sensitive and must match the input schema exactly. {name} takes: "
+                + $"{string.Join(", ", members)}.");
+        }
+
+        return null;
     }
 
     /// <summary>
@@ -379,6 +480,11 @@ internal static class ToolCallBoundary
             {
                 JsonSerializer.Deserialize(value, parameter.ParameterType, McpJsonUtilities.DefaultOptions);
             }
+            catch (JsonException) when (value.ValueKind == JsonValueKind.Object
+                                        && DescribeMemberMismatch(tool, parameter, value) is { } memberMismatch)
+            {
+                return memberMismatch;
+            }
             catch (JsonException)
             {
                 var expected = DescribeExpectedJson(parameter.ParameterType);
@@ -396,6 +502,45 @@ internal static class ToolCallBoundary
         return null;
     }
 
+    /// <summary>
+    /// For an object argument that failed binding: the first MEMBER whose value does not read into its property's
+    /// type, reported as <c>format.bold</c> with the JSON shape it needs. Null when every member reads (or the
+    /// object maps to no known properties), so the caller falls back to describing the argument as a whole.
+    /// </summary>
+    private static CallToolResult? DescribeMemberMismatch(McpServerTool tool, ParameterInfo parameter, JsonElement value)
+    {
+        var naming = McpJsonUtilities.DefaultOptions.PropertyNamingPolicy;
+        var properties = parameter.ParameterType.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .ToDictionary(p => naming?.ConvertName(p.Name) ?? p.Name, StringComparer.Ordinal);
+
+        foreach (var member in value.EnumerateObject())
+        {
+            if (!properties.TryGetValue(member.Name, out var property))
+            {
+                continue;
+            }
+
+            try
+            {
+                JsonSerializer.Deserialize(member.Value, property.PropertyType, McpJsonUtilities.DefaultOptions);
+            }
+            catch (JsonException)
+            {
+                var expected = DescribeExpectedJson(property.PropertyType);
+                var path = $"{parameter.Name}.{member.Name}";
+                return EnvelopeError(
+                    ErrorCodes.InvalidArgument,
+                    $"Member '{path}' of {tool.ProtocolTool.Name} must be {expected}, but the call sent "
+                    + $"{DescribeSentJson(member.Value)}.",
+                    $"Re-send the call with '{path}' as {expected} (see the tool's input schema via tools/list). "
+                    + "Numbers and booleans go unquoted (8, true - not \"8\", \"true\"); omit a member to leave "
+                    + "that property as it is.");
+            }
+        }
+
+        return null;
+    }
+
     private static string DescribeExpectedJson(Type type)
     {
         var underlying = Nullable.GetUnderlyingType(type);
@@ -405,10 +550,12 @@ internal static class ToolCallBoundary
             var t when t == typeof(double) || t == typeof(float) || t == typeof(decimal) => "a number",
             var t when t == typeof(bool) => "a boolean (true or false)",
             var t when t == typeof(string) => "a string",
+            var t when t.IsClass => "a JSON object (e.g. {\"bold\": true})",
             var t => $"a JSON value of type {t.Name}",
         };
 
-        return underlying is null ? core : core + " or null";
+        // An object argument (format) is optional and takes null too; only value types say so through their CLR type.
+        return underlying is not null || (type.IsClass && type != typeof(string)) ? core + " or null" : core;
     }
 
     private static string DescribeSentJson(JsonElement value)

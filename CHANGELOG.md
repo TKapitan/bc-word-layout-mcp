@@ -51,6 +51,27 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **BREAKING: one `format` object replaces the `bold` and `fontSizePoints` arguments** (GitHub
+  issue #15) on `insert_field`, `insert_label`, `insert_text`, `insert_page_number`,
+  `set_cell_text`, `insert_table_row` and `insert_subtotal_row`. Each tool described the two
+  options in its own words, and adding more would have meant four more arguments on seven tools.
+  `"bold": true, "fontSizePoints": 8` becomes `"format": {"bold": true, "fontSizePoints": 8}`.
+  The object also takes italic, underline, a font, a colour and a character style, each written in
+  the shape Microsoft's own layouts carry:
+  - `italic`: `w:i` + `w:iCs`, the pair every corpus style definition uses;
+  - `underline`: `w:u w:val="single"`;
+  - `fontName`: `w:rFonts` naming the font for `ascii`/`hAnsi`/`cs`, as nearly every stock run does
+    with Segoe UI;
+  - `color`: `RRGGBB` (a leading `#` is fine) or `auto`;
+  - `characterStyle`: `w:rStyle`, refused unless the layout defines it as a character style (the
+    error lists the ones it does).
+
+  `false` for bold, italic or underline also overrides what a character style supplies. A
+  misspelled member is refused like a misspelled argument, and a `format` sent as a JSON string is
+  read as the object it holds. Alignment stays a separate argument on `set_cell_text`, because it
+  belongs to the whole paragraph. Italic is in the corpus only inside style definitions, so sandbox
+  probe P13 checks the direct form in Business Central.
+
 - **`remove_control keepText=true` on a block-level repeater now unwraps it** instead of refusing
   (GitHub issue #31): section, group and item go at once and the content stays in place, printing
   once. It is the undo of `wrap_in_repeater`, and works on the stock statement and work-description
@@ -78,8 +99,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
   Placeholder styling, tracked-change marks and hidden text are not copied, and pictures are skipped.
   A new control carries the formatting on its `w:sdtPr/w:rPr` too, where stock controls carry it.
-  `bold`/`fontSizePoints` still override it, and `bold=false` now writes `w:b w:val="0"` when the
-  run took over a character style, so it beats a bold style such as `Strong`. The insert summary
+  The `format` argument still overrides it (see *Changed*), and its `"bold": false` writes `w:b
+  w:val="0"` when the run took over a character style, so it beats a bold style such as `Strong`. The insert summary
   names what was taken. An insert that opens a new paragraph, or lands in a fresh `insert_table`
   cell, has nothing to take and is unchanged.
 

@@ -231,7 +231,7 @@ def p01(b: Build):
     b.edit("insert_field", field=Build.pick(all_paths, "/Header/Totals/TotalIncludingVATText"),
            locationType="tableCell", tableIndex=tot_idx, row=0, col=0)
     b.edit("insert_field", field=Build.pick(all_paths, "/Header/Totals/TotalAmountIncludingVAT"),
-           locationType="tableCell", tableIndex=tot_idx, row=0, col=1, bold=True)
+           locationType="tableCell", tableIndex=tot_idx, row=0, col=1, format={"bold": True})
     b.edit("set_cell_borders", tableIndex=tot_idx, row=0, edges="top", size=4)
     b.note("right-anchored totals block with a 1/2pt rule above it (set_cell_borders)")
 
@@ -485,7 +485,7 @@ def p05(b: Build):
     base=None, schema="StandardPurchaseOrder.docx",
     purpose="A second from-scratch build (issue #3's fix made blank builds ship a styles part pinning "
             "Calibri 11pt plus a TableGrid definition), exercising exactly the typography surface P01 "
-            "does not: an explicit tableStyle reference and explicit fontSizePoints/bold static text on "
+            "does not: an explicit tableStyle reference and explicit format bold/size static text on "
             "top of the pinned default font.",
     asks=[
         "TYPOGRAPHY (issue #3): does the whole document render in the SAME typeface and size in BC as "
@@ -493,7 +493,7 @@ def p05(b: Build):
         "The line table references the scaffolded TableGrid STYLE (w:tblStyle) rather than direct "
         "border formatting - does BC honour the style and draw the full 1/2pt grid the mock shows?",
         "The two static text runs above the lines are 16pt bold and default-size respectively "
-        "(insert_text fontSizePoints/bold on top of the pinned base font) - do both sizes match the mock?",
+        "(insert_text format bold/size on top of the pinned base font) - do both sizes match the mock?",
         "Do the address block, info grid, logo placeholder and totals all carry real data, as P01's did?",
     ],
     bc_steps=[
@@ -543,10 +543,10 @@ def p06(b: Build):
     # The typography knobs on top of the pinned default: a 16pt bold section title and a default-size
     # note, both plain static runs - the sizes are the ask, the text is just a carrier.
     b.edit("insert_text", text="ORDER LINES", locationType="documentEnd",
-           bold=True, fontSizePoints=16)
+           format={"bold": True, "fontSizePoints": 16})
     b.edit("insert_text", text="All prices are in the order currency, excluding VAT.",
            locationType="documentEnd")
-    b.note("insert_text twice: 'ORDER LINES' at 16pt bold + a default-size note (fontSizePoints/bold "
+    b.note("insert_text twice: 'ORDER LINES' at 16pt bold + a default-size note (format bold/size "
            "on top of the pinned Calibri 11pt base)")
 
     # The line repeater, styled via the scaffolded TableGrid STYLE - a reference that resolved to
@@ -567,7 +567,7 @@ def p06(b: Build):
     b.edit("insert_field", field=Build.pick(all_paths, "/Purchase_Header/Totals/TotalInclVATText"),
            locationType="tableCell", tableIndex=tot_idx, row=0, col=0)
     b.edit("insert_field", field=Build.pick(all_paths, "/Purchase_Header/Totals/TotalAmountInclVAT"),
-           locationType="tableCell", tableIndex=tot_idx, row=0, col=1, bold=True)
+           locationType="tableCell", tableIndex=tot_idx, row=0, col=1, format={"bold": True})
     b.edit("set_cell_borders", tableIndex=tot_idx, row=0, edges="top", size=4)
     b.note("right-anchored totals block with a 1/2pt rule above it (set_cell_borders)")
 
@@ -650,7 +650,7 @@ def p07(b: Build):
     b.edit("insert_label", label=Build.pick(all_paths, "/Labels/TotalsCaption"),
            locationType="tableCell", tableIndex=tot_idx, row=0, col=0)
     b.edit("insert_field", field=Build.pick(all_paths, "/Totals/Totals_SalesCommission"),
-           locationType="tableCell", tableIndex=tot_idx, row=0, col=1, bold=True)
+           locationType="tableCell", tableIndex=tot_idx, row=0, col=1, format={"bold": True})
     b.edit("set_cell_borders", tableIndex=tot_idx, row=0, edges="top", size=4)
     b.note("right-anchored totals block: TotalsCaption LABEL + total sales commission FIELD, "
            "1/2pt rule above")
