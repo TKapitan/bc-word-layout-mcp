@@ -106,7 +106,7 @@ public sealed class McpHostPipelineTests(McpHostPipeline pipeline) : IClassFixtu
     [InlineData("insert_field", """ "field":"/Header/CustomerAddress1","locationType":"tableCell","tableIndex":"abc" """, "tableIndex", "an integer or null", "the string \"abc\"")]
     [InlineData("remove_control", """ "controlId":1,"keepText":"true" """, "keepText", "a boolean (true or false)", "the string \"true\"")]
     [InlineData("insert_table", """ "rows":1.5,"columns":2,"locationType":"documentEnd" """, "rows", "an integer", "the number 1.5")]
-    [InlineData("set_cell_borders", """ "tableIndex":0,"row":0,"edges":"top","size":null """, "size", "an integer", "null")]
+    [InlineData("set_cell_format", """ "tableIndex":0,"row":0,"edges":"top","borderSize":"thick" """, "borderSize", "an integer or null", "the string \"thick\"")]
     [InlineData("remove_control", """ "controlId":[1] """, "controlId", "an integer", "an array")]
     public async Task A_wrong_typed_argument_is_invalid_argument_naming_the_parameter_and_its_type(
         string tool, string otherArguments, string parameter, string expected, string sent)
@@ -135,7 +135,7 @@ public sealed class McpHostPipelineTests(McpHostPipeline pipeline) : IClassFixtu
 
     [Theory]
     [InlineData("insert_repeater_table", """ "dataItem":"/Header/Line","columns":"ItemNo_Line","locationType":"documentEnd","look":null """)]
-    [InlineData("set_cell_borders", """ "tableIndex":0,"row":0,"edges":"top","style":null """)]
+    [InlineData("set_cell_format", """ "tableIndex":0,"row":0,"edges":"top","borderStyle":null """)]
     [InlineData("validate_layout", """ "level":null """)]
     public async Task An_explicit_null_for_an_optional_enum_like_string_is_its_documented_default(
         string tool, string otherArguments)
@@ -284,7 +284,7 @@ public sealed class McpHostPipelineTests(McpHostPipeline pipeline) : IClassFixtu
     [Theory]
     [InlineData("insert_text", """ "text":"x","locationType":"documentEnd","layoutpart":"footer" """, "layoutpart", "layoutPart")]
     [InlineData("insert_column", """ "tableIndex":0,"mode":"plainText","atcolumn":0 """, "atcolumn", "atColumn")]
-    [InlineData("set_cell_borders", """ "tableIndex":0,"row":0,"edges":"top","column":1 """, "column", "col")]
+    [InlineData("set_cell_format", """ "tableIndex":0,"row":0,"edges":"top","column":1 """, "column", "col")]
     [InlineData("insert_field", """ "field":"/Header/CustomerAddress1","locationType":"tableCell","tableIndex":0,"row":0,"col":0,"tabelIndex":1 """, "tabelIndex", "tableIndex")]
     public async Task An_unknown_argument_name_is_refused_naming_the_closest_real_parameter_and_nothing_is_written(
         string tool, string otherArguments, string sent, string meant)

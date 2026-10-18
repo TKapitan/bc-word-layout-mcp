@@ -232,15 +232,15 @@ def p01(b: Build):
            locationType="tableCell", tableIndex=tot_idx, row=0, col=0)
     b.edit("insert_field", field=Build.pick(all_paths, "/Header/Totals/TotalAmountIncludingVAT"),
            locationType="tableCell", tableIndex=tot_idx, row=0, col=1, format={"bold": True})
-    b.edit("set_cell_borders", tableIndex=tot_idx, row=0, edges="top", size=4)
-    b.note("right-anchored totals block with a 1/2pt rule above it (set_cell_borders)")
+    b.edit("set_cell_format", tableIndex=tot_idx, row=0, edges="top", borderSize=4)
+    b.note("right-anchored totals block with a 1/2pt rule above it (set_cell_format)")
 
 
 @item(
     id="p02", title="Line table restructured on a real base-app layout",
     report="1306 - Standard Sales Invoice", base="SalesInvoiceForSubscriptionBilling.docx",
     purpose="The table-structure tools (insert_column, set_column_widths, set_cell_text, "
-            "set_cell_borders) applied to the line-items table of a stock layout.",
+            "set_cell_format) applied to the line-items table of a stock layout.",
     asks=[
         "Does the added Unit of Measure column carry data in BC, in the right place?",
         "Are the re-widened columns proportioned in the BC render the way the mock shows them?",
@@ -290,8 +290,8 @@ def p02(b: Build):
     b.note("remove_control + set_cell_text: the new column's header swapped from a bound label to "
            "static 'UoM' text (so the render shows a bound header and a static one side by side)")
 
-    b.edit("set_cell_borders", tableIndex=idx, row=0, edges="bottom", size=4)
-    b.note("set_cell_borders: 1/2pt rule under the header row")
+    b.edit("set_cell_format", tableIndex=idx, row=0, edges="bottom", borderSize=4)
+    b.note("set_cell_format: 1/2pt rule under the header row")
 
 
 @item(
@@ -476,8 +476,8 @@ def p05(b: Build):
     b.note("remove_control + merge_cells: the second header cell's label removed, then the first two "
            "header cells merged into one spanning cell")
 
-    b.edit("set_cell_borders", tableIndex=idx, row=0, edges="bottom", size=4)
-    b.note("set_cell_borders: 1/2pt rule under the header row")
+    b.edit("set_cell_format", tableIndex=idx, row=0, edges="bottom", borderSize=4)
+    b.note("set_cell_format: 1/2pt rule under the header row")
 
 
 @item(
@@ -568,8 +568,8 @@ def p06(b: Build):
            locationType="tableCell", tableIndex=tot_idx, row=0, col=0)
     b.edit("insert_field", field=Build.pick(all_paths, "/Purchase_Header/Totals/TotalAmountInclVAT"),
            locationType="tableCell", tableIndex=tot_idx, row=0, col=1, format={"bold": True})
-    b.edit("set_cell_borders", tableIndex=tot_idx, row=0, edges="top", size=4)
-    b.note("right-anchored totals block with a 1/2pt rule above it (set_cell_borders)")
+    b.edit("set_cell_format", tableIndex=tot_idx, row=0, edges="top", borderSize=4)
+    b.note("right-anchored totals block with a 1/2pt rule above it (set_cell_format)")
 
 
 @item(
@@ -651,7 +651,7 @@ def p07(b: Build):
            locationType="tableCell", tableIndex=tot_idx, row=0, col=0)
     b.edit("insert_field", field=Build.pick(all_paths, "/Totals/Totals_SalesCommission"),
            locationType="tableCell", tableIndex=tot_idx, row=0, col=1, format={"bold": True})
-    b.edit("set_cell_borders", tableIndex=tot_idx, row=0, edges="top", size=4)
+    b.edit("set_cell_format", tableIndex=tot_idx, row=0, edges="top", borderSize=4)
     b.note("right-anchored totals block: TotalsCaption LABEL + total sales commission FIELD, "
            "1/2pt rule above")
 

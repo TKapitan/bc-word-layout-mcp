@@ -4,7 +4,7 @@ The reference script for from-scratch document authoring, using the full 2026-07
 create_layout -> title band with a company-logo picture placeholder (insert_picture) -> plain
 address/info tables (insert_table) filled with bound fields/labels (bold 8pt captions) -> a
 BC-native-look lines repeater (no grid, header rule) with right-aligned numeric columns -> a
-right-anchored totals block with real rules (set_cell_borders) -> content in REAL header/footer
+right-anchored totals block with real rules (set_cell_format) -> content in REAL header/footer
 parts (auto-scaffolded) -> an interior-position insert_column -> a NESTED AssemblyLine repeater
 expanding once per line. Requires the Release build (dotnet build -c Release). Output:
 preview-output/from-scratch-order-conf/SalesOrderConfirmation.docx (preview it with preview_layout).
@@ -107,8 +107,8 @@ for row, caption, amount, emphasize in totals:
          tableIndex=TOTALS_TABLE, row=row, col=2, format={"bold": emphasize})
 # The rules a real BC totals block carries: one above the block, one above and below the grand total.
 for col in (1, 2):
-    edit("set_cell_borders", tableIndex=TOTALS_TABLE, row=0, col=col, edges="top")
-    edit("set_cell_borders", tableIndex=TOTALS_TABLE, row=2, col=col, edges="top,bottom")
+    edit("set_cell_format", tableIndex=TOTALS_TABLE, row=0, col=col, edges="top")
+    edit("set_cell_format", tableIndex=TOTALS_TABLE, row=2, col=col, edges="top,bottom")
 print("totals + rules")
 if THROUGH < 8: sys.exit(0)
 

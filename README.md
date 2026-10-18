@@ -203,7 +203,7 @@ other tool is conversion-free and works everywhere the server runs.
 | `remove_column` | Remove a whole grid column — addressed by the `gridColumn` `get_layout_info` reports for its cells, not their `colIndex`: drops each row's covering cell (a bound cell too) or decrements its `gridSpan`, and removes the `w:gridCol`. The summary says per row which of the two happened. |
 | `merge_cells` | Horizontally merge a run of adjacent cells in one row into a single `gridSpan` cell (keeps the first cell's content). |
 | `split_cells` | Horizontally split one spanned cell back into single-column cells. |
-| `set_cell_borders` | Draw (or clear) the per-cell rules a BC document's look is actually made of — a line above a totals row, an underline on one cell — on a whole row or one cell. |
+| `set_cell_format` | Set the appearance of a whole row's cells, or one cell: the per-cell rules a BC document's look is actually made of (a line above a totals row, an underline on one cell) and/or a fill colour (a shaded header row). |
 | `refresh_xml_part` | Update a layout's BC dataset XML part to a new schema in place; remaps/orphans bindings, re-points any binding left naming a foreign report's namespace (which BC refuses to upload), and reports newly-unbound fields. Also the repair for a dataset part that no longer parses (`validate_layout` names the part and the parser error). |
 
 ### Response envelope
@@ -228,7 +228,7 @@ inspection tool to call first). Nothing throws across the MCP boundary. The 22 m
 (`insert_field`, `insert_label`, `insert_text`, `insert_page_number`, `insert_picture`, `insert_table`,
 `insert_repeater_table`, `insert_repeater_row`, `insert_subtotal_row`, `insert_table_row`,
 `wrap_in_repeater`, `remove_control`, `set_cell_text`, `set_text_format`, `clear_cell_text`, `set_column_widths`, `insert_column`,
-`remove_column`, `merge_cells`, `split_cells`, `set_cell_borders`, `refresh_xml_part`) additionally run
+`remove_column`, `merge_cells`, `split_cells`, `set_cell_format`, `refresh_xml_part`) additionally run
 `OpenXmlValidator` *before* saving — a write that would introduce a **new** structural error is
 rejected (`edit_would_corrupt`) and the file on disk is left untouched. Every one of them is also
 checked by a grid-consistency guard that rejects (`edit_would_break_table`, file untouched) any edit
@@ -324,11 +324,11 @@ Error `message`/`hint` texts are not part of the contract — never parse them.
   grid-column-addressed, guarded against desyncing a row from its `w:tblGrid`; rows skipping grid
   columns via `w:gridBefore`/`w:gridAfter` are handled). Still deferred and refused with a clear
   message, pending real-add-in OOXML capture: any table using **vertical merges** (`w:vMerge`) —
-  except `set_cell_borders`, which is cosmetic and accepts them. See
+  except `set_cell_format`, which is cosmetic and accepts them. See
   [issue #9](https://github.com/TKapitan/bc-word-layout-mcp/issues/9).
 - **Cosmetic formatting** (margins, styles/branding) — no dedicated tool beyond the `format` object
   (bold, italic, underline, size, font, colour, character style) and the alignment arguments on the
-  cell and insert tools, `set_text_format` to restyle text already in the layout, `set_cell_borders`' per-cell rules, and the
+  cell and insert tools, `set_text_format` to restyle text already in the layout, `set_cell_format`'s per-cell rules and fills, and the
   deterministic default typography a blank `create_layout` ships (Calibri 11 pt via its scaffolded
   styles part); restyle via `create_layout`'s `templatePath` or hand-edit the OOXML directly, then run
   `validate_layout` to confirm the edit didn't break structure or bindings. Restyling in **Word** is

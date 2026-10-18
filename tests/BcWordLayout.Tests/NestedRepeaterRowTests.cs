@@ -391,7 +391,7 @@ public class NestedRepeaterRowTests
         {
             // Row 6 is the /Item item's subtotal row; its cell 2 is a plain, empty cell.
             Assert.True(EditTools.SetCellText(path, tableIndex: 0, row: 6, col: 2, text: "Subtotal").Ok);
-            Assert.True(TableTools.SetCellBorders(path, tableIndex: 0, row: 6, edges: "top").Ok);
+            Assert.True(TableTools.SetCellFormat(path, tableIndex: 0, row: 6, edges: "top").Ok);
             Assert.True(TableTools.MergeCells(path, tableIndex: 0, row: 6, fromColumn: 2, toColumn: 3).Ok);
 
             using var doc = WordprocessingDocument.Open(path, false);

@@ -87,6 +87,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   belongs to the whole paragraph. Italic is in the corpus only inside style definitions, so sandbox
   probe P13 checks the direct form in Business Central.
 
+- **BREAKING: `set_cell_format` replaces `set_cell_borders`, and adds a cell fill** (GitHub issue
+  #15). Rules and fill are both cell appearance, so they share one tool:
+  - `edges` is unchanged;
+  - `style` and `size` are renamed `borderStyle` and `borderSize`, and are refused without `edges`;
+  - the new `fill` takes `RRGGBB` (a leading `#` is fine) or `auto` for none. It is written as
+    `w:shd w:val="clear" w:color="auto" w:fill="…"`, the shape of the stock fills (`E8E8E8` and
+    `0070C0`, in four layouts).
+
+  Pass `edges`, `fill`, or both. The `set_cell_borders` fixes listed under *Fixed* below apply to
+  `set_cell_format`.
+
 - **`remove_control keepText=true` on a block-level repeater now unwraps it** instead of refusing
   (GitHub issue #31): section, group and item go at once and the content stays in place, printing
   once. It is the undo of `wrap_in_repeater`, and works on the stock statement and work-description

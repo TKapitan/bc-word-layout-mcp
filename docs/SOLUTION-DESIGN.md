@@ -194,7 +194,7 @@ alongside the quick checks in `Domain.LayoutValidator`.
 | Validate | `validate_layout` (`quick` \| `full`) |
 | Preview | `preview_layout`, `render_preview_pages` |
 | Author | `create_layout`, `insert_field`, `insert_label`, `insert_text`, `insert_page_number`, `insert_picture`, `insert_table`, `insert_repeater_table`, `insert_repeater_row`, `insert_subtotal_row`, `wrap_in_repeater` |
-| Table structure | `insert_table_row`, `insert_column`, `remove_column`, `set_column_widths`, `merge_cells`, `split_cells`, `set_cell_text`, `clear_cell_text`, `set_cell_borders` |
+| Table structure | `insert_table_row`, `insert_column`, `remove_column`, `set_column_widths`, `merge_cells`, `split_cells`, `set_cell_text`, `clear_cell_text`, `set_cell_format` |
 | Lifecycle | `remove_control`, `refresh_xml_part` |
 
 Conventions that hold across the surface:

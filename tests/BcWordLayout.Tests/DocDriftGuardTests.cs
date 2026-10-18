@@ -65,7 +65,7 @@ public class DocDriftGuardTests
         // Pins the derivations above, so a broken scan cannot make every later test pass vacuously.
         Assert.Equal(28, LiveTools.Value.Count);
         Assert.Contains("insert_field", MutatingTools.Value);
-        Assert.Contains("set_cell_borders", MutatingTools.Value);
+        Assert.Contains("set_cell_format", MutatingTools.Value);
         Assert.Contains("refresh_xml_part", MutatingTools.Value);
         Assert.DoesNotContain("get_layout_info", MutatingTools.Value);
         Assert.DoesNotContain("preview_layout", MutatingTools.Value);

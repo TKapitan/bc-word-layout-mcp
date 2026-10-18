@@ -624,7 +624,7 @@ internal static class ToolGuards
     /// <summary>
     /// Thin <see cref="GuardMutate{TResult}"/> instantiation for <see cref="TableTools"/>'s table-STRUCTURE
     /// tools (<c>insert_table</c>, <c>insert_table_row</c>, <c>set_column_widths</c>, <c>insert_column</c>,
-    /// <c>remove_column</c>, <c>merge_cells</c>, <c>split_cells</c>, <c>set_cell_borders</c>), building
+    /// <c>remove_column</c>, <c>merge_cells</c>, <c>split_cells</c>, <c>set_cell_format</c>), building
     /// <see cref="TableEditResultDto"/>. Same save-or-reject safety and
     /// post-edit QuickValidation guarantee as <see cref="GuardEdit"/>/<see cref="GuardCellEdit"/>, plus the
     /// <see cref="TableGridConsistencyGuard"/> backstop <see cref="GuardMutate{TResult}"/> now runs for every
@@ -1471,14 +1471,19 @@ internal static class ToolGuards
             + "on every edge and between every cell).",
 
         "edges" =>
-            "set_cell_borders' edges must be a comma-separated list of 'top', 'bottom', 'left', 'right' (or "
-            + "'all') naming at least one edge - e.g. edges='top' for the rule above a totals row. Edges you "
-            + "do not name keep whatever they already had.",
+            "set_cell_format changes rules (edges), a fill, or both - pass at least one. edges is a "
+            + "comma-separated list of 'top', 'bottom', 'left', 'right' (or 'all') naming at least one edge - "
+            + "e.g. edges='top' for the rule above a totals row; borderStyle/borderSize only apply with it. Edges "
+            + "you do not name keep whatever they already had.",
 
-        "style" or "size" =>
-            "set_cell_borders' style must be 'single' (draw a line) or 'none' (explicitly clear the named "
-            + "edges), and size is the rule thickness in EIGHTHS of a point between 2 and 96 - the BC "
+        "borderstyle" or "bordersize" =>
+            "set_cell_format's borderStyle must be 'single' (draw a line) or 'none' (explicitly clear the named "
+            + "edges), and borderSize is the rule thickness in EIGHTHS of a point between 2 and 96 - the BC "
             + "standard is 4 (½ pt), which is also the default.",
+
+        "fill" =>
+            "set_cell_format's fill is the cell's background colour: six hex digits RRGGBB, e.g. 'E8E8E8' (the "
+            + "stock light grey) or '0070C0' (the stock blue), a leading '#' is fine - or 'auto' for no fill.",
 
         "mode" =>
             "insert_column's mode must be 'field', 'label', or 'plainText'. 'field'/'label' require a dataPath "

@@ -493,15 +493,15 @@ public class InvalidArgumentHintCoverageTests
         }
     }
 
-    // ---- "edges" / "style" / "size" — TableTools.ParseCellBorderOptionsOrThrow + TableStructureEditor.SetCellBorders ----
+    // ---- "edges" / "borderstyle" / "bordersize" — TableTools.ParseCellBorderOptionsOrThrow + TableStructureEditor.SetCellFormat ----
 
     [Fact]
-    public void SetCellBorders_bad_edges_hint_names_the_valid_edges()
+    public void SetCellFormat_bad_edges_hint_names_the_valid_edges()
     {
         var path = SyntheticLayout.Create(SyntheticLayout.SimpleTable(rows: 2, cols: 3));
         try
         {
-            var response = TableTools.SetCellBorders(path, tableIndex: 0, row: 0, edges: "sideways");
+            var response = TableTools.SetCellFormat(path, tableIndex: 0, row: 0, edges: "sideways");
             AssertActionableFailure(response, "invalid_argument", "'bottom'");
         }
         finally
@@ -511,13 +511,30 @@ public class InvalidArgumentHintCoverageTests
     }
 
     [Fact]
-    public void SetCellBorders_bad_size_hint_names_the_eighths_of_a_point_range()
+    public void SetCellFormat_bad_size_hint_names_the_eighths_of_a_point_range()
     {
         var path = SyntheticLayout.Create(SyntheticLayout.SimpleTable(rows: 2, cols: 3));
         try
         {
-            var response = TableTools.SetCellBorders(path, tableIndex: 0, row: 0, edges: "top", size: 0);
+            var response = TableTools.SetCellFormat(path, tableIndex: 0, row: 0, edges: "top", borderSize: 0);
             AssertActionableFailure(response, "invalid_argument", "eighths of a point");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    // ---- "fill" — RunFormatter.NormalizeColor, from TableStructureEditor.SetCellFormat ----
+
+    [Fact]
+    public void SetCellFormat_bad_fill_hint_names_the_colour_forms()
+    {
+        var path = SyntheticLayout.Create(SyntheticLayout.SimpleTable(rows: 2, cols: 3));
+        try
+        {
+            var response = TableTools.SetCellFormat(path, tableIndex: 0, row: 0, fill: "grey");
+            AssertActionableFailure(response, "invalid_argument", "'E8E8E8' (the stock light grey)");
         }
         finally
         {

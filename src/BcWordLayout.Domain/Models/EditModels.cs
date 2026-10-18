@@ -275,7 +275,7 @@ public enum TableBorderLook
     /// <summary>
     /// The BC-native look (default): no table-level border grid, one ½-pt rule under the header row. The
     /// remaining rules a real BC document has (above a totals block, say) are per-cell decisions the author
-    /// makes afterwards with <c>set_cell_borders</c>.
+    /// makes afterwards with <c>set_cell_format</c>.
     /// </summary>
     Bc,
 
@@ -288,7 +288,7 @@ public enum TableBorderLook
 }
 
 /// <summary>
-/// Which edges of a table cell <see cref="BcWordLayout.Domain.TableStructureEditor.SetCellBorders"/> should
+/// Which edges of a table cell <see cref="BcWordLayout.Domain.TableStructureEditor.SetCellFormat"/> should
 /// draw (or clear), and how thick. This is the per-cell half of the BC table look (see
 /// <see cref="TableBorderLook"/>): the rule under a header row, the rule above a totals block, an underline on one
 /// summary cell. <see cref="Remove"/> flips the meaning of the selected edges from "draw" to "clear".

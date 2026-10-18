@@ -324,7 +324,7 @@ public static class TextFormatEditor
     }
 
     /// <summary>
-    /// Every physical cell of one row, the same walk <c>set_cell_borders</c> makes (a cell-level control wrapping
+    /// Every physical cell of one row, the same walk <c>set_cell_format</c> makes (a cell-level control wrapping
     /// nothing has no cell to format and is skipped).
     /// </summary>
     private static (List<TableCell> Cells, string Part) RowCells(

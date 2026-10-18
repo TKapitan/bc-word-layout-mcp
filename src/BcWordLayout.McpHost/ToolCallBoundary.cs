@@ -60,7 +60,7 @@ namespace BcWordLayout.McpHost;
 /// <list type="bullet">
 /// <item>UNKNOWN ARGUMENT NAMES. The generated input schemas do not set <c>additionalProperties:false</c> and
 /// the binder ignores keys it has no parameter for, so a misspelled OPTIONAL argument (<c>layoutpart</c>,
-/// <c>atcolumn</c>, remove_column's <c>column</c> sent to set_cell_borders, whose parameter is <c>col</c>)
+/// <c>atcolumn</c>, remove_column's <c>column</c> sent to set_cell_format, whose parameter is <c>col</c>)
 /// silently fell back to its default and the call "succeeded" doing something the agent did not ask for.
 /// Every key must now be a property of the tool's input schema; the refusal names the closest real
 /// parameter (<see cref="ClosestName"/>) and lists them all.</item>
