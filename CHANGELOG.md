@@ -39,6 +39,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   a repeater in the range over data outside the item, and a range with nothing bound under the item.
   The tool-written shapes have no BC sandbox render yet.
 
+- **New `validate_layout` check `character-style-resolves` (warning)** (GitHub issue #15), the
+  run-level twin of `table-style-resolves`. A `w:rStyle` naming a style the layout does not define,
+  or a paragraph style rather than a character style, silently does nothing, so text the author
+  believes is styled renders in its defaults. The tools refuse to write such a reference; this
+  catches one left by a hand edit or a template that lost the style. No corpus layout trips it.
+
 - **New `validate_layout` check `top-level-repeater-group` (error).** A block-level repeating
   section bound directly to the top-level data item (e.g. the whole invoice body wrapped in a
   repeater over `/Header`) makes Business Central print an EMPTY document unless its
