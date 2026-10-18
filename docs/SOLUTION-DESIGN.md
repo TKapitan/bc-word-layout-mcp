@@ -47,11 +47,12 @@ unreliable in a file format where a single misplaced element silently corrupts t
   `#BC:HideTableIfEmpty`, which the table tools see through ([#85](https://github.com/TKapitan/bc-word-layout-mcp/issues/85)). Authoring them waits on a
   sandbox check of what BC treats as empty ([#123](https://github.com/TKapitan/bc-word-layout-mcp/issues/123)). *Hide Field if Zero* and layout comments
   have never been captured ([#8](https://github.com/TKapitan/bc-word-layout-mcp/issues/8)).
-- **Broad cosmetic formatting** (margins, page setup). Text formatting is supported: one `format` object
-  (bold, italic, underline, size, font, colour, character style; issue
-  [#15](https://github.com/TKapitan/bc-word-layout-mcp/issues/15)) on every tool that writes text and on
-  `set_text_format`, which restyles text already in the layout, plus cell/column `alignment`, because a control inserted into a freshly authored table cell has no styling to
-  inherit and would otherwise look obviously wrong. Where there IS
+- **Broad cosmetic formatting** (margins, page setup, branding). Text and cell formatting are supported
+  (issue [#15](https://github.com/TKapitan/bc-word-layout-mcp/issues/15)): one `format` object (bold,
+  italic, underline, size, font, colour, character style) on every tool that writes text,
+  `set_text_format` to restyle text already in the layout, cell/column `alignment`, and
+  `set_cell_format` for cell rules and fills. A control inserted into a freshly authored table cell has
+  no styling to inherit and would otherwise look obviously wrong. Where there IS
   styling to inherit, inline inserts take the run formatting of the text before them, as typing in Word
   does, so they match a stock layout's own runs without any knob (issue
   [#122](https://github.com/TKapitan/bc-word-layout-mcp/issues/122)). Anything beyond that stays a

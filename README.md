@@ -326,11 +326,12 @@ Error `message`/`hint` texts are not part of the contract — never parse them.
   message, pending real-add-in OOXML capture: any table using **vertical merges** (`w:vMerge`) —
   except `set_cell_format`, which is cosmetic and accepts them. See
   [issue #9](https://github.com/TKapitan/bc-word-layout-mcp/issues/9).
-- **Cosmetic formatting** (margins, styles/branding) — no dedicated tool beyond the `format` object
-  (bold, italic, underline, size, font, colour, character style) and the alignment arguments on the
-  cell and insert tools, `set_text_format` to restyle text already in the layout, `set_cell_format`'s per-cell rules and fills, and the
-  deterministic default typography a blank `create_layout` ships (Calibri 11 pt via its scaffolded
-  styles part); restyle via `create_layout`'s `templatePath` or hand-edit the OOXML directly, then run
+- **Cosmetic formatting beyond text and cells** (margins, page setup, styles/branding) — no dedicated
+  tool. Text has the `format` object (bold, italic, underline, size, font, colour, character style) on
+  every tool that writes it, plus `set_text_format` to restyle text already in the layout; cells have
+  the alignment arguments and `set_cell_format`'s rules and fills; and a blank `create_layout` ships
+  deterministic default typography (Calibri 11 pt via its scaffolded styles part). For the rest,
+  restyle via `create_layout`'s `templatePath` or hand-edit the OOXML directly, then run
   `validate_layout` to confirm the edit didn't break structure or bindings. Restyling in **Word** is
   safe for a layout this tool created — it declares `compatibilityMode` 15, so Word preserves the
   repeating sections; a layout that declares a lower mode (an older build, or a `templatePath` shell
