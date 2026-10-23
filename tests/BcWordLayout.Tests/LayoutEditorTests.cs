@@ -1138,7 +1138,7 @@ public class LayoutEditorTests
             using (var doc = WordprocessingDocument.Open(path, true))
             {
                 LayoutEditor.InsertText(doc, "Total", new Location { Type = LocationKind.DocumentEnd },
-                    new CellTextFormat { Bold = true, FontSizePoints = 8 });
+                    new TextFormat { Bold = true, FontSizePoints = 8 });
                 doc.MainDocumentPart!.Document!.Save();
             }
 
@@ -1169,26 +1169,6 @@ public class LayoutEditorTests
 
             // A space must NOT be swept up by the same guard - it is the primary use case.
             LayoutEditor.InsertText(doc, " ", new Location { Type = LocationKind.DocumentEnd });
-        }
-        finally
-        {
-            File.Delete(path);
-        }
-    }
-
-    [Fact]
-    public void InsertText_rejects_alignment_naming_itself_in_the_message()
-    {
-        var path = CopyOfCorpus(Corpus.SalesInvoice);
-        try
-        {
-            using var doc = WordprocessingDocument.Open(path, true);
-            var ex = Assert.Throws<ArgumentException>(() => LayoutEditor.InsertText(
-                doc, "x", new Location { Type = LocationKind.DocumentEnd }, new CellTextFormat { Alignment = "right" }));
-
-            // The shared validator is parameterised by operation name; a message naming insert_field here
-            // would send the caller looking in the wrong place.
-            Assert.Contains("insert_text", ex.Message);
         }
         finally
         {

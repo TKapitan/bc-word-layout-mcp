@@ -24,21 +24,18 @@ public static class LayoutEditor
     /// <paramref name="doc"/> (see <see cref="GenerateUniqueId"/>). See <see cref="SdtFactory.BuildField"/>
     /// for dataset-path validation rules and <see cref="LocationResolver.Resolve"/> for location resolution
     /// rules; both propagate unchanged (<see cref="ArgumentException"/> / <see cref="NotFoundException"/>).
-    /// The optional <paramref name="format"/> carries RUN-level knobs only (<see cref="CellTextFormat.Bold"/>,
-    /// <see cref="CellTextFormat.FontSizePoints"/>) applied to the control's own runs and <c>w:sdtPr/w:rPr</c>
-    /// — needed because a control inserted into a freshly authored plain-table cell has no styling to
-    /// inherit; <see cref="CellTextFormat.Alignment"/> is a paragraph/cell concern and is rejected here
-    /// (seed it via <c>insert_table</c>'s columnAlignments or <c>set_cell_text</c>). A header/footer-targeted
-    /// insert at the end of a layout that has no such part yet scaffolds an empty one first rather than
-    /// failing — see <see cref="EnsureTargetPartExists"/>.
+    /// The optional <paramref name="format"/> (see <see cref="RunFormatter"/>) goes on the control's own runs
+    /// and its <c>w:sdtPr/w:rPr</c>, over the formatting the control takes from the text before it. A
+    /// header/footer-targeted insert at the end of a layout that has no such part yet scaffolds an empty one
+    /// first rather than failing — see <see cref="EnsureTargetPartExists"/>.
     /// </summary>
     public static EditResult InsertField(
-        WordprocessingDocument doc, string datasetPath, Location location, CellTextFormat? format = null) =>
+        WordprocessingDocument doc, string datasetPath, Location location, TextFormat? format = null) =>
         Insert(doc, datasetPath, location, isLabel: false, format);
 
     /// <summary>Inserts a LABEL content control bound to <paramref name="datasetPath"/>. See <see cref="InsertField"/>.</summary>
     public static EditResult InsertLabel(
-        WordprocessingDocument doc, string datasetPath, Location location, CellTextFormat? format = null) =>
+        WordprocessingDocument doc, string datasetPath, Location location, TextFormat? format = null) =>
         Insert(doc, datasetPath, location, isLabel: true, format);
 
     /// <summary>
@@ -70,13 +67,12 @@ public static class LayoutEditor
     /// </remarks>
     /// <exception cref="ArgumentException">
     /// <paramref name="text"/> is null/empty (nothing to insert — an empty run would be invisible clutter);
-    /// or <paramref name="format"/> sets an alignment (a run is inline — see
-    /// <see cref="TryPrepareRunFormat"/>) or an out-of-range font size. No length cap is imposed, matching
-    /// <c>set_cell_text</c>, which has none either.
+    /// or <paramref name="format"/> has a bad member (see <see cref="RunFormatter.Prepare"/>). No length cap is
+    /// imposed, matching <c>set_cell_text</c>, which has none either.
     /// </exception>
     /// <exception cref="NotFoundException">Propagated from <see cref="LocationResolver.Resolve"/>.</exception>
     public static EditResult InsertText(
-        WordprocessingDocument doc, string text, Location location, CellTextFormat? format = null)
+        WordprocessingDocument doc, string text, Location location, TextFormat? format = null)
     {
         ArgumentNullException.ThrowIfNull(doc);
         ArgumentNullException.ThrowIfNull(location);
@@ -89,14 +85,14 @@ public static class LayoutEditor
                 nameof(text));
         }
 
-        TryPrepareRunFormat(format, "insert_text", out var halfPoints);
+        var prepared = RunFormatter.Prepare(format, doc);
 
         var scaffolded = EnsureTargetPartExists(doc, location);
         var anchor = LocationResolver.Resolve(location, doc);
         var inherited = anchor.InheritedRunProperties();
 
         var run = new Run(new Text(text) { Space = SpaceProcessingModeValues.Preserve });
-        StyleRun(run, inherited, format?.Bold, halfPoints);
+        StyleRun(run, inherited, prepared);
         anchor.InsertInline(run);
 
         return new EditResult
@@ -140,17 +136,16 @@ public static class LayoutEditor
     /// </para>
     /// </remarks>
     /// <exception cref="ArgumentException">
-    /// <paramref name="format"/> sets an alignment (a paragraph/cell concern — see
-    /// <see cref="TryPrepareRunFormat"/>) or an out-of-range font size.
+    /// <paramref name="format"/> has a bad member (see <see cref="RunFormatter.Prepare"/>).
     /// </exception>
     /// <exception cref="NotFoundException">Propagated from <see cref="LocationResolver.Resolve"/>.</exception>
     public static EditResult InsertPageNumber(
-        WordprocessingDocument doc, Location location, bool includeTotal = true, CellTextFormat? format = null)
+        WordprocessingDocument doc, Location location, bool includeTotal = true, TextFormat? format = null)
     {
         ArgumentNullException.ThrowIfNull(doc);
         ArgumentNullException.ThrowIfNull(location);
 
-        TryPrepareRunFormat(format, "insert_page_number", out var halfPoints);
+        var prepared = RunFormatter.Prepare(format, doc);
 
         var scaffolded = EnsureTargetPartExists(doc, location);
         var anchor = LocationResolver.Resolve(location, doc);
@@ -164,7 +159,7 @@ public static class LayoutEditor
             // Every run of the construct, field characters included, as the stock captures do it: in
             // InventoryOrderDetails and SalespersonCommission each run carries the surrounding text's Segoe UI
             // 8/7 pt, and the cached result adds its w:noProof.
-            StyleRun(run, inherited, format?.Bold, halfPoints);
+            StyleRun(run, inherited, prepared);
         }
 
         // The construct is a SEQUENCE of sibling runs; InsertInline places the first one per the anchor's
@@ -802,26 +797,17 @@ public static class LayoutEditor
     /// <exception cref="ArgumentException">
     /// <paramref name="parentRepeaterId"/> is not a row-level repeater in a table, or its item shape is
     /// unrecognized; <paramref name="cells"/> is empty or its spans don't sum to the parent grid;
-    /// <paramref name="format"/> sets an alignment (per-cell alignments belong on the cell specs); or
-    /// propagated from <see cref="SdtFactory.BuildStaticRow"/> (a path that does not resolve).
+    /// <paramref name="format"/> has a bad member (see <see cref="RunFormatter.Prepare"/>); or propagated from
+    /// <see cref="SdtFactory.BuildStaticRow"/> (a path that does not resolve).
     /// </exception>
     /// <exception cref="NotFoundException">No control with <paramref name="parentRepeaterId"/> exists in the body.</exception>
     public static EditResult InsertSubtotalRow(
-        WordprocessingDocument doc, int parentRepeaterId, IReadOnlyList<RepeaterRowCell> cells, CellTextFormat? format = null)
+        WordprocessingDocument doc, int parentRepeaterId, IReadOnlyList<RepeaterRowCell> cells, TextFormat? format = null)
     {
         ArgumentNullException.ThrowIfNull(doc);
         ArgumentNullException.ThrowIfNull(cells);
 
-        if (format?.Alignment is not null)
-        {
-            // Same rule (and reason) as insert_table_row: ApplyControlRunFormat below only runs for BOUND
-            // cells, so an all-spacer row would silently swallow the knob instead of refusing it.
-            throw new ArgumentException(
-                "alignment is not supported as a row-level format on insert_subtotal_row; pass per-cell "
-                + "alignments alongside the cell specs instead (one 'left'/'center'/'right' or '-' per cell).",
-                nameof(format));
-        }
-
+        var prepared = RunFormatter.Prepare(format, doc);
         var context = ResolveRepeaterItem(doc, parentRepeaterId, cells, rowNoun: "a subtotal row");
         var widths = ComputeCellWidthsFromGrid(context.GridColumns, cells);
 
@@ -832,7 +818,7 @@ public static class LayoutEditor
         var boundControlIds = new List<int>();
         foreach (var sdt in row.Descendants<SdtRun>())
         {
-            ApplyControlRunFormat(sdt, format, "insert_subtotal_row");
+            ApplyControlRunFormat(sdt, prepared);
             if (SdtInspector.ReadControlId(sdt) is { } id)
             {
                 boundControlIds.Add(id);
@@ -1200,91 +1186,42 @@ public static class LayoutEditor
     }
 
     /// <summary>
-    /// Applies the optional RUN-level formatting knobs (bold, font size) to a freshly built control: onto
-    /// every run inside its content (what actually renders) AND its <c>w:sdtPr/w:rPr</c> (what Word styles
-    /// the placeholder/future content with; the corpus-verified child order puts rPr first). Alignment is
-    /// a paragraph/cell concern and rejected here — seed it via <c>insert_table</c>'s columnAlignments or
-    /// <c>set_cell_text</c>'s alignment instead, which the control then simply sits inside.
-    /// </summary>
-    /// <summary>
-    /// Shared validation for the inline run-format knobs: rejects an alignment (a paragraph/cell concern, not
-    /// a run one) and an out-of-range font size, and converts the size to the half-points OOXML wants.
-    /// Returns <c>false</c> when there is nothing to apply, so callers can skip the walk entirely.
-    /// </summary>
-    private static bool TryPrepareRunFormat(CellTextFormat? format, string opName, out string? halfPoints)
-    {
-        halfPoints = null;
-
-        if (format is null)
-        {
-            return false;
-        }
-
-        if (format.Alignment is not null)
-        {
-            throw new ArgumentException(
-                $"alignment is not supported on {opName} (the inserted content is inline; alignment belongs "
-                + "to the paragraph/cell around it). Seed the cell's alignment via insert_table's "
-                + "columnAlignments or set_cell_text's alignment instead.",
-                nameof(format));
-        }
-
-        if (format.Bold is null && format.FontSizePoints is null)
-        {
-            return false;
-        }
-
-        if (format.FontSizePoints is { } points)
-        {
-            if (points is < 4 or > 96)
-            {
-                throw new ArgumentException(
-                    $"fontSizePoints must be between 4 and 96 (got {points}).", nameof(format));
-            }
-
-            halfPoints = ((int)Math.Round(points * 2)).ToString(System.Globalization.CultureInfo.InvariantCulture);
-        }
-
-        return true;
-    }
-
-    private const string ControlFormatOpName = "insert_field/insert_label";
-
-    /// <summary>
     /// Gives a freshly built run its formatting: <paramref name="inherited"/> (the text before the insertion
     /// point — see <see cref="InsertionAnchor.InheritedRunProperties"/>) underneath whatever run properties the
-    /// run was built with (the cached page-number result's <c>w:noProof</c>), then the explicit knobs on top.
+    /// run was built with (the cached page-number result's <c>w:noProof</c>), then the caller's
+    /// <paramref name="format"/> on top.
     /// </summary>
-    private static void StyleRun(Run run, RunProperties? inherited, bool? bold, string? halfPoints)
+    private static void StyleRun(Run run, RunProperties? inherited, RunFormatter.Prepared? format)
     {
         if (inherited is not null)
         {
             run.RunProperties = Underlay(inherited, run.RunProperties);
         }
 
-        if (bold is null && halfPoints is null)
+        if (format is null)
         {
             return;
         }
 
         run.RunProperties ??= new RunProperties();
-        ApplyRunProperties(run.RunProperties, bold, halfPoints);
+        RunFormatter.Apply(run.RunProperties, format);
     }
 
     /// <summary>
-    /// <see cref="StyleRun"/> for a freshly built control: every run inside its content AND its
-    /// <c>w:sdtPr/w:rPr</c>, which is what Word formats the control's value with and where every stock control
-    /// carries its formatting. The corpus-verified child order puts that <c>w:rPr</c> first in the
-    /// <c>w:sdtPr</c> (see <see cref="SdtFactory.BuildRepeaterTable"/>'s remarks).
+    /// <see cref="StyleRun"/> for a control: every run inside its content AND its <c>w:sdtPr/w:rPr</c>, which is
+    /// what Word formats the control's value with and where every stock control carries its formatting. The
+    /// corpus-verified child order puts that <c>w:rPr</c> first in the <c>w:sdtPr</c> (see
+    /// <see cref="SdtFactory.BuildRepeaterTable"/>'s remarks). Picture runs are skipped: their <c>w:rPr</c> is
+    /// not text formatting (see <see cref="InheritedRunFormat"/>).
     /// </summary>
-    private static void StyleControl(SdtRun sdt, RunProperties? inherited, bool? bold, string? halfPoints)
+    internal static void StyleControl(SdtElement sdt, RunProperties? inherited, RunFormatter.Prepared? format)
     {
-        foreach (var run in sdt.Descendants<Run>().ToList())
+        foreach (var run in sdt.Descendants<Run>().Where(r => !InheritedRunFormat.IsGraphic(r)).ToList())
         {
-            StyleRun(run, inherited, bold, halfPoints);
+            StyleRun(run, inherited, format);
         }
 
-        if (sdt.SdtProperties is not { } sdtPr || (inherited is null && bold is null && halfPoints is null))
+        if (sdt.SdtProperties is not { } sdtPr || (inherited is null && format is null))
         {
             return;
         }
@@ -1297,20 +1234,22 @@ public static class LayoutEditor
             sdtPr.PrependChild(rPr);
         }
 
-        ApplyRunProperties(rPr, bold, halfPoints);
+        if (format is not null)
+        {
+            RunFormatter.Apply(rPr, format);
+        }
     }
 
     /// <summary>
-    /// Applies the inline run-format knobs to a freshly built control: onto every run inside its content
-    /// AND its <c>w:sdtPr/w:rPr</c>. Internal (with a caller-supplied <paramref name="opName"/> for the
-    /// rejection message) so <see cref="TableStructureEditor.InsertStaticRow"/> can style its bound cells
-    /// through the exact same path <c>insert_field</c>/<c>insert_label</c> use.
+    /// Applies <paramref name="format"/> to a freshly built control: onto every run inside its content AND its
+    /// <c>w:sdtPr/w:rPr</c>. Internal so <see cref="TableStructureEditor.InsertStaticRow"/> styles its bound
+    /// cells through the exact same path <c>insert_field</c>/<c>insert_label</c> use.
     /// </summary>
-    internal static void ApplyControlRunFormat(SdtRun sdt, CellTextFormat? format, string opName = ControlFormatOpName)
+    internal static void ApplyControlRunFormat(SdtRun sdt, RunFormatter.Prepared? format)
     {
-        if (TryPrepareRunFormat(format, opName, out var halfPoints))
+        if (format is not null)
         {
-            StyleControl(sdt, inherited: null, format!.Bold, halfPoints);
+            StyleControl(sdt, inherited: null, format);
         }
     }
 
@@ -1371,24 +1310,7 @@ public static class LayoutEditor
 
         return " It takes the formatting of the text before it"
             + (traits.Count > 0 ? $" ({string.Join(", ", traits)})" : string.Empty)
-            + "; pass bold/fontSizePoints to override.";
-    }
-
-    private static void ApplyRunProperties(RunProperties rPr, bool? bold, string? halfPoints)
-    {
-        if (bold is { } b)
-        {
-            // false must beat bold the run INHERITED: removing w:b does that for a w:b, but not for a bold
-            // character style (StandardSalesQuote's 'Strong'), which needs the explicit w:b w:val="0" the
-            // corpus also carries (SalespersonCommission's add-in wrapper). With neither, nothing is written.
-            rPr.Bold = b ? new Bold() : rPr.RunStyle is not null ? new Bold { Val = false } : null;
-        }
-
-        if (halfPoints is not null)
-        {
-            rPr.FontSize = new FontSize { Val = halfPoints };
-            rPr.FontSizeComplexScript = new FontSizeComplexScript { Val = halfPoints };
-        }
+            + "; pass format to override.";
     }
 
     /// <summary>
@@ -1411,7 +1333,7 @@ public static class LayoutEditor
     }
 
     private static EditResult Insert(
-        WordprocessingDocument doc, string datasetPath, Location location, bool isLabel, CellTextFormat? format = null)
+        WordprocessingDocument doc, string datasetPath, Location location, bool isLabel, TextFormat? format = null)
     {
         ArgumentNullException.ThrowIfNull(doc);
         ArgumentNullException.ThrowIfNull(location);
@@ -1422,7 +1344,7 @@ public static class LayoutEditor
         var sdt = isLabel
             ? SdtFactory.BuildLabel(schema, datasetPath, id: id)
             : SdtFactory.BuildField(schema, datasetPath, id: id);
-        TryPrepareRunFormat(format, ControlFormatOpName, out var halfPoints);
+        var prepared = RunFormatter.Prepare(format, doc);
 
         var scaffolded = EnsureTargetPartExists(doc, location);
 
@@ -1431,7 +1353,7 @@ public static class LayoutEditor
         // accurate — not assumed to be document.xml.
         var anchor = LocationResolver.Resolve(location, doc);
         var inherited = anchor.InheritedRunProperties();
-        StyleControl(sdt, inherited, format?.Bold, halfPoints);
+        StyleControl(sdt, inherited, prepared);
         anchor.InsertInline(sdt);
 
         var alias = sdt.SdtProperties!.GetFirstChild<SdtAlias>()?.Val?.Value;

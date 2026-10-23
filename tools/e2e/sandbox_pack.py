@@ -231,16 +231,16 @@ def p01(b: Build):
     b.edit("insert_field", field=Build.pick(all_paths, "/Header/Totals/TotalIncludingVATText"),
            locationType="tableCell", tableIndex=tot_idx, row=0, col=0)
     b.edit("insert_field", field=Build.pick(all_paths, "/Header/Totals/TotalAmountIncludingVAT"),
-           locationType="tableCell", tableIndex=tot_idx, row=0, col=1, bold=True)
-    b.edit("set_cell_borders", tableIndex=tot_idx, row=0, edges="top", size=4)
-    b.note("right-anchored totals block with a 1/2pt rule above it (set_cell_borders)")
+           locationType="tableCell", tableIndex=tot_idx, row=0, col=1, format={"bold": True})
+    b.edit("set_cell_format", tableIndex=tot_idx, row=0, edges="top", borderSize=4)
+    b.note("right-anchored totals block with a 1/2pt rule above it (set_cell_format)")
 
 
 @item(
     id="p02", title="Line table restructured on a real base-app layout",
     report="1306 - Standard Sales Invoice", base="SalesInvoiceForSubscriptionBilling.docx",
     purpose="The table-structure tools (insert_column, set_column_widths, set_cell_text, "
-            "set_cell_borders) applied to the line-items table of a stock layout.",
+            "set_cell_format) applied to the line-items table of a stock layout.",
     asks=[
         "Does the added Unit of Measure column carry data in BC, in the right place?",
         "Are the re-widened columns proportioned in the BC render the way the mock shows them?",
@@ -290,8 +290,8 @@ def p02(b: Build):
     b.note("remove_control + set_cell_text: the new column's header swapped from a bound label to "
            "static 'UoM' text (so the render shows a bound header and a static one side by side)")
 
-    b.edit("set_cell_borders", tableIndex=idx, row=0, edges="bottom", size=4)
-    b.note("set_cell_borders: 1/2pt rule under the header row")
+    b.edit("set_cell_format", tableIndex=idx, row=0, edges="bottom", borderSize=4)
+    b.note("set_cell_format: 1/2pt rule under the header row")
 
 
 @item(
@@ -476,8 +476,8 @@ def p05(b: Build):
     b.note("remove_control + merge_cells: the second header cell's label removed, then the first two "
            "header cells merged into one spanning cell")
 
-    b.edit("set_cell_borders", tableIndex=idx, row=0, edges="bottom", size=4)
-    b.note("set_cell_borders: 1/2pt rule under the header row")
+    b.edit("set_cell_format", tableIndex=idx, row=0, edges="bottom", borderSize=4)
+    b.note("set_cell_format: 1/2pt rule under the header row")
 
 
 @item(
@@ -485,7 +485,7 @@ def p05(b: Build):
     base=None, schema="StandardPurchaseOrder.docx",
     purpose="A second from-scratch build (issue #3's fix made blank builds ship a styles part pinning "
             "Calibri 11pt plus a TableGrid definition), exercising exactly the typography surface P01 "
-            "does not: an explicit tableStyle reference and explicit fontSizePoints/bold static text on "
+            "does not: an explicit tableStyle reference and explicit format bold/size static text on "
             "top of the pinned default font.",
     asks=[
         "TYPOGRAPHY (issue #3): does the whole document render in the SAME typeface and size in BC as "
@@ -493,7 +493,7 @@ def p05(b: Build):
         "The line table references the scaffolded TableGrid STYLE (w:tblStyle) rather than direct "
         "border formatting - does BC honour the style and draw the full 1/2pt grid the mock shows?",
         "The two static text runs above the lines are 16pt bold and default-size respectively "
-        "(insert_text fontSizePoints/bold on top of the pinned base font) - do both sizes match the mock?",
+        "(insert_text format bold/size on top of the pinned base font) - do both sizes match the mock?",
         "Do the address block, info grid, logo placeholder and totals all carry real data, as P01's did?",
     ],
     bc_steps=[
@@ -543,10 +543,10 @@ def p06(b: Build):
     # The typography knobs on top of the pinned default: a 16pt bold section title and a default-size
     # note, both plain static runs - the sizes are the ask, the text is just a carrier.
     b.edit("insert_text", text="ORDER LINES", locationType="documentEnd",
-           bold=True, fontSizePoints=16)
+           format={"bold": True, "fontSizePoints": 16})
     b.edit("insert_text", text="All prices are in the order currency, excluding VAT.",
            locationType="documentEnd")
-    b.note("insert_text twice: 'ORDER LINES' at 16pt bold + a default-size note (fontSizePoints/bold "
+    b.note("insert_text twice: 'ORDER LINES' at 16pt bold + a default-size note (format bold/size "
            "on top of the pinned Calibri 11pt base)")
 
     # The line repeater, styled via the scaffolded TableGrid STYLE - a reference that resolved to
@@ -567,9 +567,9 @@ def p06(b: Build):
     b.edit("insert_field", field=Build.pick(all_paths, "/Purchase_Header/Totals/TotalInclVATText"),
            locationType="tableCell", tableIndex=tot_idx, row=0, col=0)
     b.edit("insert_field", field=Build.pick(all_paths, "/Purchase_Header/Totals/TotalAmountInclVAT"),
-           locationType="tableCell", tableIndex=tot_idx, row=0, col=1, bold=True)
-    b.edit("set_cell_borders", tableIndex=tot_idx, row=0, edges="top", size=4)
-    b.note("right-anchored totals block with a 1/2pt rule above it (set_cell_borders)")
+           locationType="tableCell", tableIndex=tot_idx, row=0, col=1, format={"bold": True})
+    b.edit("set_cell_format", tableIndex=tot_idx, row=0, edges="top", borderSize=4)
+    b.note("right-anchored totals block with a 1/2pt rule above it (set_cell_format)")
 
 
 @item(
@@ -650,8 +650,8 @@ def p07(b: Build):
     b.edit("insert_label", label=Build.pick(all_paths, "/Labels/TotalsCaption"),
            locationType="tableCell", tableIndex=tot_idx, row=0, col=0)
     b.edit("insert_field", field=Build.pick(all_paths, "/Totals/Totals_SalesCommission"),
-           locationType="tableCell", tableIndex=tot_idx, row=0, col=1, bold=True)
-    b.edit("set_cell_borders", tableIndex=tot_idx, row=0, edges="top", size=4)
+           locationType="tableCell", tableIndex=tot_idx, row=0, col=1, format={"bold": True})
+    b.edit("set_cell_format", tableIndex=tot_idx, row=0, edges="top", borderSize=4)
     b.note("right-anchored totals block: TotalsCaption LABEL + total sales commission FIELD, "
            "1/2pt rule above")
 
@@ -821,6 +821,86 @@ def p11(b: Build):
     b.note(f"hand-edited (no tool emits it): IF PAGE = NUMPAGES paragraph appended to {', '.join(parts)}")
 
 
+# P13 is a capability check again, of the formatting tools issue #15 added. (P12 is reserved for a
+# tool-written block repeater from wrap_in_repeater.)
+MISSING_FONT = "BCWL Missing Font"
+
+
+@item(
+    id="p13", title="Text and cell formatting written by the tools",
+    report="1304 - Standard Sales Quote", base="StandardSalesQuote.docx",
+    purpose="Issue #15 added a format object (bold, italic, underline, size, font, colour, character "
+            "style) on every text tool, set_text_format to restyle existing text, and a cell fill on "
+            "set_cell_format. Each writes a shape the stock layouts carry - except italic, which the corpus "
+            "applies only through style definitions, never directly on a run.",
+    asks=[
+        "ITALIC: the line 'P13 italic (direct w:i)' carries a direct w:i + w:iCs, a shape no stock layout "
+        "has. Is it italic in BC, as in the mock?",
+        "Do 'P13 Segoe UI 10 pt bold blue', 'P13 underlined' and 'P13 Strong character style' look as "
+        "in the mock (blue is 0070C0, the stock accent)?",
+        f"FONTS: which typeface does BC use for 'P13 Georgia', and for 'P13 {MISSING_FONT}' - a font that "
+        "exists nowhere? Whatever BC substitutes for the second tells us whether fontName needs a warning "
+        "for fonts Business Central online does not have.",
+        "RESTYLED STOCK CONTENT: is the document number in the page header blue and italic "
+        "(set_text_format on the control), and is the line table's header row shaded light grey with "
+        "underlined captions (set_cell_format fill + set_text_format on the row)?",
+        "In 'P13 only THIS WORD is red', is only THIS WORD red (set_text_format split it out of its run)?",
+    ],
+    bc_steps=[
+        "Use the SAME sales quote as P01/P05 so the renders are directly comparable.",
+        "Report Layouts > New layout for report 1304, upload, then Print the quote with it. The test lines "
+        "are at the end of the body, after the totals.",
+    ],
+)
+def p13(b: Build):
+    # Same repair as P05: the stock capture's stray CompanyABNNumber control makes BC reject the upload.
+    info = b.info()
+    stray = [c for c in info["controls"] if "CompanyABNNumber" in str(c.get("alias", ""))]
+    for c in stray:
+        b.edit("remove_control", controlId=c["sdtId"])
+    if stray:
+        b.note(f"remove_control: dropped {len(stray)} broken CompanyABNNumber control(s) the stock layout "
+               "shipped with")
+
+    # Restyle stock content that is already there.
+    info = b.info()
+    # The quote carries DocumentNo in its default and its first-page header; restyle both, so page 1
+    # shows it whichever part BC renders there.
+    doc_nos = [c for c in info["controls"]
+               if str(c.get("alias") or "").endswith("/Header/DocumentNo") and c["part"].startswith("header")]
+    if not doc_nos:
+        raise ItemFailure("no DocumentNo control in a header part")
+    for doc_no in doc_nos:
+        b.edit("set_text_format", target="control", controlId=doc_no["sdtId"],
+               format={"color": "0070C0", "italic": True})
+    b.note("set_text_format on the DocumentNo control in "
+           f"{', '.join(c['part'] for c in doc_nos)}: blue 0070C0, italic, over its stock 'Strong' style")
+
+    lines = Build.line_table(info, Build.repeater(info, "/Header/Line"))
+    b.edit("set_cell_format", tableIndex=lines, row=0, fill="E8E8E8")
+    b.edit("set_text_format", target="row", tableIndex=lines, row=0, format={"underline": True})
+    b.note(f"line table {lines} header row: set_cell_format fill E8E8E8 + set_text_format underline")
+
+    # One line per format member, at the end of the body.
+    samples = [
+        ("P13 Segoe UI 10 pt bold blue", {"fontName": "Segoe UI", "fontSizePoints": 10, "bold": True,
+                                          "color": "0070C0"}),
+        ("P13 italic (direct w:i)", {"italic": True}),
+        ("P13 underlined", {"underline": True}),
+        ("P13 Strong character style", {"characterStyle": "Strong"}),
+        ("P13 Georgia", {"fontName": "Georgia"}),
+        (f"P13 {MISSING_FONT}", {"fontName": MISSING_FONT}),
+    ]
+    for text, fmt in samples:
+        b.edit("insert_text", text=text, locationType="documentEnd", format=fmt)
+    b.note("insert_text x6 at the end of the body, one format member each: Segoe UI 10 pt bold blue, "
+           f"direct italic, underline, the 'Strong' character style, Georgia, and '{MISSING_FONT}'")
+
+    b.edit("insert_text", text="P13 only THIS WORD is red", locationType="documentEnd")
+    b.edit("set_text_format", target="text", searchText="THIS WORD", format={"color": "C00000"})
+    b.note("set_text_format text 'THIS WORD': colour C00000 on the matched words only (run split)")
+
+
 # ---------------------------------------------------------------- runner
 
 def build_item(entry: dict, out_dir: str) -> dict:
@@ -966,6 +1046,8 @@ verification debt (GitHub issue #14).
 **Round 3 adds four research probes, P08-P11.** They don't check a capability: each settles an open
 issue that is blocked on what BC does - #102 (P08), #123 (P09, P10) and #11 (P11). For these, a
 REJECTED upload or a missing row is an answer, not a failure: write down exactly what happened.
+**P13** is a capability check again: the formatting tools #15 added, including direct italic, which no
+stock layout carries.
 
 ## The layouts
 

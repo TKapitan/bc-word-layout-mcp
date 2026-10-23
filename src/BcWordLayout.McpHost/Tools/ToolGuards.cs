@@ -624,7 +624,7 @@ internal static class ToolGuards
     /// <summary>
     /// Thin <see cref="GuardMutate{TResult}"/> instantiation for <see cref="TableTools"/>'s table-STRUCTURE
     /// tools (<c>insert_table</c>, <c>insert_table_row</c>, <c>set_column_widths</c>, <c>insert_column</c>,
-    /// <c>remove_column</c>, <c>merge_cells</c>, <c>split_cells</c>, <c>set_cell_borders</c>), building
+    /// <c>remove_column</c>, <c>merge_cells</c>, <c>split_cells</c>, <c>set_cell_format</c>), building
     /// <see cref="TableEditResultDto"/>. Same save-or-reject safety and
     /// post-edit QuickValidation guarantee as <see cref="GuardEdit"/>/<see cref="GuardCellEdit"/>, plus the
     /// <see cref="TableGridConsistencyGuard"/> backstop <see cref="GuardMutate{TResult}"/> now runs for every
@@ -1369,7 +1369,16 @@ internal static class ToolGuards
         "searchtext" =>
             "atText requires a non-empty searchText substring that actually appears in a run of text in the "
             + "document body; inspect the layout's visible text (e.g. via get_layout_info or by opening the "
-            + "file) and retry with an exact substring that is really present.",
+            + "file) and retry with an exact substring that is really present. set_text_format's 'text' target "
+            + "also needs it to occur exactly once in the part, outside any data-bound field/label (format such "
+            + "text with target 'control' and the control's id instead).",
+
+        "target" =>
+            "set_text_format's target must be 'control' (with controlId - any control's w:id from "
+            + "get_layout_info's controls[]; a control is found in any part, so pass no layoutPart/partName), "
+            + "'cell' (with tableIndex, row and col), 'row' (with tableIndex and row - every cell of the row) or "
+            + "'text' (with searchText), and the call must pass only the arguments that target uses. A picture "
+            + "control has no text to format.",
 
         "datasetpath" or "dataitempath" =>
             "The dataset path must name a real column/data item exactly as reported by list_dataset_fields, "
@@ -1445,20 +1454,36 @@ internal static class ToolGuards
             + "this is set internally by insert_picture, so reaching this message indicates a tool bug "
             + "rather than a mistake in your call.",
 
+        "format" =>
+            "format is one object of optional members: bold, italic and underline (true or false), "
+            + "fontSizePoints (4 to 96, halves allowed), fontName (a font family name such as 'Segoe UI'), color "
+            + "(six hex digits RRGGBB such as '0070C0', or 'auto') and characterStyle (the id of a CHARACTER style "
+            + "the layout's styles part defines - the message above lists them). Omit a member to leave that "
+            + "property as it is.",
+
+        "alignment" =>
+            "alignment must be 'left', 'center' or 'right' (case-insensitive); omit it to keep the paragraph's "
+            + "existing alignment.",
+
         "look" =>
             "insert_repeater_table's look must be 'bc' (the default - no drawn table grid, just a rule under "
             + "the header row, matching every real BC lines table) or 'grid' (an explicit single-line border "
             + "on every edge and between every cell).",
 
         "edges" =>
-            "set_cell_borders' edges must be a comma-separated list of 'top', 'bottom', 'left', 'right' (or "
-            + "'all') naming at least one edge - e.g. edges='top' for the rule above a totals row. Edges you "
-            + "do not name keep whatever they already had.",
+            "set_cell_format changes rules (edges), a fill, or both - pass at least one. edges is a "
+            + "comma-separated list of 'top', 'bottom', 'left', 'right' (or 'all') naming at least one edge - "
+            + "e.g. edges='top' for the rule above a totals row; borderStyle/borderSize only apply with it. Edges "
+            + "you do not name keep whatever they already had.",
 
-        "style" or "size" =>
-            "set_cell_borders' style must be 'single' (draw a line) or 'none' (explicitly clear the named "
-            + "edges), and size is the rule thickness in EIGHTHS of a point between 2 and 96 - the BC "
+        "borderstyle" or "bordersize" =>
+            "set_cell_format's borderStyle must be 'single' (draw a line) or 'none' (explicitly clear the named "
+            + "edges), and borderSize is the rule thickness in EIGHTHS of a point between 2 and 96 - the BC "
             + "standard is 4 (½ pt), which is also the default.",
+
+        "fill" =>
+            "set_cell_format's fill is the cell's background colour: six hex digits RRGGBB, e.g. 'E8E8E8' (the "
+            + "stock light grey) or '0070C0' (the stock blue), a leading '#' is fine - or 'auto' for no fill.",
 
         "mode" =>
             "insert_column's mode must be 'field', 'label', or 'plainText'. 'field'/'label' require a dataPath "

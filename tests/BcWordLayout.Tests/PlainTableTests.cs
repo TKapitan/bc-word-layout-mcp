@@ -148,7 +148,7 @@ public class PlainTableTests
 
             var response = EditTools.InsertLabel(
                 path, "/Header/ExternalDocumentNo_Lbl", "tableCell",
-                tableIndex: dto.TableIndex, row: 0, col: 0, bold: true, fontSizePoints: 8);
+                tableIndex: dto.TableIndex, row: 0, col: 0, format: new TextFormatArgument { Bold = true, FontSizePoints = 8 });
             Assert.True(response.Ok, response.Error?.Message);
 
             using var reopened = WordprocessingDocument.Open(path, false);
@@ -161,25 +161,6 @@ public class PlainTableTests
             var sdtPrRunProps = sdt.SdtProperties!.GetFirstChild<RunProperties>();
             Assert.NotNull(sdtPrRunProps?.Bold);
             Assert.Empty(OpenXmlErrors(reopened));
-        }
-        finally
-        {
-            File.Delete(path);
-        }
-    }
-
-    [Fact]
-    public void Inserted_control_rejects_the_alignment_knob_with_guidance()
-    {
-        var path = CopyOfCorpus(Corpus.SalesInvoice);
-        try
-        {
-            using var doc = WordprocessingDocument.Open(path, true);
-            var ex = Assert.Throws<ArgumentException>(() => LayoutEditor.InsertField(
-                doc, "/Header/ExternalDocumentNo",
-                new Location { Type = LocationKind.DocumentEnd },
-                new BcWordLayout.Domain.Models.CellTextFormat { Alignment = "right" }));
-            Assert.Contains("columnAlignments", ex.Message);
         }
         finally
         {

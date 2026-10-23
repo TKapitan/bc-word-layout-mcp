@@ -36,7 +36,7 @@ public static class ReadTools
                  + "(repeaterControlId) - and, per row and "
                  + "cell, which control owns it and the cell's visible text, plus BOTH cell coordinates: "
                  + "colIndex (the physical position in the row - what set_cell_text/merge_cells/split_cells/"
-                 + "set_cell_borders and tableCell locations take) and gridColumn/gridSpan (where the cell "
+                 + "set_cell_format and tableCell locations take) and gridColumn/gridSpan (where the cell "
                  + "sits on the table grid - what remove_column/insert_column/set_column_widths take; the "
                  + "two differ on any row with spanned cells), with each row's gridBefore/gridAfter skipped "
                  + "columns, a PART DETAILS section giving "

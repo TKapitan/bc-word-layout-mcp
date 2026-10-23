@@ -98,12 +98,13 @@ public static class TableStructureEditor
     }
 
     /// <summary>
-    /// Draws (or clears) per-cell rules on ONE row of the <paramref name="tableIndex"/>-th table: the cell at
-    /// <paramref name="col"/>, or EVERY cell in the row when <paramref name="col"/> is null — the shape the
-    /// BC look is actually made of (a rule under the whole header row, a rule above a whole totals row), so
-    /// the common case is one call rather than one per column. Cosmetic only: no cell, row, grid, span or
-    /// binding is touched, which is also why this is the one table operation that does NOT reject
-    /// vMerge tables — there is no span arithmetic here to get wrong.
+    /// Sets the APPEARANCE of the cells on ONE row of the <paramref name="tableIndex"/>-th table — per-cell rules
+    /// (<c>w:tcBorders</c>) and/or a fill (<c>w:shd</c>) — on the cell at <paramref name="col"/>, or EVERY cell in
+    /// the row when <paramref name="col"/> is null: the shape the BC look is actually made of (a rule under the
+    /// whole header row, a rule above a whole totals row, a shaded header row), so the common case is one call
+    /// rather than one per column. Cosmetic only: no cell, row, grid, span or binding is touched, which is also
+    /// why this is the one table operation that does NOT reject vMerge tables — there is no span arithmetic
+    /// here to get wrong.
     /// </summary>
     /// <param name="col">
     /// 0-based PHYSICAL cell index within the row (the <c>colIndex</c> <c>get_layout_info</c> reports), or null
@@ -111,37 +112,51 @@ public static class TableStructureEditor
     /// one cell however many grid columns it covers. The result's <see cref="TableEditResult.ColumnIndex"/>
     /// is nevertheless the GRID column that cell starts at (null for a whole row), like every table tool's.
     /// </param>
+    /// <param name="borders">The edges to draw or clear, or null to leave the rules alone.</param>
+    /// <param name="fill">
+    /// The cell fill as <c>RRGGBB</c> (a leading <c>#</c> is accepted) or <c>auto</c> for none, written in the
+    /// corpus shape <c>w:shd w:val="clear" w:color="auto" w:fill="…"</c> (GitHub issue #15: fills <c>0070C0</c>
+    /// and <c>E8E8E8</c> in four stock layouts, <c>auto</c> 199 times); null leaves the fill alone.
+    /// </param>
     /// <exception cref="ArgumentException">
-    /// <paramref name="options"/> selects no edge at all (nothing to do), or its
-    /// <see cref="CellBorderOptions.SizeEighthPoints"/> is outside 2–96.
+    /// Neither <paramref name="borders"/> nor <paramref name="fill"/> is given (nothing to do);
+    /// <paramref name="borders"/> selects no edge, or its <see cref="CellBorderOptions.SizeEighthPoints"/> is
+    /// outside 2–96; or <paramref name="fill"/> is not a colour.
     /// </exception>
     /// <exception cref="NotFoundException">
     /// <paramref name="tableIndex"/>/<paramref name="row"/>/<paramref name="col"/> is out of range, or the
     /// row resolves to no <c>w:tr</c> at all.
     /// </exception>
-    public static TableEditResult SetCellBorders(
+    public static TableEditResult SetCellFormat(
         WordprocessingDocument doc, LayoutPart part, string? partName, int tableIndex, int row, int? col,
-        CellBorderOptions options)
+        CellBorderOptions? borders, string? fill)
     {
         ArgumentNullException.ThrowIfNull(doc);
-        ArgumentNullException.ThrowIfNull(options);
 
-        if (!options.AnyEdge)
+        if (borders is null && fill is null)
         {
             throw new ArgumentException(
-                "set_cell_borders needs at least one edge: pass edges as a comma-separated list of "
+                "set_cell_format has nothing to change: pass edges (the rules to draw or clear), fill, or both.",
+                "edges");
+        }
+
+        if (borders is { AnyEdge: false })
+        {
+            throw new ArgumentException(
+                "set_cell_format's edges must name at least one edge: a comma-separated list of "
                 + "'top'/'bottom'/'left'/'right' (or 'all').",
                 "edges");
         }
 
-        if (options.SizeEighthPoints is < 2 or > 96)
+        if (borders is { SizeEighthPoints: < 2 or > 96 })
         {
             throw new ArgumentException(
-                $"size must be between 2 and 96 eighths of a point (got {options.SizeEighthPoints}); the "
+                $"borderSize must be between 2 and 96 eighths of a point (got {borders.SizeEighthPoints}); the "
                 + $"BC-standard rule is {CellBorderOptions.DefaultSizeEighthPoints} (½ pt).",
-                "size");
+                "borderSize");
         }
 
+        var shading = fill is null ? null : RunFormatter.NormalizeColor(fill, "fill", nameof(fill));
         var (table, partFile, gridCount) = ResolveTable(doc, part, partName, tableIndex);
 
         var rowSlots = TableGridNavigator.Rows(table);
@@ -179,12 +194,30 @@ public static class TableStructureEditor
                 continue; // A cell-level control wrapping nothing — nothing to draw a rule on.
             }
 
-            ApplyCellBorders(slot.InnerCell, options);
+            if (borders is not null)
+            {
+                ApplyCellBorders(slot.InnerCell, borders);
+            }
+
+            if (shading is not null)
+            {
+                ApplyCellFill(slot.InnerCell, shading);
+            }
+
             cellsAffected++;
         }
 
-        var verb = options.Remove ? "Cleared" : "Drew";
         var where = col is { } c ? $"cell {c} of row {row}" : $"all {cellsAffected} cell(s) of row {row}";
+        var changes = new List<string>(2);
+        if (borders is not null)
+        {
+            changes.Add($"{(borders.Remove ? "cleared" : "drew")} the {DescribeEdges(borders)} rule(s)");
+        }
+
+        if (shading is not null)
+        {
+            changes.Add(shading == "auto" ? "cleared the fill" : $"filled them with {shading}");
+        }
 
         // ColumnIndex is documented, for every table tool, as a GRID column — merge_cells/split_cells already
         // report the grid column their cell starts at. This one used to echo the PHYSICAL col back (GitHub
@@ -193,19 +226,32 @@ public static class TableStructureEditor
             ? TableGridNavigator.GridEdges(innerRow).Before + cellSlots.Take(physical).Sum(s => s.GridSpan)
             : null;
 
+        var summary = string.Join(" and ", changes);
         return new TableEditResult
         {
-            Operation = "set_cell_borders",
+            Operation = "set_cell_format",
             Part = partFile,
             TableIndex = tableIndex,
             ColumnIndex = gridColumn,
             RowsAffected = 1,
             ColumnCountBefore = gridCount,
             ColumnCountAfter = gridCount,
-            Summary = $"{verb} the {DescribeEdges(options)} rule(s) on {where} of table {tableIndex}"
+            Summary = $"On {where} of table {tableIndex}"
                 + (partFile == "document.xml" ? string.Empty : $" in {partFile}")
-                + ".",
+                + $": {summary}.",
         };
+    }
+
+    /// <summary>
+    /// Sets <paramref name="cell"/>'s fill to <paramref name="fill"/> (normalized <c>RRGGBB</c> or <c>auto</c>) in
+    /// the corpus shape, replacing any existing <c>w:shd</c> — theme-fill attributes included, which Word would
+    /// otherwise let win over the colour.
+    /// </summary>
+    private static void ApplyCellFill(TableCell cell, string fill)
+    {
+        var tcPr = EnsureTcPr(cell);
+        tcPr.RemoveAllChildren<Shading>();
+        InsertTcPrChildInOrder(tcPr, new Shading { Val = ShadingPatternValues.Clear, Color = "auto", Fill = fill });
     }
 
     private static string DescribeEdges(CellBorderOptions options)
@@ -965,7 +1011,7 @@ public static class TableStructureEditor
     /// grid-consistency guard also enforces mechanically before anything reaches disk. The optional
     /// <paramref name="format"/> styles every bound cell's runs (the corpus grand-total rows are bold) via
     /// the same path <c>insert_field</c> uses; a literal caption or a rule above the row are follow-up
-    /// <c>set_cell_text</c>/<c>set_cell_borders</c> calls on the reported row.
+    /// <c>set_cell_text</c>/<c>set_cell_format</c> calls on the reported row.
     /// </summary>
     /// <remarks>
     /// The row is inserted as a DIRECT child of the <c>w:tbl</c>, never inside a repeating section — that
@@ -978,8 +1024,8 @@ public static class TableStructureEditor
     /// <exception cref="ArgumentException">
     /// <paramref name="cells"/> is empty or its spans do not sum to the grid column count;
     /// <paramref name="atRow"/> is out of range, or falls between two rows of the same row-level control
-    /// (see <see cref="RejectPositionInsideRowControl"/>); <paramref name="format"/> sets an alignment (per-cell
-    /// alignments belong on <paramref name="cells"/>); the table uses vMerge; or (propagated from
+    /// (see <see cref="RejectPositionInsideRowControl"/>); <paramref name="format"/> has a bad member (see
+    /// <see cref="RunFormatter.Prepare"/>); the table uses vMerge; or (propagated from
     /// <see cref="SdtFactory.BuildStaticRow"/>) a path does not resolve to a leaf column.
     /// </exception>
     /// <exception cref="NotFoundException"><paramref name="tableIndex"/> is out of range for the part.</exception>
@@ -990,7 +1036,7 @@ public static class TableStructureEditor
         int tableIndex,
         int? atRow,
         IReadOnlyList<RepeaterRowCell> cells,
-        CellTextFormat? format = null)
+        TextFormat? format = null)
     {
         ArgumentNullException.ThrowIfNull(doc);
         ArgumentNullException.ThrowIfNull(cells);
@@ -1000,17 +1046,7 @@ public static class TableStructureEditor
             throw new ArgumentException("At least one cell spec is required (cells was empty).", nameof(cells));
         }
 
-        if (format?.Alignment is not null)
-        {
-            // Checked HERE rather than left to ApplyControlRunFormat below, which only runs for BOUND
-            // cells: an all-spacer row (a legitimate call — the corpus spacer rows) would otherwise
-            // silently swallow the unsupported knob instead of refusing it.
-            throw new ArgumentException(
-                "alignment is not supported as a row-level format on insert_table_row; pass per-cell "
-                + "alignments alongside the cell specs instead (one 'left'/'center'/'right' or '-' per cell).",
-                nameof(format));
-        }
-
+        var prepared = RunFormatter.Prepare(format, doc);
         var (table, partFile, gridCount) = ResolveTable(doc, part, partName, tableIndex);
         RejectUnsupportedShape(table, "insert_table_row");
 
@@ -1048,7 +1084,7 @@ public static class TableStructureEditor
         var boundControlIds = new List<int>();
         foreach (var sdt in row.Descendants<SdtRun>())
         {
-            LayoutEditor.ApplyControlRunFormat(sdt, format, "insert_table_row");
+            LayoutEditor.ApplyControlRunFormat(sdt, prepared);
             if (SdtInspector.ReadControlId(sdt) is { } id)
             {
                 boundControlIds.Add(id);
@@ -1081,7 +1117,7 @@ public static class TableStructureEditor
             ColumnCountAfter = gridCount,
             Summary = $"Inserted a static (non-repeating) row at row index {target} of table {tableIndex} "
                 + $"with {cells.Count} cell(s) and {boundSummary}. It renders exactly once - it is a direct "
-                + "table row, not part of any repeating section. Follow up with set_cell_borders (row "
+                + "table row, not part of any repeating section. Follow up with set_cell_format (row "
                 + $"{target}) for the rule a BC totals row carries, or set_cell_text for a literal caption.",
         };
     }

@@ -56,9 +56,9 @@ the table index the insert response returns. The whole recipe below rendered cor
 | 2 | Logo | `insert_picture` | `/…/CompanyPicture`, 35×18 mm. A Word save squares it to 18×18, so if the layout will be edited in Word, do that first |
 | 3 | Address block | `insert_table` 6×2, `columnWidths "4600,4600"`, then 12× `insert_field` (`tableCell`) | Borderless; company addresses down col 0, counterparty (customer/vendor) down col 1, one bound field per cell, filled row-major |
 | 4 | Info grid | `insert_table` 3×2, `columnWidths "2800,3000"`, then per row `insert_label` col 0 + `insert_field` col 1 | Caption **beside** value — see §4 for the caption-**above** stock alternative |
-| 5 | Section heading *(optional)* | `insert_text` | `bold=true, fontSizePoints=16` heading (e.g. `"ORDER LINES"`), plus a default-size note line [verified: P06] |
+| 5 | Section heading *(optional)* | `insert_text` | `format={"bold": true, "fontSizePoints": 16}` heading (e.g. `"ORDER LINES"`), plus a default-size note line [verified: P06] |
 | 6 | Line items | `insert_repeater_table`, `headerFromLabels=true`, `columnWidths`, `columnAlignments` | Numeric columns right, text left, description widest; `tableStyle="TableGrid"` for a full grid **or** no style + a header rule for the open look (§4) |
-| 7 | Totals | Stock shape: `insert_table_row` on the line table (spacer row `"8:-"`-style, then the bound bold row), `set_cell_borders` for the rule — see §4. Simpler BC-verified alternative: `insert_table` 1×2, `columnWidths "6200,2400"`, `columnAlignments "right,right"`, 2 fills, `set_cell_borders` | Totals text/label left, **bold** amount right, ½ pt rule on top (`edges="top", size=4`) |
+| 7 | Totals | Stock shape: `insert_table_row` on the line table (spacer row `"8:-"`-style, then the bound bold row), `set_cell_format` for the rule — see §4. Simpler BC-verified alternative: `insert_table` 1×2, `columnWidths "6200,2400"`, `columnAlignments "right,right"`, 2 fills, `set_cell_format` | Totals text/label left, **bold** amount right, ½ pt rule on top (`edges="top", borderSize=4`) |
 
 Checkpoint rhythm: the verified builds ran one `validate_layout level=full` + one `preview_layout`
 at the very end and passed 0/0 — sufficient at this scale, though per-block `preview_layout` +
@@ -131,7 +131,7 @@ totals table, which is the BC-verified simpler shape [verified: P07]).
 - Two buildable looks, both BC-proven:
   - **Open** [stock: 1304, 1322]: no table style, single ½ pt rule under the header row — exactly
     what `insert_repeater_table` draws by default (`look="bc"`); add nothing. (For a table built
-    another way, the rule is `set_cell_borders` `row=0, edges="bottom", size=4`.)
+    another way, the rule is `set_cell_format` `row=0, edges="bottom", borderSize=4`.)
   - **Full grid** [verified: P06]: `tableStyle="TableGrid"` — the style reference alone draws the
     ½ pt grid (BC honours `w:tblStyle` against the scaffolded styles part); don't also paint
     per-cell borders. (`look="grid"` paints the same grid as explicit cell borders instead; that
@@ -139,13 +139,13 @@ totals table, which is the BC-verified simpler shape [verified: P07]).
   - Stock 1306 additionally rules under *every* data row — a bottom border on the repeater's data
     (template) row should repeat per line, but that exact shape is **not BC-verified**; its solid
     colour header band is template/hand-edit territory (no tool paints shading).
-- ½ pt (`size=4`) is the only rule weight observed anywhere in the corpus — use it unless asked.
+- ½ pt (`borderSize=4`) is the only rule weight observed anywhere in the corpus — use it unless asked.
 
 ### Totals block
 - **The stock shape — trailing rows INSIDE the line table — is buildable** [stock: 1304, 1322,
   1306]: `insert_table_row` on the line table (omit `atRow` to append), cells laid on the same
   grid — leading spacer cells (`-`), a spanned caption cell bound to the totals TEXT field, the
-  amount cell right-aligned, `bold=true`; then `set_cell_borders` on the new row for the rule.
+  amount cell right-aligned, `format={"bold": true}`; then `set_cell_format` on the new row for the rule.
   Example on an 8-column stock lines table:
   `cells="-,-,-,-,3:/Header/Totals/TotalIncludingVATText,/Header/Totals/TotalAmountIncludingVAT"`,
   `alignments="-,-,-,-,-,right"`. A spacer row before it (`cells="8:-"`) is the stock spacing.
@@ -154,7 +154,7 @@ totals table, which is the BC-verified simpler shape [verified: P07]).
 - The **separate** borderless 1×2 totals table directly after the line table remains BC-verified
   [verified: P01, P06, P07] and is the simpler recipe when stock fidelity is not the goal —
   `columnWidths "6200,2400"`, `columnAlignments "right,right"`, totals TEXT field (or label) in
-  col 0, amount field with `bold=true` in col 1, then `set_cell_borders` `edges="top", size=4` on
+  col 0, amount field with `format={"bold": true}` in col 1, then `set_cell_format` `edges="top", borderSize=4` on
   row 0.
 
 ### Chrome: title, logo, date, page numbers
@@ -179,15 +179,22 @@ totals table, which is the BC-verified simpler shape [verified: P07]).
 
 ### Typography
 - A blank build ships pinned Calibri 11 pt + `Normal`/`TableGrid` styles, BC-verified to render
-  identically in Word and BC [verified: all three]. Don't fight it — layer `bold`/`fontSizePoints`
+  identically in Word and BC [verified: all three]. Don't fight it — layer `format` (bold, size)
   where needed (a 16 pt bold section heading over the pinned base is verified [P06]).
 - Editing a stock layout: inline inserts take the run formatting of the text before them (#122), so a
   field or separator added to a stock line already matches its `Strong` or Segoe UI 8 pt neighbours.
-  Pass `bold`/`fontSizePoints` only to differ from them.
+  Pass `format` only to differ from them.
 - Stock caption text is smaller and bolder than its values (9 pt bold captions over 11 pt values
   [1304, 1322]); totals amounts are bold everywhere [stock + verified].
-- Broad styling (colours, shading, other fonts) has no tool: use a branded `templatePath` shell or
-  hand-edit the OOXML and re-validate (al-word-layout §3).
+- `format` also takes italic, underline, a font (Segoe UI is what Microsoft's own layouts set on
+  nearly every run [stock]), a colour (`0070C0` is the stock accent blue [stock]) and a character
+  style the layout defines (`Strong` in the stock document layouts [stock]).
+- Restyle what is already there with `set_text_format`: a stock control by id, a header row in one
+  call (`target="row"`), or one exact piece of text.
+- Shade cells with `set_cell_format`'s `fill`: the stock fills are a light grey `E8E8E8` and the
+  accent blue `0070C0` [stock]. Most stock tables carry no fill at all, so use it sparingly.
+- Anything beyond that (margins, page setup, a whole brand) has no tool: use a branded
+  `templatePath` shell or hand-edit the OOXML and re-validate (al-word-layout §3).
 
 ### Widths (twips)
 - Full A4 content width is **10206 twips** with the stock margins. `insert_table`'s default even

@@ -459,6 +459,56 @@ public class LayoutValidatorNegativeTests
         }
     }
 
+    // ---- character-style-resolves: a w:rStyle naming no character style the layout defines (issue #15) ----
+
+    [Fact]
+    public void Dangling_or_paragraph_rStyle_references_are_flagged_as_warnings_but_a_defined_character_style_is_not()
+    {
+        // DefaultStylesScaffold defines the character style DefaultParagraphFont and the paragraph style Normal.
+        var body =
+            "<w:p><w:r><w:rPr><w:rStyle w:val=\"DefaultParagraphFont\"/></w:rPr><w:t>fine</w:t></w:r></w:p>"
+            + "<w:p><w:r><w:rPr><w:rStyle w:val=\"NotDefinedAnywhere\"/></w:rPr><w:t>dangling</w:t></w:r>"
+            + "<w:r><w:rPr><w:rStyle w:val=\"NotDefinedAnywhere\"/></w:rPr><w:t>again</w:t></w:r></w:p>"
+            + "<w:p><w:r><w:rPr><w:rStyle w:val=\"Normal\"/></w:rPr><w:t>paragraph style</w:t></w:r></w:p>";
+        var path = SyntheticLayout.Create(body);
+
+        try
+        {
+            using (var doc = DocumentFormat.OpenXml.Packaging.WordprocessingDocument.Open(path, true))
+            {
+                Assert.True(DefaultStylesScaffold.EnsureDefaultStyles(doc.MainDocumentPart!));
+            }
+
+            var result = LayoutValidator.Quick(path);
+
+            var styleFindings = result.Findings.Where(f => f.Check == "character-style-resolves").ToList();
+            Assert.Equal(2, styleFindings.Count);
+            Assert.All(styleFindings, f => Assert.Equal(FindingSeverity.Warning, f.Severity));
+            Assert.Contains(styleFindings, f => f.Message.StartsWith(
+                "2 run(s) reference character style 'NotDefinedAnywhere' via w:rStyle, but the layout's styles part does not define it",
+                StringComparison.Ordinal));
+            Assert.Contains(styleFindings, f => f.Message.Contains(
+                "'Normal' via w:rStyle, but the layout defines it as a paragraph style, not a character style",
+                StringComparison.Ordinal));
+            Assert.DoesNotContain(styleFindings, f => f.Message.Contains("DefaultParagraphFont", StringComparison.Ordinal));
+            Assert.True(result.Passed);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void No_corpus_layout_trips_character_style_resolves()
+    {
+        foreach (var file in Directory.GetFiles(Path.Combine(AppContext.BaseDirectory, "corpus"), "*.docx"))
+        {
+            var result = LayoutValidator.Quick(file);
+            Assert.DoesNotContain(result.Findings, f => f.Check == "character-style-resolves");
+        }
+    }
+
     [Fact]
     public void Downgraded_repeater_is_flagged_but_a_real_repeater_and_an_ordinary_field_are_not()
     {

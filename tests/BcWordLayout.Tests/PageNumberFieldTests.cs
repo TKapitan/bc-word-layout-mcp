@@ -292,7 +292,7 @@ public class PageNumberFieldTests
                     doc,
                     new Location { Type = LocationKind.DocumentEnd, Part = LayoutPart.Header },
                     includeTotal: true,
-                    new CellTextFormat { Bold = true, FontSizePoints = 8 });
+                    new TextFormat { Bold = true, FontSizePoints = 8 });
                 doc.MainDocumentPart!.Document!.Save();
                 foreach (var header in doc.MainDocumentPart.HeaderParts)
                 {
@@ -322,26 +322,6 @@ public class PageNumberFieldTests
 
             // The cached-result run keeps its corpus-shape noProof alongside the added styling.
             Assert.NotNull(sequence[3].RunProperties?.GetFirstChild<NoProof>());
-        }
-        finally
-        {
-            File.Delete(path);
-        }
-    }
-
-    [Fact]
-    public void InsertPageNumber_rejects_an_alignment_like_every_other_inline_insert()
-    {
-        var path = CopyOfCorpus(Corpus.JobQuote);
-        try
-        {
-            using var doc = WordprocessingDocument.Open(path, true);
-            var ex = Assert.Throws<ArgumentException>(() => LayoutEditor.InsertPageNumber(
-                doc,
-                new Location { Type = LocationKind.DocumentEnd, Part = LayoutPart.Header },
-                includeTotal: true,
-                new CellTextFormat { Alignment = "right" }));
-            Assert.Contains("alignment", ex.Message, StringComparison.OrdinalIgnoreCase);
         }
         finally
         {

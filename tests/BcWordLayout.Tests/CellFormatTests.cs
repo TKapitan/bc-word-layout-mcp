@@ -10,13 +10,13 @@ using DocumentFormat.OpenXml.Wordprocessing;
 namespace BcWordLayout.Tests;
 
 /// <summary>
-/// Covers <see cref="TableStructureEditor.SetCellBorders"/> and its <c>set_cell_borders</c> tool surface —
+/// Covers <see cref="TableStructureEditor.SetCellFormat"/> and its <c>set_cell_format</c> tool surface —
 /// the per-cell half of the BC table look. Real BC documents draw no table grid: their rules
 /// are per-cell <c>w:tcBorders</c> (a line under the lines-table header row, a line above a totals block),
 /// which <c>insert_repeater_table</c>'s <c>look='bc'</c> default only covers for the header row. Everything
 /// else an author needs is this tool.
 /// </summary>
-public class CellBorderTests
+public class CellFormatTests
 {
     private static string CopyOfCorpus(string corpusFile)
     {
@@ -44,7 +44,7 @@ public class CellBorderTests
             .ToList();
 
     [Fact]
-    public void Tool_set_cell_borders_without_col_draws_the_rule_across_every_cell_in_the_row()
+    public void Tool_set_cell_format_without_col_draws_the_rule_across_every_cell_in_the_row()
     {
         // The usual case: "put a line above the totals row" is a whole-row rule, not a per-cell chore.
         var path = CopyOfCorpus(Corpus.SalesInvoice);
@@ -52,10 +52,10 @@ public class CellBorderTests
         {
             var tableIndex = NewPlainTable(path);
 
-            var response = TableTools.SetCellBorders(path, tableIndex, row: 1, edges: "top");
+            var response = TableTools.SetCellFormat(path, tableIndex, row: 1, edges: "top");
             Assert.True(response.Ok, response.Error?.Message);
             var dto = Assert.IsType<TableEditResultDto>(response.Data);
-            Assert.Equal("set_cell_borders", dto.Operation);
+            Assert.Equal("set_cell_format", dto.Operation);
             Assert.Null(dto.ColumnIndex);
             Assert.Equal(3, dto.ColumnCountBefore);
             Assert.Equal(3, dto.ColumnCountAfter); // cosmetic only — the grid is untouched
@@ -80,15 +80,15 @@ public class CellBorderTests
     }
 
     [Fact]
-    public void Tool_set_cell_borders_with_col_targets_one_cell_and_keeps_its_unnamed_edges()
+    public void Tool_set_cell_format_with_col_targets_one_cell_and_keeps_its_unnamed_edges()
     {
         var path = CopyOfCorpus(Corpus.SalesInvoice);
         try
         {
             var tableIndex = NewPlainTable(path);
 
-            Assert.True(TableTools.SetCellBorders(path, tableIndex, row: 0, edges: "bottom", col: 1).Ok);
-            var second = TableTools.SetCellBorders(path, tableIndex, row: 0, edges: "top", col: 1);
+            Assert.True(TableTools.SetCellFormat(path, tableIndex, row: 0, edges: "bottom", col: 1).Ok);
+            var second = TableTools.SetCellFormat(path, tableIndex, row: 0, edges: "top", col: 1);
             Assert.True(second.Ok, second.Error?.Message);
             Assert.Equal(1, Assert.IsType<TableEditResultDto>(second.Data).ColumnIndex);
 
@@ -111,7 +111,7 @@ public class CellBorderTests
     }
 
     [Fact]
-    public void Tool_set_cell_borders_style_none_clears_an_edge_with_an_explicit_nil()
+    public void Tool_set_cell_format_style_none_clears_an_edge_with_an_explicit_nil()
     {
         // An explicit nil, not a deleted element: in a table that declares its own w:tblBorders, a deleted
         // edge simply inherits the grid line back.
@@ -121,7 +121,7 @@ public class CellBorderTests
             var inserted = TableTools.InsertTable(path, rows: 1, columns: 2, locationType: "documentEnd", withBorders: true);
             var tableIndex = Assert.IsType<TableEditResultDto>(inserted.Data).TableIndex;
 
-            var response = TableTools.SetCellBorders(path, tableIndex, row: 0, edges: "left,right", style: "none");
+            var response = TableTools.SetCellFormat(path, tableIndex, row: 0, edges: "left,right", borderStyle: "none");
             Assert.True(response.Ok, response.Error?.Message);
 
             using var reopened = WordprocessingDocument.Open(path, false);
@@ -142,7 +142,7 @@ public class CellBorderTests
     }
 
     [Fact]
-    public void Tool_set_cell_borders_lands_after_the_cells_width_in_tcPr_schema_order()
+    public void Tool_set_cell_format_lands_after_the_cells_width_in_tcPr_schema_order()
     {
         // CT_TcPr sequences tcW before tcBorders; a freshly authored cell always carries a width, so
         // inserting the borders element at the front (the pre-B32 helper's only behavior for a non-gridSpan
@@ -151,7 +151,7 @@ public class CellBorderTests
         try
         {
             var tableIndex = NewPlainTable(path, rows: 1, columns: 2);
-            Assert.True(TableTools.SetCellBorders(path, tableIndex, row: 0, edges: "all").Ok);
+            Assert.True(TableTools.SetCellFormat(path, tableIndex, row: 0, edges: "all").Ok);
 
             using var reopened = WordprocessingDocument.Open(path, false);
             var tcPr = RowCells(reopened, tableIndex, 0)[0].TableCellProperties!;
@@ -166,32 +166,32 @@ public class CellBorderTests
     }
 
     [Fact]
-    public void Tool_set_cell_borders_rejects_an_unknown_edge_and_an_out_of_range_size()
+    public void Tool_set_cell_format_rejects_an_unknown_edge_and_an_out_of_range_size()
     {
         var path = CopyOfCorpus(Corpus.SalesInvoice);
         try
         {
             var tableIndex = NewPlainTable(path);
 
-            var badEdge = TableTools.SetCellBorders(path, tableIndex, row: 0, edges: "diagonal");
+            var badEdge = TableTools.SetCellFormat(path, tableIndex, row: 0, edges: "diagonal");
             Assert.False(badEdge.Ok);
             Assert.Equal("invalid_argument", badEdge.Error!.Code);
             Assert.Contains("top", badEdge.Error.Hint, StringComparison.OrdinalIgnoreCase);
 
-            var noEdge = TableTools.SetCellBorders(path, tableIndex, row: 0, edges: "");
+            var noEdge = TableTools.SetCellFormat(path, tableIndex, row: 0, edges: "");
             Assert.False(noEdge.Ok);
             Assert.Equal("invalid_argument", noEdge.Error!.Code);
 
-            var badSize = TableTools.SetCellBorders(path, tableIndex, row: 0, edges: "top", size: 500);
+            var badSize = TableTools.SetCellFormat(path, tableIndex, row: 0, edges: "top", borderSize: 500);
             Assert.False(badSize.Ok);
             Assert.Equal("invalid_argument", badSize.Error!.Code);
             Assert.Contains("eighths", badSize.Error.Hint, StringComparison.OrdinalIgnoreCase);
 
-            var badStyle = TableTools.SetCellBorders(path, tableIndex, row: 0, edges: "top", style: "dotted");
+            var badStyle = TableTools.SetCellFormat(path, tableIndex, row: 0, edges: "top", borderStyle: "dotted");
             Assert.False(badStyle.Ok);
             Assert.Equal("invalid_argument", badStyle.Error!.Code);
 
-            var badRow = TableTools.SetCellBorders(path, tableIndex, row: 99, edges: "top");
+            var badRow = TableTools.SetCellFormat(path, tableIndex, row: 99, edges: "top");
             Assert.False(badRow.Ok);
             Assert.Equal("not_found", badRow.Error!.Code);
         }
@@ -201,8 +201,125 @@ public class CellBorderTests
         }
     }
 
+    // ---- fill (GitHub issue #15) ----
+
     [Fact]
-    public void SetCellBorders_works_on_a_vMerge_table_that_the_other_table_tools_reject()
+    public void Tool_set_cell_format_fill_shades_every_cell_of_the_row_in_the_corpus_shape()
+    {
+        // The corpus fills: val=clear color=auto fill=RRGGBB (E8E8E8 and 0070C0 in four stock layouts).
+        var path = CopyOfCorpus(Corpus.SalesInvoice);
+        try
+        {
+            var tableIndex = NewPlainTable(path);
+
+            var response = TableTools.SetCellFormat(path, tableIndex, row: 0, fill: "#e8e8e8");
+            Assert.True(response.Ok, response.Error?.Message);
+            Assert.Contains("filled them with E8E8E8", Assert.IsType<TableEditResultDto>(response.Data).Summary, StringComparison.Ordinal);
+
+            using var reopened = WordprocessingDocument.Open(path, false);
+            foreach (var cell in RowCells(reopened, tableIndex, 0))
+            {
+                var shading = cell.TableCellProperties!.Shading!;
+                Assert.Equal(ShadingPatternValues.Clear, shading.Val!.Value);
+                Assert.Equal("auto", shading.Color!.Value);
+                Assert.Equal("E8E8E8", shading.Fill!.Value);
+                Assert.Null(cell.TableCellProperties.TableCellBorders); // a fill-only call leaves the rules alone
+            }
+
+            Assert.All(RowCells(reopened, tableIndex, 1), c => Assert.Null(c.TableCellProperties?.Shading));
+            Assert.Empty(OpenXmlErrors(reopened));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Tool_set_cell_format_sets_rules_and_fill_in_one_call_in_tcPr_schema_order()
+    {
+        var path = CopyOfCorpus(Corpus.SalesInvoice);
+        try
+        {
+            var tableIndex = NewPlainTable(path);
+
+            var response = TableTools.SetCellFormat(path, tableIndex, row: 1, col: 2, edges: "top", fill: "0070C0");
+            Assert.True(response.Ok, response.Error?.Message);
+            Assert.Contains("drew the top rule(s) and filled them with 0070C0",
+                Assert.IsType<TableEditResultDto>(response.Data).Summary, StringComparison.Ordinal);
+
+            using var reopened = WordprocessingDocument.Open(path, false);
+            var tcPr = RowCells(reopened, tableIndex, 1)[2].TableCellProperties!;
+            var children = tcPr.ChildElements.Select(c => c.LocalName).ToList();
+            Assert.True(children.IndexOf("tcBorders") < children.IndexOf("shd"), string.Join(",", children));
+            Assert.Empty(OpenXmlErrors(reopened));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Fill_auto_replaces_an_existing_fill_theme_attributes_included()
+    {
+        // A themeFill wins over w:fill in Word, so keeping it would make the call do nothing visible.
+        var path = CopyOfCorpus(Corpus.SalesInvoice);
+        try
+        {
+            var tableIndex = NewPlainTable(path);
+            using (var doc = WordprocessingDocument.Open(path, true))
+            {
+                var cell = RowCells(doc, tableIndex, 0)[0];
+                cell.TableCellProperties ??= new TableCellProperties();
+                cell.TableCellProperties.Shading = new Shading
+                {
+                    Val = ShadingPatternValues.Clear, Color = "auto", Fill = "E8E8E8", ThemeFill = ThemeColorValues.Background2,
+                };
+                doc.MainDocumentPart!.Document!.Save();
+            }
+
+            Assert.True(TableTools.SetCellFormat(path, tableIndex, row: 0, col: 0, fill: "auto").Ok);
+
+            using var reopened = WordprocessingDocument.Open(path, false);
+            var shading = RowCells(reopened, tableIndex, 0)[0].TableCellProperties!.Elements<Shading>().Single();
+            Assert.Equal("auto", shading.Fill!.Value);
+            Assert.Null(shading.ThemeFill);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Theory]
+    [InlineData(null, null, null, "set_cell_format has nothing to change")]
+    [InlineData(null, "none", null, "borderStyle and borderSize describe the edges you name")]
+    [InlineData(null, null, "grey", "fill must be a colour as six hex digits")]
+    public void Tool_set_cell_format_refuses_a_call_it_cannot_act_on_exactly(
+        string? edges, string? borderStyle, string? fill, string fragment)
+    {
+        var path = CopyOfCorpus(Corpus.SalesInvoice);
+        try
+        {
+            var tableIndex = NewPlainTable(path);
+            var before = File.ReadAllBytes(path);
+
+            var response = TableTools.SetCellFormat(path, tableIndex, row: 0, edges: edges, borderStyle: borderStyle, fill: fill);
+
+            Assert.False(response.Ok);
+            Assert.Equal("invalid_argument", response.Error!.Code);
+            Assert.Contains(fragment, response.Error.Message, StringComparison.Ordinal);
+            Assert.Equal(before, File.ReadAllBytes(path));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void SetCellFormat_works_on_a_vMerge_table_that_the_other_table_tools_reject()
     {
         // Cosmetic only — no span arithmetic — so the vMerge/gridBefore rejection every other table
         // operation carries would be pure lost capability here.
@@ -211,11 +328,11 @@ public class CellBorderTests
         {
             using (var doc = WordprocessingDocument.Open(path, true))
             {
-                var result = TableStructureEditor.SetCellBorders(
+                var result = TableStructureEditor.SetCellFormat(
                     doc, LayoutPart.Body, partName: null, tableIndex: 0, row: 0, col: null,
-                    new CellBorderOptions { Bottom = true });
+                    new CellBorderOptions { Bottom = true }, fill: null);
 
-                Assert.Equal("set_cell_borders", result.Operation);
+                Assert.Equal("set_cell_format", result.Operation);
                 Assert.Contains("all 2 cell(s) of row 0", result.Summary, StringComparison.Ordinal);
                 doc.MainDocumentPart!.Document!.Save();
             }

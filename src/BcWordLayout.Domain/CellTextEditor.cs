@@ -35,25 +35,29 @@ public static class CellTextEditor
     /// picture, a field) stays in place — see <see cref="ReplaceCellText"/>. The cell's <c>w:tcPr</c>
     /// (width, span, borders, vertical alignment) is preserved, and the new run sits in the paragraph the old
     /// text was in, keeping its <c>w:pPr</c> (e.g. <c>pStyle</c>), and inherits the first replaced run's
-    /// <c>w:rPr</c>, so a re-labelled header keeps its styling.
+    /// <c>w:rPr</c>, so a re-labelled header keeps its styling. The optional <paramref name="format"/> goes on
+    /// the new run over that (see <see cref="RunFormatter"/>), and <paramref name="alignment"/>
+    /// (<c>left</c>/<c>center</c>/<c>right</c>) on the paragraph holding it; omitted, the cell's look is kept.
     /// </summary>
     /// <exception cref="ArgumentException">
     /// <paramref name="location"/> is not a <see cref="LocationKind.TableCell"/> (or is otherwise
     /// structurally invalid); or <paramref name="text"/> is null; or the cell contains a content control
-    /// (see remarks).
+    /// (see remarks); or <paramref name="format"/> or <paramref name="alignment"/> is malformed.
     /// </exception>
     /// <exception cref="NotFoundException">
     /// <paramref name="location"/> does not resolve against <paramref name="doc"/> (out-of-range
     /// table/row/cell) — propagated from <see cref="LocationResolver.ResolveCellElement"/>.
     /// </exception>
     public static CellEditResult SetCellText(
-        WordprocessingDocument doc, Location location, string text, CellTextFormat? format = null)
+        WordprocessingDocument doc, Location location, string text, TextFormat? format = null, string? alignment = null)
     {
         ArgumentNullException.ThrowIfNull(doc);
         ArgumentNullException.ThrowIfNull(location);
         ArgumentNullException.ThrowIfNull(text);
 
-        return Edit(doc, location, "set_cell_text", text, format);
+        var prepared = RunFormatter.Prepare(format, doc);
+        JustificationValues? justification = alignment is null ? null : ParseAlignment(alignment, nameof(alignment));
+        return Edit(doc, location, "set_cell_text", text, prepared, justification);
     }
 
     /// <summary>
@@ -80,13 +84,13 @@ public static class CellTextEditor
 
     /// <summary>
     /// Parses a caller-facing alignment name (<c>left</c>/<c>center</c>/<c>right</c>, case-insensitive)
-    /// into its OOXML justification. Shared by <see cref="SetCellText"/>'s formatting options and
+    /// into its OOXML justification. Shared by <see cref="SetCellText"/>, <c>set_text_format</c> and
     /// <see cref="LayoutEditor.InsertPlainTable"/>'s per-column alignments.
     /// </summary>
     /// <exception cref="ArgumentException">Anything else.</exception>
     internal static JustificationValues ParseAlignment(string alignment, string paramName)
     {
-        return alignment.ToLowerInvariant() switch
+        return alignment.Trim().ToLowerInvariant() switch
         {
             "left" => JustificationValues.Left,
             "center" => JustificationValues.Center,
@@ -96,8 +100,23 @@ public static class CellTextEditor
         };
     }
 
+    /// <summary>
+    /// Sets <paramref name="paragraph"/>'s alignment (<c>w:pPr/w:jc</c>), creating its <c>w:pPr</c> when absent;
+    /// the typed setter places <c>w:jc</c> at its schema-ordered position.
+    /// </summary>
+    internal static void Align(Paragraph paragraph, JustificationValues justification)
+    {
+        paragraph.ParagraphProperties ??= new ParagraphProperties();
+        paragraph.ParagraphProperties.Justification = new Justification { Val = justification };
+    }
+
     private static CellEditResult Edit(
-        WordprocessingDocument doc, Location location, string operation, string? text, CellTextFormat? format = null)
+        WordprocessingDocument doc,
+        Location location,
+        string operation,
+        string? text,
+        RunFormatter.Prepared? format = null,
+        JustificationValues? alignment = null)
     {
         var (cell, partName) = LocationResolver.ResolveCellElement(location, doc);
 
@@ -115,7 +134,7 @@ public static class CellTextEditor
                 nameof(location));
         }
 
-        var (previousText, kept) = ReplaceCellText(cell, text, format);
+        var (previousText, kept) = ReplaceCellText(cell, text, format, alignment);
 
         var newText = text ?? string.Empty;
         return new CellEditResult
@@ -151,7 +170,7 @@ public static class CellTextEditor
     /// and its only picture cell are both legitimate targets for a caption.
     /// </remarks>
     private static (string PreviousText, List<string> Kept) ReplaceCellText(
-        TableCell cell, string? text, CellTextFormat? format = null)
+        TableCell cell, string? text, RunFormatter.Prepared? format, JustificationValues? alignment)
     {
         var paragraphs = cell.Elements<Paragraph>().ToList();
         var textRuns = FindTextRuns(paragraphs);
@@ -208,9 +227,16 @@ public static class CellTextEditor
             paragraph.Remove();
         }
 
-        if (host is not null)
+        if (host is not null && alignment is { } justification)
         {
-            ApplyFormat(host, newRun, format);
+            Align(host, justification);
+        }
+
+        // On the new run only, never on a picture or field run kept beside it.
+        if (newRun is not null && format is not null)
+        {
+            newRun.RunProperties ??= new RunProperties();
+            RunFormatter.Apply(newRun.RunProperties, format);
         }
 
         return (previousText, DescribeKeptContent(cell));
@@ -308,54 +334,6 @@ public static class CellTextEditor
         }
 
         return kept;
-    }
-
-    /// <summary>
-    /// Applies the OPTIONAL formatting knobs of a set: every null member means "leave as inherited/kept" —
-    /// the pre-format behavior exactly. Alignment goes on <paramref name="paragraph"/> (the one holding the
-    /// new text); bold and size go on <paramref name="run"/>, the new run itself, never on a picture or
-    /// field run kept beside it. The strongly-typed OpenXml property setters place each element at
-    /// its schema-ordered position inside <c>w:pPr</c>/<c>w:rPr</c>, so the pre-save validator gate stays
-    /// clean regardless of what the preserved properties already contain.
-    /// </summary>
-    private static void ApplyFormat(Paragraph paragraph, Run? run, CellTextFormat? format)
-    {
-        if (format is null)
-        {
-            return;
-        }
-
-        if (format.Alignment is { } alignment)
-        {
-            paragraph.ParagraphProperties ??= new ParagraphProperties();
-            paragraph.ParagraphProperties.Justification =
-                new Justification { Val = ParseAlignment(alignment, nameof(format)) };
-        }
-
-        if (run is null || (format.Bold is null && format.FontSizePoints is null))
-        {
-            return;
-        }
-
-        run.RunProperties ??= new RunProperties();
-        if (format.Bold is { } bold)
-        {
-            run.RunProperties.Bold = bold ? new Bold() : null;
-        }
-
-        if (format.FontSizePoints is { } points)
-        {
-            if (points is < 4 or > 96)
-            {
-                throw new ArgumentException(
-                    $"fontSizePoints must be between 4 and 96 (got {points}).", nameof(format));
-            }
-
-            // w:sz/w:szCs are half-points; set both, as Word itself does.
-            var halfPoints = ((int)Math.Round(points * 2)).ToString(System.Globalization.CultureInfo.InvariantCulture);
-            run.RunProperties.FontSize = new FontSize { Val = halfPoints };
-            run.RunProperties.FontSizeComplexScript = new FontSizeComplexScript { Val = halfPoints };
-        }
     }
 
     private static string BuildSummary(

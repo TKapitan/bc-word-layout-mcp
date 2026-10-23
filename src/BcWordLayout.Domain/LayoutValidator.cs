@@ -50,6 +50,7 @@ public static class LayoutValidator
         CheckCompatibilityMode(main, inventory, findings);
         CheckAttachedTemplate(main, findings);
         CheckTableStylesResolve(main, findings);
+        CheckCharacterStylesResolve(main, findings);
         CheckControlIdsUnique(main, findings);
 
         return new ValidationResult { Level = "quick", Findings = findings };
@@ -926,6 +927,53 @@ public static class LayoutValidator
                               + "its own defaults. Reference a style the layout defines (a layout created "
                               + "by create_layout defines 'TableGrid'), start from a templatePath that "
                               + "defines the style, or drop the style reference.",
+                    Location = partName,
+                });
+            }
+        }
+    }
+
+    // 8b. Every w:rStyle names a CHARACTER style the layout's styles part defines — the run-level twin of
+    //     check 8. The tools refuse to write such a reference (format.characterStyle, GitHub issue #15), but a
+    //     hand edit, a style deleted from a template, or a layout whose styles part lacks it leaves text the
+    //     author believes is styled rendering in its defaults. A reference to a PARAGRAPH style is reported
+    //     too: w:rStyle must name a character style, and Word ignores one that does not. WARNING, as for
+    //     check 8: the text renders, the reference just does nothing. No corpus layout carries one, so no
+    //     stock layout trips it.
+    private static void CheckCharacterStylesResolve(MainDocumentPart main, List<ValidationFinding> findings)
+    {
+        var styleTypes = main.StyleDefinitionsPart?.Styles?
+            .Elements<Style>()
+            .Where(s => !string.IsNullOrEmpty(s.StyleId?.Value))
+            .GroupBy(s => s.StyleId!.Value!, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.First().Type?.InnerText, StringComparer.Ordinal);
+
+        foreach (var (rootElement, partName) in EnumerateContentParts(main))
+        {
+            var unresolved = rootElement.Descendants<RunStyle>()
+                .Select(r => r.Val?.Value)
+                .Where(id => !string.IsNullOrEmpty(id))
+                .Where(id => styleTypes is null || !styleTypes.TryGetValue(id!, out var type) || type != "character")
+                .GroupBy(id => id!, StringComparer.Ordinal);
+
+            foreach (var group in unresolved)
+            {
+                var styleId = group.Key;
+                var reason = styleTypes is null
+                    ? "this layout has no styles part at all"
+                    : styleTypes.TryGetValue(styleId, out var type)
+                        ? $"the layout defines it as a {type ?? "typeless"} style, not a character style"
+                        : "the layout's styles part does not define it";
+
+                findings.Add(new ValidationFinding
+                {
+                    Check = "character-style-resolves",
+                    Severity = FindingSeverity.Warning,
+                    Message = $"{group.Count()} run(s) reference character style '{styleId}' via w:rStyle, but {reason}, "
+                              + "so the reference silently does nothing and the text renders without it. Reference "
+                              + "a character style the layout defines (set_text_format's format.characterStyle "
+                              + "lists them when given an unknown one), start from a templatePath that defines it, "
+                              + "or set the formatting directly with format.",
                     Location = partName,
                 });
             }

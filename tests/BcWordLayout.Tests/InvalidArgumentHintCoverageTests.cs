@@ -422,6 +422,59 @@ public class InvalidArgumentHintCoverageTests
         }
     }
 
+    // ---- "format" — RunFormatter.Prepare (a member out of range, malformed, or an undefined style) ----
+
+    [Fact]
+    public void InsertText_bad_format_member_hint_lists_every_member_and_its_values()
+    {
+        var path = CopyOfCorpus(Corpus.SalesInvoice);
+        try
+        {
+            var response = EditTools.InsertText(
+                path, "x", "documentEnd", format: new TextFormatArgument { Color = "blue" });
+            AssertActionableFailure(response, "invalid_argument", "six hex digits RRGGBB");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    // ---- "target" — EditTools.ParseTextFormatTargetOrThrow and TextFormatEditor's target-shape check ----
+
+    [Fact]
+    public void SetTextFormat_target_missing_its_arguments_hint_lists_each_target_and_what_it_needs()
+    {
+        var path = CopyOfCorpus(Corpus.SalesInvoice);
+        try
+        {
+            var response = EditTools.SetTextFormat(
+                path, "cell", tableIndex: 0, format: new TextFormatArgument { Bold = true });
+            AssertActionableFailure(response, "invalid_argument", "'row' (with tableIndex and row");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    // ---- "alignment" — CellTextEditor.ParseAlignment, from set_cell_text ----
+
+    [Fact]
+    public void SetCellText_bad_alignment_hint_names_the_valid_alignments()
+    {
+        var path = SyntheticLayout.Create(SyntheticLayout.SimpleTable(rows: 1, cols: 2));
+        try
+        {
+            var response = EditTools.SetCellText(path, 0, 0, 0, "x", alignment: "middle");
+            AssertActionableFailure(response, "invalid_argument", "'left', 'center' or 'right'");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     // ---- "look" — TableTools.ParseTableBorderLookOrThrow ----
 
     [Fact]
@@ -440,15 +493,15 @@ public class InvalidArgumentHintCoverageTests
         }
     }
 
-    // ---- "edges" / "style" / "size" — TableTools.ParseCellBorderOptionsOrThrow + TableStructureEditor.SetCellBorders ----
+    // ---- "edges" / "borderstyle" / "bordersize" — TableTools.ParseCellBorderOptionsOrThrow + TableStructureEditor.SetCellFormat ----
 
     [Fact]
-    public void SetCellBorders_bad_edges_hint_names_the_valid_edges()
+    public void SetCellFormat_bad_edges_hint_names_the_valid_edges()
     {
         var path = SyntheticLayout.Create(SyntheticLayout.SimpleTable(rows: 2, cols: 3));
         try
         {
-            var response = TableTools.SetCellBorders(path, tableIndex: 0, row: 0, edges: "sideways");
+            var response = TableTools.SetCellFormat(path, tableIndex: 0, row: 0, edges: "sideways");
             AssertActionableFailure(response, "invalid_argument", "'bottom'");
         }
         finally
@@ -458,13 +511,30 @@ public class InvalidArgumentHintCoverageTests
     }
 
     [Fact]
-    public void SetCellBorders_bad_size_hint_names_the_eighths_of_a_point_range()
+    public void SetCellFormat_bad_size_hint_names_the_eighths_of_a_point_range()
     {
         var path = SyntheticLayout.Create(SyntheticLayout.SimpleTable(rows: 2, cols: 3));
         try
         {
-            var response = TableTools.SetCellBorders(path, tableIndex: 0, row: 0, edges: "top", size: 0);
+            var response = TableTools.SetCellFormat(path, tableIndex: 0, row: 0, edges: "top", borderSize: 0);
             AssertActionableFailure(response, "invalid_argument", "eighths of a point");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    // ---- "fill" — RunFormatter.NormalizeColor, from TableStructureEditor.SetCellFormat ----
+
+    [Fact]
+    public void SetCellFormat_bad_fill_hint_names_the_colour_forms()
+    {
+        var path = SyntheticLayout.Create(SyntheticLayout.SimpleTable(rows: 2, cols: 3));
+        try
+        {
+            var response = TableTools.SetCellFormat(path, tableIndex: 0, row: 0, fill: "grey");
+            AssertActionableFailure(response, "invalid_argument", "'E8E8E8' (the stock light grey)");
         }
         finally
         {

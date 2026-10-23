@@ -15,7 +15,7 @@ namespace BcWordLayout.McpHost.Tools;
 /// (<c>insert_table_row</c>) and per-group rows inside a repeater's item (<c>insert_subtotal_row</c>) —
 /// resizing columns (<c>set_column_widths</c>), adding/removing a column
 /// (<c>insert_column</c>/<c>remove_column</c>), horizontally merging/splitting cells within a row
-/// (<c>merge_cells</c>/<c>split_cells</c>), and drawing cell rules (<c>set_cell_borders</c>).
+/// (<c>merge_cells</c>/<c>split_cells</c>), and cell rules and fills (<c>set_cell_format</c>).
 /// <c>insert_repeater_table</c> sits here rather than in
 /// <see cref="EditTools"/> because it is fundamentally a table-shape operation (it builds the table's grid
 /// and rows from scratch), even though its edit-safety wrapper is the content-control one
@@ -54,7 +54,7 @@ public static class TableTools
                  + "tool for adding a new line-items-style table to a layout. By default the table gets the "
                  + "BC-NATIVE look (look='bc'): no drawn grid, just a rule under the header row, exactly like "
                  + "every real BC lines table. TOTALS: the stock shape puts them INSIDE this table as trailing "
-                 + "static rows - append them with insert_table_row (+ set_cell_borders for the rule). "
+                 + "static rows - append them with insert_table_row (+ set_cell_format for the rule). "
                  + "The result reports tableIndex and dataRowIndex - the new table's own 0-based index and "
                  + "the 0-based index of its repeating DATA row - so follow-up edits need no re-read. "
                  + "NESTING: for per-line detail (components, serial/lot nos), the STANDARD BC shape is a "
@@ -102,7 +102,7 @@ public static class TableTools
         [Description("Border treatment: 'bc' (default) draws NO table grid, only a 1/2-pt rule under the "
                      + "header row - the corpus-verified look of every real BC lines table; 'grid' draws an "
                      + "explicit single-line border on every edge and between every cell. Use "
-                     + "set_cell_borders afterwards for the other rules a BC document has (e.g. above a "
+                     + "set_cell_format afterwards for the other rules a BC document has (e.g. above a "
                      + "totals block).")] string look = "bc",
         [Description("SCOPE: only 'body' (the default) is supported for a repeater table - passing "
                      + "'header'/'footer' here is rejected with invalid_argument (nothing shows that Business "
@@ -182,7 +182,7 @@ public static class TableTools
                  + "label-shaped paths become label controls), 'a+b' chains paths in one cell, optional "
                  + "'N:' span prefix; spans must sum to the parent table's columnCount. Repeated calls "
                  + "stack rows in order - the stock shape is one all-spacer row (e.g. '9:-') then the bold "
-                 + "subtotal row (bold=true, right-aligned amount cells). The GROUP-HEADER half of the "
+                 + "subtotal row (format {\"bold\": true}, right-aligned amount cells). The GROUP-HEADER half of the "
                  + "stock group shape needs no extra call: the repeater's own line row (built by "
                  + "insert_repeater_table) is the per-group header. The response's controlId is 0 (the row "
                  + "is a plain w:tr; its bound cells' ids are in the summary). Same "
@@ -199,18 +199,12 @@ public static class TableTools
         [Description("Optional comma-separated per-cell alignments ('left'/'center'/'right', or '-' to keep "
                      + "the default), one per cell spec - subtotal amounts are right-aligned in the corpus.")]
         string? alignments = null,
-        [Description("Optional: true makes every bound cell's text bold (the corpus subtotal look), false "
-                     + "strips bold; omit to leave the controls unstyled.")] bool? bold = null,
-        [Description("Optional font size in points (4-96, halves allowed) for the bound cells' text; omit "
-                     + "to leave it unstyled.")] double? fontSizePoints = null)
+        [Description(TextFormatArgument.RowDescription)] TextFormatArgument? format = null)
     {
         return GuardEdit(layoutPath, doc =>
         {
-            var format = bold is null && fontSizePoints is null
-                ? null
-                : new CellTextFormat { Bold = bold, FontSizePoints = fontSizePoints };
             return LayoutEditor.InsertSubtotalRow(
-                doc, parentControlId, ParseRepeaterRowCells(cells, alignments), format);
+                doc, parentControlId, ParseRepeaterRowCells(cells, alignments), TextFormatArgument.ToDomain(format));
         });
     }
 
@@ -299,9 +293,9 @@ public static class TableTools
                  + "(before it) or of the row after its last (after it). Omit atRow to append after the "
                  + "last row, where a totals row goes. The row renders exactly ONCE - it is never part of a "
                  + "repeating section (for "
-                 + "per-group subtotal rows inside a repeater's item, use insert_subtotal_row). Use bold=true "
+                 + "per-group subtotal rows inside a repeater's item, use insert_subtotal_row). Use format {\"bold\": true} "
                  + "for the stock grand-total look and alignments for right-anchored amounts, then "
-                 + "set_cell_borders for the rule and set_cell_text for any literal caption. REJECTED for "
+                 + "set_cell_format for the rule and set_cell_text for any literal caption. REJECTED for "
                  + "tables using w:vMerge. Same write/validate/save-or-reject safety as insert_field, plus "
                  + "the grid-consistency backstop.")]
     public static ToolResponse InsertTableRow(
@@ -316,10 +310,7 @@ public static class TableTools
         [Description("Optional comma-separated per-cell alignments ('left'/'center'/'right', or '-' to keep "
                      + "the default), one per cell spec - amounts in a BC totals row are right-aligned.")]
         string? alignments = null,
-        [Description("Optional: true makes every bound cell's text bold (the stock grand-total look), false "
-                     + "strips bold; omit to leave the controls unstyled.")] bool? bold = null,
-        [Description("Optional font size in points (4-96, halves allowed) for the bound cells' text; omit "
-                     + "to leave it unstyled.")] double? fontSizePoints = null,
+        [Description(TextFormatArgument.RowDescription)] TextFormatArgument? format = null,
         [Description("Which OOXML part the table is in: 'body' (default), 'header', or 'footer'.")] string layoutPart = "body",
         [Description("Only used when layoutPart is 'header'/'footer': a specific part file name (e.g. "
                      + "'header2.xml'); omit to target the DEFAULT header/footer part (see get_layout_info's "
@@ -329,10 +320,7 @@ public static class TableTools
         {
             var part = ParseLayoutPartOrThrow(layoutPart);
             var cellList = ParseRepeaterRowCells(cells, alignments);
-            var format = bold is null && fontSizePoints is null
-                ? null
-                : new CellTextFormat { Bold = bold, FontSizePoints = fontSizePoints };
-            return TableStructureEditor.InsertStaticRow(doc, part, partName, tableIndex, atRow, cellList, format);
+            return TableStructureEditor.InsertStaticRow(doc, part, partName, tableIndex, atRow, cellList, TextFormatArgument.ToDomain(format));
         });
     }
 
@@ -617,34 +605,38 @@ public static class TableTools
         });
     }
 
-    [McpServerTool(Name = "set_cell_borders")]
-    [Description("Draw (or clear) the horizontal/vertical RULES on one row of a table - the per-cell "
-                 + "w:tcBorders real BC documents get their look from. A BC layout draws no table grid: it "
-                 + "has a 1/2-pt rule under the lines-table header row (insert_repeater_table's look='bc' "
-                 + "default already adds that one) and a rule above a totals block, and nothing else. This "
-                 + "is the tool for the rest of them: 'put a line above the totals row', 'underline the "
-                 + "grand-total cell'. Addressed by 0-based table index and row index (the SAME indices "
-                 + "get_layout_info reports); omit col to apply to EVERY cell in the row (the usual case - a "
-                 + "rule spans the whole row), or pass a 0-based PHYSICAL cell index (the cell's colIndex) to "
-                 + "target one cell - the result's columnIndex is then that cell's GRID column. "
+    [McpServerTool(Name = "set_cell_format")]
+    [Description("Set the APPEARANCE of the cells on one row of a table: the per-cell RULES (w:tcBorders) "
+                 + "real BC documents get their look from, and/or a FILL colour (w:shd). A BC layout draws no "
+                 + "table grid: it has a 1/2-pt rule under the lines-table header row (insert_repeater_table's "
+                 + "look='bc' default already adds that one) and a rule above a totals block, and nothing "
+                 + "else. This is the tool for the rest of them - 'put a line above the totals row', "
+                 + "'underline the grand-total cell' - and for a shaded header row. Addressed by 0-based table "
+                 + "index and row index (the SAME indices get_layout_info reports); omit col to apply to EVERY "
+                 + "cell in the row (the usual case), or pass a 0-based PHYSICAL cell index (the cell's "
+                 + "colIndex) to target one cell - the result's columnIndex is then that cell's GRID column. "
                  + "edges is a comma-separated list of 'top','bottom','left','right' (or 'all'); "
-                 + "style='single' (default) draws a line, style='none' clears those edges explicitly (they "
+                 + "borderStyle='single' (default) draws a line, 'none' clears those edges explicitly (they "
                  + "stay clear even in a table that declares its own border grid). Edges you do NOT name are "
-                 + "left exactly as they were. Cosmetic only - no cell, row, column, grid or binding is "
-                 + "touched, so unlike the other table tools this one also works on tables that use "
-                 + "vMerge. Same write/validate/save-or-reject safety as insert_field.")]
-    public static ToolResponse SetCellBorders(
+                 + "left exactly as they were. fill is six hex digits RRGGBB (e.g. 'E8E8E8', the stock light "
+                 + "grey) or 'auto' for no fill. Pass edges, fill, or both. Cosmetic only - no cell, row, "
+                 + "column, grid or binding is touched, so unlike the other table tools this one also works on "
+                 + "tables that use vMerge. To format the TEXT in the cells, use set_text_format. Same "
+                 + "write/validate/save-or-reject safety as insert_field.")]
+    public static ToolResponse SetCellFormat(
         [Description("Absolute path to the .docx layout file.")] string layoutPath,
         [Description("0-based table index in document order (see get_layout_info's tables[]).")] int tableIndex,
         [Description("0-based row index within the table.")] int row,
-        [Description("Comma-separated edges to set: any of 'top','bottom','left','right', or 'all'.")]
-        string edges,
         [Description("Optional 0-based PHYSICAL cell index within the row; omit to apply to every cell in "
                      + "the row (the usual case - a rule spans the whole row).")] int? col = null,
-        [Description("'single' (default) draws a line of the given size; 'none' explicitly clears the named "
-                     + "edges.")] string style = "single",
-        [Description("Rule thickness in EIGHTHS of a point (2-96); default 4 = 1/2 pt, the only thickness "
-                     + "the real BC corpus uses.")] int size = CellBorderOptions.DefaultSizeEighthPoints,
+        [Description("The rules to draw or clear: comma-separated 'top','bottom','left','right', or 'all'. "
+                     + "Omit to leave the rules alone.")] string? edges = null,
+        [Description("For edges: 'single' (the default) draws a line of borderSize; 'none' explicitly clears "
+                     + "the named edges.")] string? borderStyle = null,
+        [Description("For edges: rule thickness in EIGHTHS of a point (2-96); default 4 = 1/2 pt, the only "
+                     + "thickness the real BC corpus uses.")] int? borderSize = null,
+        [Description("Cell fill: six hex digits RRGGBB (e.g. 'E8E8E8'; a leading '#' is fine) or 'auto' for no "
+                     + "fill. Omit to leave the fill alone.")] string? fill = null,
         [Description("Which OOXML part the table is in: 'body' (default), 'header', or 'footer'.")] string layoutPart = "body",
         [Description("Only used when layoutPart is 'header'/'footer': a specific part file name (e.g. "
                      + "'header2.xml'); omit to target the DEFAULT header/footer part (see get_layout_info's "
@@ -653,8 +645,8 @@ public static class TableTools
         return GuardTableEdit(layoutPath, doc =>
         {
             var part = ParseLayoutPartOrThrow(layoutPart);
-            var options = ParseCellBorderOptionsOrThrow(edges, style, size);
-            return TableStructureEditor.SetCellBorders(doc, part, partName, tableIndex, row, col, options);
+            var borders = ParseCellBorderOptionsOrThrow(edges, borderStyle, borderSize);
+            return TableStructureEditor.SetCellFormat(doc, part, partName, tableIndex, row, col, borders, fill);
         });
     }
 
@@ -755,25 +747,42 @@ public static class TableTools
     };
 
     /// <summary>
-    /// Parses <c>set_cell_borders</c>' flat <c>edges</c>/<c>style</c>/<c>size</c> parameters into a
-    /// <see cref="CellBorderOptions"/>. The "no edge selected"/"size out of range" rejections belong to
-    /// <see cref="TableStructureEditor.SetCellBorders"/> (they are domain rules, checked there for every
-    /// caller); this only rejects what the flat string form itself can get wrong — an unknown edge name or
-    /// style. A null <paramref name="style"/> (an explicit JSON <c>null</c>) is the documented default,
-    /// <c>single</c>; a null <paramref name="edges"/> selects no edge and is refused by the domain rule.
+    /// Parses <c>set_cell_format</c>'s flat <c>edges</c>/<c>borderStyle</c>/<c>borderSize</c> parameters into a
+    /// <see cref="CellBorderOptions"/>, or null when none of them is given (the call only sets a fill). The "no
+    /// edge selected"/"size out of range" rejections belong to <see cref="TableStructureEditor.SetCellFormat"/>
+    /// (they are domain rules, checked there for every caller); this rejects what the flat form itself can get
+    /// wrong — an unknown edge name or style, and a style or size without edges, which would otherwise be
+    /// silently ignored. A null style or size is its documented default (<c>single</c>, ½ pt).
     /// </summary>
-    private static CellBorderOptions ParseCellBorderOptionsOrThrow(string? edges, string? style, int size)
+    private static CellBorderOptions? ParseCellBorderOptionsOrThrow(string? edges, string? borderStyle, int? borderSize)
     {
-        var remove = (style ?? "single").Trim().ToLowerInvariant() switch
+        if (edges is null)
+        {
+            if (borderStyle is not null || borderSize is not null)
+            {
+                throw new ArgumentException(
+                    "borderStyle and borderSize describe the edges you name, but edges was not given; pass edges "
+                    + "too (e.g. 'top'), or drop them to set only the fill.",
+                    nameof(edges));
+            }
+
+            return null;
+        }
+
+        var remove = (borderStyle ?? "single").Trim().ToLowerInvariant() switch
         {
             "single" or "" => false,
             "none" or "nil" => true,
             _ => throw new ArgumentException(
-                $"Unknown style '{style}'. Use 'single' (draw a line) or 'none' (clear the named edges).",
-                nameof(style)),
+                $"Unknown borderStyle '{borderStyle}'. Use 'single' (draw a line) or 'none' (clear the named edges).",
+                nameof(borderStyle)),
         };
 
-        var options = new CellBorderOptions { Remove = remove, SizeEighthPoints = size };
+        var options = new CellBorderOptions
+        {
+            Remove = remove,
+            SizeEighthPoints = borderSize ?? CellBorderOptions.DefaultSizeEighthPoints,
+        };
         foreach (var edge in SplitCommaList(edges))
         {
             options = edge.ToLowerInvariant() switch
