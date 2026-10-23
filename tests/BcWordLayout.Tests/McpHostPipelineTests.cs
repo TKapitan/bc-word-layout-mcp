@@ -704,6 +704,31 @@ public sealed class McpHostPipelineTests(McpHostPipeline pipeline) : IClassFixtu
     }
 
     [Fact]
+    public async Task The_input_schema_lists_the_values_of_enumerated_arguments_and_the_range_of_bounded_numbers()
+    {
+        // The value lists of AllowedValueAttributes.cs reach tools/list as "enum" through the SDK, and [Range] as
+        // minimum/maximum, so an agent reads the choices from the schema rather than from prose.
+        var tools = await pipeline.Client.ListToolsAsync();
+        JsonElement Parameter(string tool, string name) =>
+            tools.Single(t => t.Name == tool).ProtocolTool.InputSchema.GetProperty("properties").GetProperty(name);
+        string?[] Values(JsonElement schema) =>
+            [.. schema.GetProperty("enum").EnumerateArray().Select(v => v.ValueKind == JsonValueKind.Null ? null : v.GetString())];
+
+        Assert.Equal(new[] { "documentEnd", "afterControl", "tableCell", "atText" }, Values(Parameter("insert_field", "locationType")));
+        Assert.Equal(new[] { "body", "header", "footer" }, Values(Parameter("set_cell_format", "layoutPart")));
+        Assert.Equal(new[] { "left", "center", "right" }, Values(Parameter("set_cell_text", "alignment")));
+        Assert.Equal(new[] { "none", "headerRule", "grid" }, Values(Parameter("insert_repeater_table", "borders")));
+        Assert.Equal(new[] { "quick", "full" }, Values(Parameter("validate_layout", "level")));
+
+        var borderSize = Parameter("set_cell_format", "borderSize");
+        Assert.Equal(2, borderSize.GetProperty("minimum").GetInt32());
+        Assert.Equal(96, borderSize.GetProperty("maximum").GetInt32());
+        var fontSize = Parameter("insert_text", "format").GetProperty("properties").GetProperty("fontSizePoints");
+        Assert.Equal(4, fontSize.GetProperty("minimum").GetDouble());
+        Assert.Equal(96, fontSize.GetProperty("maximum").GetDouble());
+    }
+
+    [Fact]
     public async Task The_input_schema_describes_each_column_and_cell_object()
     {
         // One object per column or cell (GitHub issue #133): tools/list says what each member may hold.

@@ -185,6 +185,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   | `insert_table_row`, `insert_subtotal_row` | `"cells": "4:-,3:/Header/Totals/TotalText,/Header/Totals/TotalAmount", "alignments": "-,-,right"` | `"cells": [{"span": 4}, {"fields": ["/Header/Totals/TotalText"], "span": 3}, {"fields": ["/Header/Totals/TotalAmount"], "alignment": "right"}]` |
   | `preview_layout` | `"rows": 20` | `"sampleRows": 20` |
 
+- **The input schemas list every enumerated argument's values and every bounded number's range**
+  (GitHub issue #133). An agent reads the choices from tools/list instead of from the prose
+  descriptions:
+  - `locationType`, `layoutPart`, `alignment`, `borders`, `borderStyle`, `edges`, `mode`, `target`,
+    `level` and `converter` carry an `enum`;
+  - column widths, spans, `rowCount`, `borderSize`, `widthMm`/`heightMm` and `format.fontSizePoints`
+    carry a `minimum` and `maximum`.
+
+  Nothing a caller sends is read differently: an enumerated value is still matched
+  case-insensitively. A test holds every listed value to the parser that reads it, and requires every
+  argument of those names to publish its list.
+
 - **`remove_control keepText=true` on a block-level repeater now unwraps it** instead of refusing
   (GitHub issue #31): section, group and item go at once and the content stays in place, printing
   once. It is the undo of `wrap_in_repeater`, and works on the stock statement and work-description

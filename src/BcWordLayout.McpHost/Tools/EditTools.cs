@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.ComponentModel.DataAnnotations;
 using BcWordLayout.Domain;
 using BcWordLayout.Domain.Models;
 using DocumentFormat.OpenXml.Packaging;
@@ -44,7 +45,7 @@ public static class EditTools
         [Description("Dataset path to a non-label leaf column, e.g. '/Header/CustomerAddress1' (see "
                      + "list_dataset_fields).")] string field,
         [Description("Where to insert: 'documentEnd', 'afterControl', 'tableCell', or 'atText' "
-                     + "(case-insensitive).")] string locationType,
+                     + "(case-insensitive).")] [LocationTypeValues] string locationType,
         [Description("Required for 'afterControl': the w:id of the control to insert after.")] int? controlId = null,
         [Description("Required for 'tableCell': 0-based table index in document order.")] int? tableIndex = null,
         [Description("Required for 'tableCell': 0-based row index within the table.")] int? row = null,
@@ -52,7 +53,7 @@ public static class EditTools
         [Description("Required for 'atText': substring to search for in existing run text (ordinal match).")]
         string? searchText = null,
         [Description("Which OOXML part locationType resolves within: 'body' (default), 'header', or "
-                     + "'footer' (case-insensitive).")] string layoutPart = "body",
+                     + "'footer' (case-insensitive).")] [LayoutPartValues] string layoutPart = "body",
         [Description("Only used when layoutPart is 'header'/'footer': a specific part file name, e.g. "
                      + "'header2.xml' (see get_layout_info's controls[].part for the names actually present). "
                      + "Omit to target the DEFAULT part - the everyday header/footer, which is often NOT the first "
@@ -77,7 +78,7 @@ public static class EditTools
         [Description("Dataset path to a label column (by default a name ending in 'Lbl'/'_Lbl' - see "
                      + "list_dataset_fields's isLabel flag), e.g. '/Header/YourReference_Lbl'.")] string label,
         [Description("Where to insert: 'documentEnd', 'afterControl', 'tableCell', or 'atText' "
-                     + "(case-insensitive).")] string locationType,
+                     + "(case-insensitive).")] [LocationTypeValues] string locationType,
         [Description("Required for 'afterControl': the w:id of the control to insert after.")] int? controlId = null,
         [Description("Required for 'tableCell': 0-based table index in document order.")] int? tableIndex = null,
         [Description("Required for 'tableCell': 0-based row index within the table.")] int? row = null,
@@ -85,7 +86,7 @@ public static class EditTools
         [Description("Required for 'atText': substring to search for in existing run text (ordinal match).")]
         string? searchText = null,
         [Description("Which OOXML part locationType resolves within: 'body' (default), 'header', or "
-                     + "'footer' (case-insensitive).")] string layoutPart = "body",
+                     + "'footer' (case-insensitive).")] [LayoutPartValues] string layoutPart = "body",
         [Description("Only used when layoutPart is 'header'/'footer': a specific part file name, e.g. "
                      + "'header2.xml' (see get_layout_info's controls[].part for the names actually present). "
                      + "Omit to target the DEFAULT part - the everyday header/footer, which is often NOT the first "
@@ -121,7 +122,7 @@ public static class EditTools
         [Description("The literal text to insert. Whitespace is preserved verbatim, so ' ' is a valid "
                      + "separator space; an EMPTY string is rejected (nothing to insert).")] string text,
         [Description("Where to insert: 'documentEnd', 'afterControl', 'tableCell', or 'atText' "
-                     + "(case-insensitive).")] string locationType,
+                     + "(case-insensitive).")] [LocationTypeValues] string locationType,
         [Description("Required for 'afterControl': the w:id of the control to insert after.")] int? controlId = null,
         [Description("Required for 'tableCell': 0-based table index in document order.")] int? tableIndex = null,
         [Description("Required for 'tableCell': 0-based row index within the table.")] int? row = null,
@@ -129,7 +130,7 @@ public static class EditTools
         [Description("Required for 'atText': substring to search for in existing run text (ordinal match).")]
         string? searchText = null,
         [Description("Which OOXML part locationType resolves within: 'body' (default), 'header', or "
-                     + "'footer' (case-insensitive).")] string layoutPart = "body",
+                     + "'footer' (case-insensitive).")] [LayoutPartValues] string layoutPart = "body",
         [Description("Only used when layoutPart is 'header'/'footer': a specific part file name, e.g. "
                      + "'header2.xml' (see get_layout_info's controls[].part for the names actually present). "
                      + "Omit to target the DEFAULT part - the everyday header/footer, which is often NOT the first "
@@ -164,7 +165,7 @@ public static class EditTools
     public static ToolResponse InsertPageNumber(
         [Description("Absolute path to the .docx layout file.")] string layoutPath,
         [Description("Where to insert: 'documentEnd', 'afterControl', 'tableCell', or 'atText' "
-                     + "(case-insensitive).")] string locationType,
+                     + "(case-insensitive).")] [LocationTypeValues] string locationType,
         [Description("Required for 'afterControl': the w:id of the control to insert after.")] int? controlId = null,
         [Description("Required for 'tableCell': 0-based table index in document order.")] int? tableIndex = null,
         [Description("Required for 'tableCell': 0-based row index within the table.")] int? row = null,
@@ -175,7 +176,7 @@ public static class EditTools
                      + "false emits the PAGE field alone.")] bool includeTotal = true,
         [Description("Which OOXML part locationType resolves within: 'body' (default), 'header', or "
                      + "'footer' (case-insensitive). Page numbers belong in a header or footer.")]
-        string layoutPart = "body",
+        [LayoutPartValues] string layoutPart = "body",
         [Description("Only used when layoutPart is 'header'/'footer': a specific part file name, e.g. "
                      + "'header2.xml'. Omit to target the DEFAULT part - the everyday header/footer, which "
                      + "is often NOT the first part in the package (get_layout_info's partDetails gives "
@@ -211,7 +212,7 @@ public static class EditTools
         [Description("Dataset path to the picture column, e.g. '/Header/CompanyPicture' (see "
                      + "list_dataset_fields).")] string picture,
         [Description("Where to insert: 'documentEnd', 'afterControl', 'tableCell', or 'atText' "
-                     + "(case-insensitive).")] string locationType,
+                     + "(case-insensitive).")] [LocationTypeValues] string locationType,
         [Description("Required for 'afterControl': the w:id of the control to insert after.")] int? controlId = null,
         [Description("Required for 'tableCell': 0-based table index in document order.")] int? tableIndex = null,
         [Description("Required for 'tableCell': 0-based row index within the table.")] int? row = null,
@@ -219,10 +220,11 @@ public static class EditTools
         [Description("Required for 'atText': substring to search for in existing run text (ordinal match).")]
         string? searchText = null,
         [Description("Picture frame width in millimetres (1-500); default 30, the corpus logo's own size.")]
+        [Range(1.0, 500.0)]
         double widthMm = 30,
-        [Description("Picture frame height in millimetres (1-500); default 30.")] double heightMm = 30,
+        [Description("Picture frame height in millimetres (1-500); default 30.")] [Range(1.0, 500.0)] double heightMm = 30,
         [Description("Which OOXML part locationType resolves within: 'body' (default), 'header', or "
-                     + "'footer' (case-insensitive).")] string layoutPart = "body",
+                     + "'footer' (case-insensitive).")] [LayoutPartValues] string layoutPart = "body",
         [Description("Only used when layoutPart is 'header'/'footer': a specific part file name, e.g. "
                      + "'header2.xml'. Omit to target the DEFAULT part - the everyday header/footer, which is often "
                      + "NOT the first part in the package (see get_layout_info's partDetails).")] string? partName = null)
@@ -331,13 +333,13 @@ public static class EditTools
         [Description("0-based row index within the table.")] int row,
         [Description("0-based cell/column index within the row.")] int col,
         [Description("The plain text to put in the cell (replaces whatever text was there).")] string text,
-        [Description("Which OOXML part the cell is in: 'body' (default), 'header', or 'footer'.")] string layoutPart = "body",
+        [Description("Which OOXML part the cell is in: 'body' (default), 'header', or 'footer'.")] [LayoutPartValues] string layoutPart = "body",
         [Description("Only used when layoutPart is 'header'/'footer': a specific part file name (e.g. "
                      + "'header2.xml'); omit to target the DEFAULT header/footer part (see get_layout_info's "
                      + "partDetails for each part's role).")] string? partName = null,
         [Description(TextFormatArgument.SetCellTextDescription)] TextFormatArgument? format = null,
         [Description("Optional paragraph alignment 'left'/'center'/'right'; omit to keep the cell's "
-                     + "existing alignment.")] string? alignment = null)
+                     + "existing alignment.")] [AlignmentValues] string? alignment = null)
     {
         return GuardCellEdit(layoutPath, doc =>
         {
@@ -364,7 +366,7 @@ public static class EditTools
     public static ToolResponse SetTextFormat(
         [Description("Absolute path to the .docx layout file.")] string layoutPath,
         [Description("What to format: 'control', 'cell', 'row' or 'text' (case-insensitive). Pass only the "
-                     + "arguments that target uses.")] string target,
+                     + "arguments that target uses.")] [TargetValues] string target,
         [Description("For target 'control': the control's w:id (get_layout_info's controls[].sdtId).")]
         int? controlId = null,
         [Description("For 'cell'/'row': 0-based table index in document order (see get_layout_info's tables[]).")]
@@ -377,9 +379,9 @@ public static class EditTools
                      + "fontSizePoints, fontName, color, characterStyle), e.g. {\"bold\": true}. A member you omit "
                      + "is left as the text has it.")] TextFormatArgument? format = null,
         [Description("Optional paragraph alignment 'left'/'center'/'right' for the target's paragraphs.")]
-        string? alignment = null,
+        [AlignmentValues] string? alignment = null,
         [Description("For 'cell'/'row'/'text': which part the target is in - 'body' (default), 'header', or "
-                     + "'footer'. A control is found by its id in any part.")] string layoutPart = "body",
+                     + "'footer'. A control is found by its id in any part.")] [LayoutPartValues] string layoutPart = "body",
         [Description("Only used when layoutPart is 'header'/'footer': a specific part file name (e.g. "
                      + "'header2.xml'); omit to target the DEFAULT header/footer part (see get_layout_info's "
                      + "partDetails for each part's role).")] string? partName = null)
@@ -411,7 +413,7 @@ public static class EditTools
     /// Parses <c>set_text_format</c>'s <c>target</c> (case-insensitive). It is required with no default, so an
     /// explicit JSON <c>null</c> is refused as <c>invalid_argument</c> rather than guessed.
     /// </summary>
-    private static TextFormatTargetKind ParseTextFormatTargetOrThrow(string? target) => target?.Trim().ToLowerInvariant() switch
+    internal static TextFormatTargetKind ParseTextFormatTargetOrThrow(string? target) => target?.Trim().ToLowerInvariant() switch
     {
         "control" => TextFormatTargetKind.Control,
         "cell" => TextFormatTargetKind.Cell,
@@ -439,7 +441,7 @@ public static class EditTools
         [Description("0-based table index in document order (see get_layout_info's tables[]).")] int tableIndex,
         [Description("0-based row index within the table.")] int row,
         [Description("0-based cell/column index within the row.")] int col,
-        [Description("Which OOXML part the cell is in: 'body' (default), 'header', or 'footer'.")] string layoutPart = "body",
+        [Description("Which OOXML part the cell is in: 'body' (default), 'header', or 'footer'.")] [LayoutPartValues] string layoutPart = "body",
         [Description("Only used when layoutPart is 'header'/'footer': a specific part file name (e.g. "
                      + "'header2.xml'); omit to target the DEFAULT header/footer part (see get_layout_info's "
                      + "partDetails for each part's role).")] string? partName = null)

@@ -255,16 +255,27 @@ that step, so a call that never reaches a body still returns `isError: true` wit
 - **Missing required argument:** `invalid_argument` naming it; the hint lists the tool's required
   parameters.
 - **Wrong JSON type** (`"abc"` or `1.5` for an integer, `"true"` for a boolean, `null` for a number or
-  boolean): `invalid_argument` naming the parameter, the type it needs, and what the call sent.
+  boolean): `invalid_argument` naming the parameter, the type it needs, and what the call sent. Inside
+  an object or array argument it names the member or item by its path (`columns[1].width`), or the
+  required member an object lacks.
 - **Unknown argument name:** refused with `invalid_argument` rather than ignored, naming the closest
   real parameter (`layoutpart` → `layoutPart`; names are case-sensitive) and listing them all. An
-  ignored misspelling would silently fall back to the parameter's default.
+  ignored misspelling would silently fall back to the parameter's default. The same holds for the
+  members of an object argument and of the objects in an array (`format.size`, `columns[1].Width`).
+- **Object or array sent as a JSON string** (`"[1500, 6206]"` for `[1500, 6206]`): read as the value
+  it holds, since the string is unambiguous. A comma-separated list is not a JSON array and is refused,
+  with a hint that asks for one.
 - **Relative path:** every path parameter must be absolute; a relative one (or a drive- or
   root-relative one like `C:Report.docx`) is refused with `invalid_argument` naming the parameter,
   instead of resolving against the server's working directory.
 - **Explicit `null` for a string:** an optional enum-like string (`layoutPart`, `borders`, `borderStyle`,
   `converter`, `level`) takes its documented default, exactly as if it were omitted; a required one
   (`locationType`, `mode`) is refused with `invalid_argument`.
+
+The input schemas say what an argument may hold before any call is made: every enumerated argument
+lists its values (`enum`) and every bounded number its range (`minimum`/`maximum`), including the
+members of `format` and of the table tools' column and cell objects. The server still reads an
+enumerated value case-insensitively.
 
 Only a request too malformed for the SDK to parse as a tool call at all (no tool `name`, or `arguments`
 that is not a JSON object) fails earlier, as a JSON-RPC error with no tool result; MCP client libraries

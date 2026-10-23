@@ -169,13 +169,12 @@ public static class ReadTools
                  + "errors) as a validation finding.")]
     public static ToolResponse ValidateLayout(
         [Description("Absolute path to the .docx layout file.")] string layoutPath,
-        [Description("Validation level: 'quick' or 'full'. Default 'quick'.")] string level = "quick")
+        [Description("Validation level: 'quick' or 'full'. Default 'quick'.")] [LevelValues] string level = "quick")
     {
         // An explicit JSON null is bound straight through by the SDK; like every other optional enum-like
         // string on this surface, it means the documented default rather than an unknown level.
         level ??= "quick";
-        if (!string.Equals(level, "full", StringComparison.OrdinalIgnoreCase)
-            && !string.Equals(level, "quick", StringComparison.OrdinalIgnoreCase))
+        if (!TryParseLevel(level, out var full))
         {
             return Guard(() => ToolResponse.Failure(
                 ErrorCodes.InvalidArgument,
@@ -188,9 +187,7 @@ public static class ReadTools
         {
             // FullValidator.Full also reads layoutPath (via a File.Copy dry-run merge) on top of the quick
             // checks it starts with, so the SAME lock pair covers both levels rather than only the quick one.
-            var result = string.Equals(level, "full", StringComparison.OrdinalIgnoreCase)
-                ? FullValidator.Full(layoutPath)
-                : LayoutValidator.Quick(layoutPath);
+            var result = full ? FullValidator.Full(layoutPath) : LayoutValidator.Quick(layoutPath);
 
             var dto = new ValidationResultDto(
                 result.Level,
@@ -201,5 +198,15 @@ public static class ReadTools
 
             return ToolResponse.Success(dto);
         });
+    }
+
+    /// <summary>
+    /// Reads <c>validate_layout</c>'s <c>level</c>, case-insensitively: <paramref name="full"/> is true for
+    /// <c>full</c>, false for <c>quick</c>; false for anything else.
+    /// </summary>
+    internal static bool TryParseLevel(string level, out bool full)
+    {
+        full = string.Equals(level, "full", StringComparison.OrdinalIgnoreCase);
+        return full || string.Equals(level, "quick", StringComparison.OrdinalIgnoreCase);
     }
 }

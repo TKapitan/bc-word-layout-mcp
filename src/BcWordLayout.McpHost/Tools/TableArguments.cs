@@ -22,7 +22,7 @@ public sealed record RepeaterColumnArgument
 
     [Description("'left', 'center' or 'right', for the header cell and the data cell alike - real BC line tables "
                  + "right-align their quantity, price and amount columns. Omit for left.")]
-    [AllowedValues(TableArguments.Left, TableArguments.Center, TableArguments.Right, null)]
+    [AlignmentValues]
     public string? Alignment { get; init; }
 }
 
@@ -35,7 +35,7 @@ public sealed record TableColumnArgument
 
     [Description("'left', 'center' or 'right' for every cell of the column; set_cell_text and insert_field keep it. "
                  + "Omit for left.")]
-    [AllowedValues(TableArguments.Left, TableArguments.Center, TableArguments.Right, null)]
+    [AlignmentValues]
     public string? Alignment { get; init; }
 }
 
@@ -57,7 +57,7 @@ public sealed record RowCellArgument
     public int? Span { get; init; }
 
     [Description("'left', 'center' or 'right'; omit for the default (left). Amounts are right-aligned in the corpus.")]
-    [AllowedValues(TableArguments.Left, TableArguments.Center, TableArguments.Right, null)]
+    [AlignmentValues]
     public string? Alignment { get; init; }
 }
 
@@ -69,10 +69,6 @@ public sealed record RowCellArgument
 /// </summary>
 internal static class TableArguments
 {
-    internal const string Left = "left";
-    internal const string Center = "center";
-    internal const string Right = "right";
-
     internal const string WidthDescription =
         "Width in twips (1/20 pt), 1 to 31680. Omit for an even share of the width the other columns leave. The "
         + "widths are binding: the table is emitted with w:tblLayout='fixed', so Word does not autofit them.";

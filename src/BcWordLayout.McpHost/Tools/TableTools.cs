@@ -87,7 +87,7 @@ public static class TableTools
         [MinLength(1)]
         IReadOnlyList<RepeaterColumnArgument> columns,
         [Description("Where to insert: 'documentEnd', 'afterControl', 'tableCell', or 'atText' "
-                     + "(case-insensitive).")] string locationType,
+                     + "(case-insensitive).")] [LocationTypeValues] string locationType,
         [Description("Required for 'afterControl': the w:id of the control to insert after.")] int? controlId = null,
         [Description("Required for 'tableCell': 0-based table index in document order.")] int? tableIndex = null,
         [Description("Required for 'tableCell': 0-based row index within the table.")] int? row = null,
@@ -103,7 +103,7 @@ public static class TableTools
                      + "real BC lines table; 'none' draws no border at all (e.g. a composable body whose theme's "
                      + "table style supplies the look); 'grid' draws an explicit single-line border on every edge "
                      + "and between every cell. Use set_cell_format afterwards for the other rules a BC document "
-                     + "has (e.g. above a totals block).")] string borders = "headerRule")
+                     + "has (e.g. above a totals block).")] [BordersValues] string borders = "headerRule")
     {
         return GuardEdit(layoutPath, doc =>
         {
@@ -224,7 +224,7 @@ public static class TableTools
                      + "description). Omit, or pass the table's rowCount, to append after the last row - where "
                      + "a totals row goes.")] int? atRow = null,
         [Description(TextFormatArgument.RowDescription)] TextFormatArgument? format = null,
-        [Description("Which OOXML part the table is in: 'body' (default), 'header', or 'footer'.")] string layoutPart = "body",
+        [Description("Which OOXML part the table is in: 'body' (default), 'header', or 'footer'.")] [LayoutPartValues] string layoutPart = "body",
         [Description("Only used when layoutPart is 'header'/'footer': a specific part file name (e.g. "
                      + "'header2.xml'); omit to target the DEFAULT header/footer part (see get_layout_info's "
                      + "partDetails for each part's role).")] string? partName = null)
@@ -266,7 +266,7 @@ public static class TableTools
         [MaxLength(30)]
         IReadOnlyList<TableColumnArgument> columns,
         [Description("Where to insert: 'documentEnd', 'afterControl', 'tableCell', or 'atText' "
-                     + "(case-insensitive).")] string locationType,
+                     + "(case-insensitive).")] [LocationTypeValues] string locationType,
         [Description("Required for 'afterControl': the w:id of the control to insert after.")] int? controlId = null,
         [Description("Required for 'tableCell': 0-based table index in document order.")] int? tableIndex = null,
         [Description("Required for 'tableCell': 0-based row index within the table.")] int? row = null,
@@ -277,10 +277,10 @@ public static class TableTools
                      + "borderless - the shape of BC's own address/info/totals blocks; 'headerRule' draws a 1/2-pt "
                      + "rule under the first row, the rule set_cell_format draws for a bottom edge; 'grid' draws an "
                      + "explicit single-line border on every edge and between every cell.")]
-        string borders = "none",
+        [BordersValues] string borders = "none",
         [Description(TableStyleDescription)] string? tableStyle = null,
         [Description("Which OOXML part locationType resolves within: 'body' (default), 'header', or "
-                     + "'footer' (case-insensitive).")] string layoutPart = "body",
+                     + "'footer' (case-insensitive).")] [LayoutPartValues] string layoutPart = "body",
         [Description("Only used when layoutPart is 'header'/'footer': a specific part file name, e.g. "
                      + "'header2.xml' (see get_layout_info's partDetails for the names actually present). Omit "
                      + "to target the DEFAULT part - the everyday header/footer, which is often NOT the first "
@@ -321,7 +321,7 @@ public static class TableTools
         [MinLength(1)]
         [Range(1, MaxColumnWidthTwips)]
         IReadOnlyList<int> widths,
-        [Description("Which OOXML part the table is in: 'body' (default), 'header', or 'footer'.")] string layoutPart = "body",
+        [Description("Which OOXML part the table is in: 'body' (default), 'header', or 'footer'.")] [LayoutPartValues] string layoutPart = "body",
         [Description("Only used when layoutPart is 'header'/'footer': a specific part file name (e.g. "
                      + "'header2.xml'); omit to target the DEFAULT header/footer part (see get_layout_info's "
                      + "partDetails for each part's role).")] string? partName = null)
@@ -379,7 +379,7 @@ public static class TableTools
         [Description("Absolute path to the .docx layout file.")] string layoutPath,
         [Description("0-based table index in document order (see get_layout_info's tables[]).")] int tableIndex,
         [Description("What the new column holds: 'field' (bound field), 'label' (bound label), or 'plainText' "
-                     + "(unbound).")] string mode,
+                     + "(unbound).")] [ColumnModeValues] string mode,
         [Description("For mode 'field'/'label': the full dataset path to bind the data cell to (e.g. "
                      + "'/Header/Line/Discount_Line'), exactly as insert_field/insert_label take. Ignored for "
                      + "'plainText'.")] string? dataPath = null,
@@ -399,8 +399,9 @@ public static class TableTools
                      + "columns (the table's total width does not change), so it must be positive and less "
                      + "than the table's current total. Omit for an equal share: total / (columnCount + 1). "
                      + "Follow with set_column_widths for any other distribution.")]
+        [Range(1, MaxColumnWidthTwips)]
         int? width = null,
-        [Description("Which OOXML part the table is in: 'body' (default), 'header', or 'footer'.")] string layoutPart = "body",
+        [Description("Which OOXML part the table is in: 'body' (default), 'header', or 'footer'.")] [LayoutPartValues] string layoutPart = "body",
         [Description("Only used when layoutPart is 'header'/'footer': a specific part file name (e.g. "
                      + "'header2.xml'); omit to target the DEFAULT header/footer part (see get_layout_info's "
                      + "partDetails for each part's role).")] string? partName = null)
@@ -449,7 +450,7 @@ public static class TableTools
         [Description("0-based table index in document order (see get_layout_info's tables[]).")] int tableIndex,
         [Description("0-based GRID column index to remove (0..columnCount-1): a cell's gridColumn from "
                      + "get_layout_info's tables[], not its colIndex.")] int column,
-        [Description("Which OOXML part the table is in: 'body' (default), 'header', or 'footer'.")] string layoutPart = "body",
+        [Description("Which OOXML part the table is in: 'body' (default), 'header', or 'footer'.")] [LayoutPartValues] string layoutPart = "body",
         [Description("Only used when layoutPart is 'header'/'footer': a specific part file name (e.g. "
                      + "'header2.xml'); omit to target the DEFAULT header/footer part (see get_layout_info's "
                      + "partDetails for each part's role).")] string? partName = null)
@@ -478,7 +479,7 @@ public static class TableTools
         [Description("0-based row index within the table.")] int row,
         [Description("0-based physical cell index of the FIRST cell to merge (kept).")] int fromColumn,
         [Description("0-based physical cell index of the LAST cell to merge (inclusive); must be > fromColumn.")] int toColumn,
-        [Description("Which OOXML part the table is in: 'body' (default), 'header', or 'footer'.")] string layoutPart = "body",
+        [Description("Which OOXML part the table is in: 'body' (default), 'header', or 'footer'.")] [LayoutPartValues] string layoutPart = "body",
         [Description("Only used when layoutPart is 'header'/'footer': a specific part file name; omit for the "
                      + "DEFAULT part - the everyday header/footer, which is often NOT the first part in the "
                      + "package (get_layout_info's partDetails gives each part's role).")] string? partName = null)
@@ -505,7 +506,7 @@ public static class TableTools
         [Description("0-based table index in document order (see get_layout_info's tables[]).")] int tableIndex,
         [Description("0-based row index within the table.")] int row,
         [Description("0-based physical cell index of the spanned cell to split.")] int cellIndex,
-        [Description("Which OOXML part the table is in: 'body' (default), 'header', or 'footer'.")] string layoutPart = "body",
+        [Description("Which OOXML part the table is in: 'body' (default), 'header', or 'footer'.")] [LayoutPartValues] string layoutPart = "body",
         [Description("Only used when layoutPart is 'header'/'footer': a specific part file name; omit for the "
                      + "DEFAULT part - the everyday header/footer, which is often NOT the first part in the "
                      + "package (get_layout_info's partDetails gives each part's role).")] string? partName = null)
@@ -544,15 +545,15 @@ public static class TableTools
         [Description("The rules to draw or clear: 'top', 'bottom', 'left', 'right' or 'all', e.g. [\"top\"] for "
                      + "the rule above a totals row. Omit to leave the rules alone.")]
         [MinLength(1)]
-        [AllowedValues("top", "bottom", "left", "right", "all")]
+        [EdgeValues]
         IReadOnlyList<string>? edges = null,
         [Description("For edges: 'single' (the default) draws a line of borderSize; 'none' explicitly clears "
-                     + "the named edges.")] string? borderStyle = null,
+                     + "the named edges.")] [BorderStyleValues] string? borderStyle = null,
         [Description("For edges: rule thickness in EIGHTHS of a point (2-96); default 4 = 1/2 pt, the only "
-                     + "thickness the real BC corpus uses.")] int? borderSize = null,
+                     + "thickness the real BC corpus uses.")] [Range(2, 96)] int? borderSize = null,
         [Description("Cell fill: six hex digits RRGGBB (e.g. 'E8E8E8'; a leading '#' is fine) or 'auto' for no "
                      + "fill. Omit to leave the fill alone.")] string? fill = null,
-        [Description("Which OOXML part the table is in: 'body' (default), 'header', or 'footer'.")] string layoutPart = "body",
+        [Description("Which OOXML part the table is in: 'body' (default), 'header', or 'footer'.")] [LayoutPartValues] string layoutPart = "body",
         [Description("Only used when layoutPart is 'header'/'footer': a specific part file name (e.g. "
                      + "'header2.xml'); omit to target the DEFAULT header/footer part (see get_layout_info's "
                      + "partDetails for each part's role).")] string? partName = null)
@@ -619,7 +620,7 @@ public static class TableTools
     /// (case-insensitive). An explicit JSON <c>null</c> (bound straight through by the SDK) is the calling tool's
     /// documented default, <paramref name="whenNull"/>, as if the argument had been omitted.
     /// </summary>
-    private static TableBorderLook ParseBordersOrThrow(string? borders, TableBorderLook whenNull) =>
+    internal static TableBorderLook ParseBordersOrThrow(string? borders, TableBorderLook whenNull) =>
         borders?.Trim().ToLowerInvariant() switch
         {
             null => whenNull,
@@ -640,7 +641,7 @@ public static class TableTools
     /// wrong — an unknown edge name or style, and a style or size without edges, which would otherwise be
     /// silently ignored. A null style or size is its documented default (<c>single</c>, ½ pt).
     /// </summary>
-    private static CellBorderOptions? ParseCellBorderOptionsOrThrow(IReadOnlyList<string?>? edges, string? borderStyle, int? borderSize)
+    internal static CellBorderOptions? ParseCellBorderOptionsOrThrow(IReadOnlyList<string?>? edges, string? borderStyle, int? borderSize)
     {
         if (edges is null)
         {
@@ -692,7 +693,7 @@ public static class TableTools
     /// (case-insensitive). <c>mode</c> is required with no default, so an explicit JSON <c>null</c> is
     /// refused as <c>invalid_argument</c> rather than guessed.
     /// </summary>
-    private static InsertColumnMode ParseInsertColumnModeOrThrow(string? mode) => mode?.Trim().ToLowerInvariant() switch
+    internal static InsertColumnMode ParseInsertColumnModeOrThrow(string? mode) => mode?.Trim().ToLowerInvariant() switch
     {
         "field" => InsertColumnMode.Field,
         "label" => InsertColumnMode.Label,

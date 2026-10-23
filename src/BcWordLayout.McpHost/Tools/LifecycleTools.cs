@@ -259,7 +259,7 @@ public static class LifecycleTools
         int sampleRows = 3,
         [Description("Seed for the deterministic sample-data generator. Default 12345.")] int seed = 12345,
         [Description("PDF converter to use: 'auto' (default; prefers Word, falls back to LibreOffice), "
-                     + "'word', or 'libreoffice'.")] string converter = "auto",
+                     + "'word', or 'libreoffice'.")] [ConverterValues] string converter = "auto",
         [Description("Optional absolute path to a real exported BC dataset XML to merge with instead of "
                      + "generated sample data. Both encodings BC produces are accepted (sniffed by root "
                      + "element): the layout's own data-store part shape (NavWordReportXmlPart) and the "
