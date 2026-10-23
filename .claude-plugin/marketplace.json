@@ -9,7 +9,7 @@
     {
       "name": "bc-word-layout",
       "source": "./",
-      "description": "The bc-word-layout MCP server (fetched via dnx from NuGet; requires the .NET 10 SDK) plus the al-word-layout and al-word-layout-design skills, installed together in one step.",
+      "description": "The bc-word-layout MCP server (fetched via dnx from NuGet; requires the .NET 10 SDK) plus the al-word-layout, al-word-layout-design, al-word-layout-from-design and al-word-layout-composite skills, installed together in one step.",
       "category": "development",
       "tags": ["business-central", "dynamics-365", "word", "report-layout"]
     }

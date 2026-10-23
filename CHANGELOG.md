@@ -24,6 +24,23 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Alignment goes on the target's paragraphs, or for an inline control or a text match on the line it
   sits in. A target given an argument it does not use is refused.
 
+- **New skill `al-word-layout-from-design`: from a finished Word design to a bound layout.** A
+  consultant who has the document designed in Word (colours, logo box, sample values) and the report's
+  empty layout exported from BC gets a working layout without touching OOXML or AL: the skill covers
+  what to ask for, mapping every piece of sample text to a dataset field, label, static text or nothing
+  (confirmed with the consultant before building), binding it while keeping the design's formatting,
+  the line-table repeater, checks, mock-render traps and the handover. Shown live at BC North America
+  Summit 2026 (designed sales invoice + empty layout of report 1306 → layout that printed correctly on
+  its first import). It also names the missing primitive — replacing matched sample text with a bound
+  control in place — that would turn the binding step into typed tool calls.
+
+- **New skill `al-word-layout-composite`: composable layouts (body, header/footer, theme).** What
+  each of the three files Business Central combines at print time must and must not contain (the theme
+  is a `.dotx` with `w:linkStyles` and `w:clrSchemeMapping`; the header/footer binds Tenant Report
+  Defaults; the body references styles only), the style contract between theme and body, splitting one
+  design into the three parts, and the one failure observed. Built from Microsoft's composable samples
+  and a set for report 1306 that printed correctly in BC.
+
 - **New tool `wrap_in_repeater`: repeat body content per record without a table** (GitHub issue
   #31). Repeaters could only be table rows, so two stock shapes could not be authored: a statement
   that gives every customer its own page, and a paragraph per record of a nested item such as the

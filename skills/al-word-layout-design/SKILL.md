@@ -194,7 +194,9 @@ totals table, which is the BC-verified simpler shape [verified: P07]).
 - Shade cells with `set_cell_format`'s `fill`: the stock fills are a light grey `E8E8E8` and the
   accent blue `0070C0` [stock]. Most stock tables carry no fill at all, so use it sparingly.
 - Anything beyond that (margins, page setup, a whole brand) has no tool: use a branded
-  `templatePath` shell or hand-edit the OOXML and re-validate (al-word-layout §3).
+  `templatePath` shell or hand-edit the OOXML and re-validate (al-word-layout §3). When the look
+  already exists as a finished Word design with sample values, follow al-word-layout-from-design
+  instead of rebuilding it here; for a theme shared across reports, al-word-layout-composite.
 
 ### Widths (twips)
 - Full A4 content width is **10206 twips** with the stock margins. `insert_table`'s default even
