@@ -212,6 +212,26 @@ public class DocDriftGuardTests
         Assert.True(problems.Count == 0, string.Join(Environment.NewLine, problems));
     }
 
+    /// <summary>
+    /// GitHub issue #132: <c>insert_repeater_table</c> and <c>insert_table</c> took <c>layoutPart</c>/<c>partName</c>
+    /// that their own descriptions said to "always omit". Such a parameter sits in every tool listing an agent
+    /// reads, agents pass it anyway, and the only result is an <c>invalid_argument</c> round trip. A parameter
+    /// the caller must never pass is removed, and this keeps it that way.
+    /// </summary>
+    [Fact]
+    public void No_tool_parameter_exists_only_to_be_omitted()
+    {
+        string[] phrases = ["always omit", "never pass", "not supported for", "only supported value", "parameter-shape consistency"];
+        var offenders = LiveTools.Value
+            .SelectMany(tool => tool.Value.GetParameters().Select(p =>
+                (Tool: tool.Key, Parameter: p.Name, Text: p.GetCustomAttribute<System.ComponentModel.DescriptionAttribute>()?.Description ?? string.Empty)))
+            .Where(p => phrases.Any(phrase => p.Text.Contains(phrase, StringComparison.OrdinalIgnoreCase)))
+            .Select(p => $"{p.Tool}.{p.Parameter}: {p.Text}")
+            .ToList();
+
+        Assert.True(offenders.Count == 0, "Parameters described as never to be passed:" + Environment.NewLine + string.Join(Environment.NewLine, offenders));
+    }
+
     [Fact]
     public void The_design_skill_names_only_live_tools_and_parameters()
     {

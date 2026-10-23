@@ -1554,33 +1554,6 @@ public class McpHostToolTests
         }
     }
 
-    [Fact]
-    public void InsertRepeaterTable_layoutPart_header_is_rejected_as_invalid_argument_v1_scopes_repeaters_to_body_only()
-    {
-        // Follow-up review (post-Phase-4.3): unlike insert_field/insert_label, a repeater TABLE is scoped
-        // to the main body only - nothing shows BC renders a repeating section in a header/footer (GitHub
-        // issue #10 closed without a probe; see LayoutEditor.InsertRepeaterTable's own chokepoint rejection). This inverts what was
-        // originally a "lands in a header part" success test.
-        var path = CopyOfCorpus(Corpus.SalesInvoice);
-        try
-        {
-            var before = File.ReadAllBytes(path);
-
-            var response = TableTools.InsertRepeaterTable(
-                path, "/Header/Line", "ItemNo_Line,Description_Line", "documentEnd", layoutPart: "header");
-
-            Assert.False(response.Ok);
-            Assert.NotNull(response.Error);
-            Assert.Equal("invalid_argument", response.Error!.Code);
-            Assert.False(string.IsNullOrWhiteSpace(response.Error.Hint));
-            Assert.Equal(before, File.ReadAllBytes(path));
-        }
-        finally
-        {
-            File.Delete(path);
-        }
-    }
-
     // ---- insert_repeater_table ----
 
     [Fact]

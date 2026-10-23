@@ -69,11 +69,9 @@ public static class TableTools
                  + "Hosting a whole nested TABLE inside a cell (locationType='tableCell' with "
                  + "this call's tableIndex/dataRowIndex) also works but is NOT how standard BC documents "
                  + "are laid out - prefer insert_repeater_row. "
-                 + "SCOPE: only supports the main "
-                 + "document body (layoutPart='body', the only supported value) - a repeater table in a "
-                 + "header/footer is not supported, because nothing shows that Business Central renders a "
-                 + "repeating section there (unlike insert_field/insert_label, which do support "
-                 + "layoutPart='header'/'footer'). Same write/validate/save-or-reject safety as insert_field.")]
+                 + "BODY ONLY: a repeater table in a header or footer is not supported, because nothing shows "
+                 + "that Business Central renders a repeating section there (a plain insert_table works in both). "
+                 + "Same write/validate/save-or-reject safety as insert_field.")]
     public static ToolResponse InsertRepeaterTable(
         [Description("Absolute path to the .docx layout file.")] string layoutPath,
         [Description("Dataset path to a repeating data item, e.g. '/Header/Line' (see list_dataset_fields).")]
@@ -109,14 +107,7 @@ public static class TableTools
                      + "real BC lines table; 'none' draws no border at all (e.g. a composable body whose theme's "
                      + "table style supplies the look); 'grid' draws an explicit single-line border on every edge "
                      + "and between every cell. Use set_cell_format afterwards for the other rules a BC document "
-                     + "has (e.g. above a totals block).")] string borders = "headerRule",
-        [Description("SCOPE: only 'body' (the default) is supported for a repeater table - passing "
-                     + "'header'/'footer' here is rejected with invalid_argument (nothing shows that Business "
-                     + "Central renders a repeating section in a header or footer). Present for parameter-shape "
-                     + "consistency with insert_field/insert_label, which DO support 'header'/'footer'.")]
-        string layoutPart = "body",
-        [Description("Not supported for insert_repeater_table (see layoutPart) - always omit this.")]
-        string? partName = null)
+                     + "has (e.g. above a totals block).")] string borders = "headerRule")
     {
         return GuardEdit(layoutPath, doc =>
         {
@@ -135,7 +126,7 @@ public static class TableTools
                 ColumnAlignments = string.IsNullOrWhiteSpace(columnAlignments) ? null : SplitCommaList(columnAlignments),
             };
 
-            var location = BuildLocation(locationType, controlId, tableIndex, row, col, searchText, layoutPart, partName);
+            var location = BuildLocation(locationType, controlId, tableIndex, row, col, searchText);
             return LayoutEditor.InsertRepeaterTable(doc, dataItem, columnList, location, options);
         });
     }
@@ -344,10 +335,12 @@ public static class TableTools
                  + "columnAlignments (left/center/right, comma-separated, one "
                  + "per column) seeds each cell's paragraph justification - set_cell_text and "
                  + "insert_field/insert_label (locationType 'tableCell') preserve it afterwards. The result's "
-                 + "tableIndex is the new table's 0-based document-order index: EXACTLY the index to pass to "
-                 + "set_cell_text/insert_field/insert_label/set_column_widths next to fill the cells. v1 "
-                 + "SCOPE: body only (like insert_repeater_table). Same write/validate/save-or-reject safety "
-                 + "as insert_field.")]
+                 + "tableIndex is the new table's 0-based index within its part: EXACTLY the index to pass, "
+                 + "with the same layoutPart/partName, to set_cell_text/insert_field/insert_label/"
+                 + "set_column_widths next to fill the cells. Works in the body, a header or a footer, like "
+                 + "insert_field: every stock header and footer is built from such tables (the logo beside "
+                 + "the document details, the company details across the footer). Same "
+                 + "write/validate/save-or-reject safety as insert_field.")]
     public static ToolResponse InsertTable(
         [Description("Absolute path to the .docx layout file.")] string layoutPath,
         [Description("Number of rows (1-100).")] int rows,
@@ -376,11 +369,12 @@ public static class TableTools
                      + "explicit single-line border on every edge and between every cell.")]
         string borders = "none",
         [Description(TableStyleDescription)] string? tableStyle = null,
-        [Description("v1 SCOPE: only 'body' (the default) is supported - 'header'/'footer' are rejected "
-                     + "with invalid_argument (same scope rule as insert_repeater_table).")]
-        string layoutPart = "body",
-        [Description("Not supported for insert_table (see layoutPart) - always omit this.")]
-        string? partName = null)
+        [Description("Which OOXML part locationType resolves within: 'body' (default), 'header', or "
+                     + "'footer' (case-insensitive).")] string layoutPart = "body",
+        [Description("Only used when layoutPart is 'header'/'footer': a specific part file name, e.g. "
+                     + "'header2.xml' (see get_layout_info's partDetails for the names actually present). Omit "
+                     + "to target the DEFAULT part - the everyday header/footer, which is often NOT the first "
+                     + "part in the package (partDetails gives each part's role).")] string? partName = null)
     {
         return GuardTableEdit(layoutPath, doc =>
         {

@@ -316,11 +316,12 @@ public static class LayoutEditor
     /// </summary>
     /// <remarks>
     /// SCOPE (this is the single enforcement chokepoint): <paramref name="location"/>.Part must be
-    /// <see cref="LayoutPart.Body"/>. Unlike <see cref="InsertField"/>/<see cref="InsertLabel"/> (which
-    /// fully support <see cref="LayoutPart.Header"/>/<see cref="LayoutPart.Footer"/>), a repeater TABLE in a
-    /// header/footer is out of scope: nothing shows that BC renders a repeating section in a header or
-    /// footer, and GitHub issue #10 closed without the sandbox probe that could. This is checked first, before any
-    /// schema/id work, so a rejected call never touches <paramref name="doc"/>.
+    /// <see cref="LayoutPart.Body"/>. Unlike <see cref="InsertField"/>/<see cref="InsertLabel"/>/
+    /// <see cref="InsertPlainTable"/> (which support <see cref="LayoutPart.Header"/>/<see cref="LayoutPart.Footer"/>),
+    /// a repeater TABLE in a header/footer is out of scope: nothing shows that BC renders a repeating section in
+    /// a header or footer, and GitHub issue #10 closed without the sandbox probe that could. The tool has no
+    /// layoutPart argument at all (GitHub issue #132), so only a direct caller can reach this check. It runs
+    /// first, before any schema/id work, so a rejected call never touches <paramref name="doc"/>.
     /// </remarks>
     /// <exception cref="ArgumentException">
     /// <paramref name="location"/>.Part is not <see cref="LayoutPart.Body"/> (see remarks); <paramref name="options"/>'
@@ -351,9 +352,8 @@ public static class LayoutEditor
                 $"insert_repeater_table only supports {nameof(Location)}.{nameof(Location.Part)} = "
                 + $"{nameof(LayoutPart)}.{nameof(LayoutPart.Body)}: a repeater TABLE in a header/footer "
                 + "is not supported, because nothing shows that Business Central renders a repeating section "
-                + "there. insert_field/insert_label "
-                + "still fully support layoutPart='header'/'footer' - only a repeater TABLE cannot target one; "
-                + "omit layoutPart (or pass 'body') to insert this table into the main document instead.",
+                + "there. A plain insert_table, insert_field and insert_label all work in a header or footer - "
+                + "only a repeater TABLE cannot target one.",
                 nameof(location));
         }
 
@@ -981,14 +981,15 @@ public static class LayoutEditor
     /// and a <c>tableCell</c>-located <see cref="InsertField"/> both preserve afterwards). The result's
     /// <see cref="TableEditResult.TableIndex"/> is the new table's 0-based document-order index — exactly
     /// the coordinate <c>set_cell_text</c> / <c>insert_field(tableCell …)</c> / <c>set_column_widths</c>
-    /// address next.
+    /// address next, in the same part. Unlike <see cref="InsertRepeaterTable"/>, a plain table works in a header or
+    /// footer too (GitHub issue #132): every stock header and footer is built from such tables, so the shape is
+    /// corpus-observed there (ADR-0005), and the part is created first when the layout has none, exactly as the
+    /// inline inserts do (<see cref="EnsureTargetPartExists"/>).
     /// </summary>
     /// <exception cref="ArgumentException">
     /// <paramref name="rows"/>/<paramref name="columns"/> out of range; a width/alignment list whose count
-    /// doesn't equal <paramref name="columns"/>; an unrecognized alignment; <paramref name="tableStyle"/> naming no
-    /// table style the layout defines; or <paramref name="location"/>.Part is not <see cref="LayoutPart.Body"/>
-    /// (plain tables in headers/footers are not supported yet, the same body-only scope as
-    /// <see cref="InsertRepeaterTable"/>).
+    /// doesn't equal <paramref name="columns"/>; an unrecognized alignment; or <paramref name="tableStyle"/> naming
+    /// no table style the layout defines.
     /// </exception>
     /// <exception cref="NotFoundException">Propagated from <see cref="LocationResolver.Resolve"/>.</exception>
     public static TableEditResult InsertPlainTable(
@@ -1014,14 +1015,6 @@ public static class LayoutEditor
             throw new ArgumentException($"columns must be between 1 and 30 (got {columns}).", nameof(columns));
         }
 
-        if (location.Part != LayoutPart.Body)
-        {
-            throw new ArgumentException(
-                "insert_table only supports the main document body (a plain table in a header/footer is "
-                + "not supported yet); omit layoutPart (or pass 'body').",
-                nameof(location));
-        }
-
         if (columnWidths is not null && columnWidths.Count != columns)
         {
             throw new ArgumentException(
@@ -1045,12 +1038,16 @@ public static class LayoutEditor
             TableShell.CheckTableStyle(doc, tableStyle, nameof(tableStyle));
         }
 
-        // Even split of the document's own content width (page width minus margins, read from the body
-        // sectPr; the corpus-standard 10206 twips when unset) when no explicit widths are given — a plain
-        // top-section block spans the full content width in every corpus layout.
-        var contentWidth = ResolveContentWidthTwips(doc);
+        var scaffolded = EnsureTargetPartExists(doc, location);
+
+        // Resolved before the build (Resolve only reads) because, with no explicit widths, the columns split
+        // the width of wherever the table lands evenly: the content width (page width minus margins, read
+        // from the body sectPr; the corpus-standard 10206 twips when unset) - a plain top-section block spans
+        // it in every corpus layout - or the host cell's, for a table placed inside a cell.
+        var anchor = LocationResolver.Resolve(location, doc);
+        var availableWidth = ResolveAvailableWidthTwips(doc, anchor);
         var widths = columnWidths?.ToArray()
-            ?? Enumerable.Repeat(contentWidth / columns, columns).ToArray();
+            ?? Enumerable.Repeat(availableWidth / columns, columns).ToArray();
         var justifications = columnAlignments?
             .Select(a => (JustificationValues?)CellTextEditor.ParseAlignment(a, nameof(columnAlignments)))
             .ToArray();
@@ -1096,7 +1093,6 @@ public static class LayoutEditor
             TableShell.DrawHeaderRule(table.Elements<TableRow>().First().Elements<TableCell>());
         }
 
-        var anchor = LocationResolver.Resolve(location, doc);
         anchor.InsertBlock(table);
         SeparateFromAdjacentTables(table);
 
@@ -1130,7 +1126,15 @@ public static class LayoutEditor
             ColumnCountAfter = columns,
             Summary = $"Inserted a plain {rows}x{columns} table at {DescribeLocation(location, anchor.PartName)}; "
                 + $"it is table {tableIndex} - address its cells with set_cell_text/insert_field/insert_label "
-                + "(locationType 'tableCell') using that index.",
+                + "(locationType 'tableCell') using that index"
+                + (location.Part == LayoutPart.Body
+                    ? "."
+                    : $" and layoutPart '{location.Part.ToString().ToLowerInvariant()}', partName '{anchor.PartName}'.")
+                + (scaffolded
+                    ? $" The layout had no {location.Part.ToString().ToLowerInvariant()} part, so an empty "
+                      + $"{anchor.PartName} was created and wired into the page setup first."
+                    : string.Empty)
+                + FirstPageVisibilityNote(doc, location, anchor.PartName),
         };
     }
 

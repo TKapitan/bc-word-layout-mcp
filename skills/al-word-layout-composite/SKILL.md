@@ -92,8 +92,9 @@ theme layout for Tenant Report Defaults.
   running header in `default`; give both footers the page number (`PAGE` / `NUMPAGES` fields) [verified].
   Use `get_layout_info` `partDetails` to address the right part (al-word-layout §4).
 - The document body of this file stays empty except its `w:sectPr`.
-- `insert_field` / `insert_label` / `insert_picture` / `insert_page_number` with `layoutPart`
-  `header`/`footer` work on this file like on any layout; there is no repeater in a header/footer.
+- `insert_table` / `insert_field` / `insert_label` / `insert_picture` / `insert_page_number` with
+  `layoutPart` `header`/`footer` work on this file like on any layout — build the masthead and the
+  company-details footer as plain tables; there is no repeater in a header/footer.
 
 ## 4. Theme
 

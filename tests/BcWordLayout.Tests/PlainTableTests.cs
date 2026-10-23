@@ -186,15 +186,89 @@ public class PlainTableTests
     }
 
     [Fact]
-    public void Tool_insert_table_rejects_header_and_footer_parts()
+    public void Tool_insert_table_in_the_default_header_lands_there_and_its_cells_take_text_in_that_part()
     {
+        // Every stock header and footer is built from plain tables - the logo beside the document details, the
+        // company details across the footer - so insert_table works there like insert_field (GitHub issue #132).
+        // StandardPurchaseOrder's DEFAULT header is header2.xml, not the first header in the package, and the
+        // layout renders a distinct first page: the summary has to say both.
+        var path = CopyOfCorpus(Corpus.StandardPurchaseOrder);
+        try
+        {
+            var response = TableTools.InsertTable(path, rows: 1, columns: 2, locationType: "documentEnd", layoutPart: "header");
+            Assert.True(response.Ok, response.Error?.Message);
+            var dto = Assert.IsType<TableEditResultDto>(response.Data);
+            Assert.Equal("header2.xml", dto.Part);
+            Assert.Contains("layoutPart 'header', partName 'header2.xml'", dto.Summary, StringComparison.Ordinal);
+            Assert.Contains("DIFFERENT FIRST PAGE", dto.Summary, StringComparison.Ordinal);
+
+            var filled = EditTools.SetCellText(path, dto.TableIndex, row: 0, col: 1, "Page", layoutPart: "header", partName: "header2.xml");
+            Assert.True(filled.Ok, filled.Error?.Message);
+
+            using var reopened = WordprocessingDocument.Open(path, false);
+            var header = reopened.MainDocumentPart!.HeaderParts
+                .Single(p => p.Uri.OriginalString.EndsWith("/header2.xml", StringComparison.Ordinal)).Header!;
+            var table = TableGridNavigator.Tables(header)[dto.TableIndex];
+            Assert.Same(header.Elements<Table>().Last(), table);
+            Assert.IsType<Paragraph>(table.NextSibling());
+            Assert.Equal("Page", table.Elements<TableRow>().Single().Elements<TableCell>().ElementAt(1).InnerText);
+            Assert.Empty(TableGridConsistencyGuard.Find(reopened));
+            Assert.Empty(OpenXmlErrors(reopened));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Tool_insert_table_in_a_blank_layouts_empty_footer_takes_its_lone_paragraph_as_the_trailing_one()
+    {
+        // create_layout scaffolds each header/footer with one empty paragraph (a part must hold a block). The
+        // table goes BEFORE it, so that paragraph becomes the one InsertBlock guarantees after a table, and the
+        // footer does not start with a stray empty line (the GitHub issue #91 shape, for block content).
+        var path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"bcwl-plaintable-blank-{Guid.NewGuid():N}.docx");
+        try
+        {
+            LayoutBuilder.Create(Corpus.Path(Corpus.SalesInvoice), path);
+
+            var dto = Assert.IsType<TableEditResultDto>(TableTools.InsertTable(
+                path, rows: 1, columns: 3, locationType: "documentEnd", layoutPart: "footer").Data);
+            Assert.Equal(0, dto.TableIndex);
+
+            using var reopened = WordprocessingDocument.Open(path, false);
+            var footer = reopened.MainDocumentPart!.FooterParts
+                .Single(p => p.Uri.OriginalString.EndsWith("/" + dto.Part, StringComparison.Ordinal)).Footer!;
+            Assert.Equal(new[] { "tbl", "p" }, footer.ChildElements.Select(e => e.LocalName));
+            Assert.Empty(OpenXmlErrors(reopened));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Without_columnWidths_a_plain_table_placed_in_a_cell_splits_the_host_cells_width()
+    {
+        // A table nested in a cell has the cell to fit in, not the page: a page-wide fixed grid there overran the
+        // host cell, and the outer table's own fixed grid with it. insert_repeater_table already split the host
+        // cell's width (GitHub issue #84); insert_table now resolves its location first and does the same.
         var path = CopyOfCorpus(Corpus.SalesInvoice);
         try
         {
-            var response = TableTools.InsertTable(path, rows: 1, columns: 1,
-                locationType: "documentEnd", layoutPart: "footer");
-            Assert.False(response.Ok);
-            Assert.Equal("invalid_argument", response.Error!.Code);
+            var outer = Assert.IsType<TableEditResultDto>(TableTools.InsertTable(
+                path, rows: 1, columns: 2, locationType: "documentEnd", columnWidths: "6000,4206").Data);
+
+            var inner = Assert.IsType<TableEditResultDto>(TableTools.InsertTable(
+                path, rows: 1, columns: 2, locationType: "tableCell", tableIndex: outer.TableIndex, row: 0, col: 0).Data);
+
+            using var reopened = WordprocessingDocument.Open(path, false);
+            var innerTable = TableGridNavigator.Tables(reopened.MainDocumentPart!.Document!.Body!)[inner.TableIndex];
+            Assert.Equal(
+                new[] { "3000", "3000" },
+                innerTable.GetFirstChild<TableGrid>()!.Elements<GridColumn>().Select(g => g.Width!.Value));
+            Assert.Empty(OpenXmlErrors(reopened));
         }
         finally
         {

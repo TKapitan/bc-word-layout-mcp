@@ -90,17 +90,22 @@ public class InvalidArgumentHintCoverageTests
         }
     }
 
-    // ---- "location" — LayoutEditor.InsertRepeaterTable's v1 body-only scope check ----
+    // ---- "location" — CellTextEditor's plain-text-cell check. (LayoutEditor.InsertRepeaterTable's body-only
+    // check throws it too, but the tool has no layoutPart since GitHub issue #132, so no call reaches it.) ----
 
     [Fact]
-    public void InsertRepeaterTable_targeting_a_header_hint_names_v1_scope()
+    public void SetCellText_on_a_cell_holding_a_bound_field_hint_names_the_plain_text_rule()
     {
         var path = CopyOfCorpus(Corpus.SalesInvoice);
         try
         {
-            var response = TableTools.InsertRepeaterTable(
-                path, "/Header/Line", "ItemNo_Line", "documentEnd", layoutPart: "header");
-            AssertActionableFailure(response, "invalid_argument", "repeating section");
+            var table = Assert.IsType<TableEditResultDto>(
+                TableTools.InsertTable(path, rows: 1, columns: 1, locationType: "documentEnd").Data);
+            Assert.True(EditTools.InsertField(
+                path, "/Header/CustomerAddress1", "tableCell", tableIndex: table.TableIndex, row: 0, col: 0).Ok);
+
+            var response = EditTools.SetCellText(path, table.TableIndex, row: 0, col: 0, "x");
+            AssertActionableFailure(response, "invalid_argument", "must be PLAIN TEXT");
         }
         finally
         {

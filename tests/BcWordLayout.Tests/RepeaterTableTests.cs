@@ -530,10 +530,11 @@ public class RepeaterTableTests
         }
     }
 
-    // ---- Follow-up review (post-Phase-4.3): a repeater TABLE is v1-scoped to the body ONLY - unlike
-    // insert_field/insert_label, which fully support layoutPart='header'/'footer', insert_repeater_table
-    // must reject Location.Part != Body outright (nothing shows BC renders a repeating section in a
-    // header/footer; GitHub issue #10 closed without a probe). ----
+    // ---- Follow-up review (post-Phase-4.3): a repeater TABLE is scoped to the body ONLY - unlike
+    // insert_field/insert_label/insert_table, which support layoutPart='header'/'footer', the domain rejects
+    // Location.Part != Body outright (nothing shows BC renders a repeating section in a header/footer; GitHub
+    // issue #10 closed without a probe). The tool has no layoutPart at all (GitHub issue #132): see
+    // McpHostPipelineTests for the refusal an agent gets. ----
 
     [Fact]
     public void InsertRepeaterTable_targeting_LayoutPart_Header_is_rejected_and_leaves_the_document_unmodified()
@@ -580,29 +581,6 @@ public class RepeaterTableTests
 
             Assert.Equal("location", ex.ParamName);
             Assert.Contains("a repeater TABLE in a header/footer is not supported", ex.Message, StringComparison.OrdinalIgnoreCase);
-        }
-        finally
-        {
-            File.Delete(path);
-        }
-    }
-
-    [Fact]
-    public void InsertRepeaterTable_via_the_tool_surface_with_layoutPart_header_returns_invalid_argument_and_leaves_the_file_untouched()
-    {
-        var path = CopyOfCorpus(Corpus.SalesInvoice);
-        try
-        {
-            var before = File.ReadAllBytes(path);
-
-            var response = TableTools.InsertRepeaterTable(
-                path, LineItemPath, string.Join(",", ThreeColumns), "documentEnd", layoutPart: "header");
-
-            Assert.False(response.Ok);
-            Assert.NotNull(response.Error);
-            Assert.Equal("invalid_argument", response.Error!.Code);
-            Assert.False(string.IsNullOrWhiteSpace(response.Error.Hint));
-            Assert.Equal(before, File.ReadAllBytes(path));
         }
         finally
         {

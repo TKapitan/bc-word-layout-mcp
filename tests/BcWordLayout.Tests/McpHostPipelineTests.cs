@@ -313,6 +313,26 @@ public sealed class McpHostPipelineTests(McpHostPipeline pipeline) : IClassFixtu
         Assert.Contains("remove_control takes: layoutPath, controlId, keepText.", result.Hint, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("layoutPart", "header")]
+    [InlineData("partName", "header2.xml")]
+    public async Task Insert_repeater_table_has_no_part_arguments_so_a_header_target_is_refused_as_unknown(
+        string argument, string value)
+    {
+        // A repeater table is body-only, and the tool used to take layoutPart/partName anyway, described as "always
+        // omit" (GitHub issue #132). Without them it is body-only by construction: the refusal names the argument
+        // like any other unknown one, and nothing is written.
+        var path = CopyOfCorpus(Corpus.SalesInvoice);
+        var before = await File.ReadAllBytesAsync(path);
+
+        var result = await pipeline.CallAsync(
+            "insert_repeater_table",
+            $$"""{"layoutPath":{{J(path)}},"dataItem":"/Header/Line","columns":"ItemNo_Line","locationType":"documentEnd","{{argument}}":"{{value}}"}""");
+
+        result.AssertFailure("invalid_argument", $"insert_repeater_table has no argument named '{argument}'");
+        Assert.Equal(before, await File.ReadAllBytesAsync(path));
+    }
+
     [Fact]
     public void ClosestName_is_conservative_rather_than_guessing()
     {

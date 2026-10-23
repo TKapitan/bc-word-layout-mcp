@@ -142,6 +142,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   table styles the layout defines, as `format.characterStyle` already does. Style ids are
   case-sensitive.
 
+- **BREAKING: `insert_repeater_table` no longer takes `layoutPart` or `partName`, and `insert_table`
+  now works in headers and footers** (GitHub issue #132). Both tools took the two arguments while
+  their descriptions said to always omit them, so an agent that passed them only got an
+  `invalid_argument` round trip. A repeater table stays body-only (nothing shows Business Central
+  renders a repeating section in a header or footer), so it now has no part arguments at all, and
+  passing one is refused as an unknown argument. A plain table is what every stock header and footer
+  is built from (the logo beside the document details, the company details across the footer), so
+  `insert_table` takes `layoutPart` and `partName` like `insert_field`: it creates the part first in a
+  layout that has none, and its summary warns when the default header of a layout with a distinct
+  first page will not show on page 1. A test now fails if any tool parameter is described as never to
+  be passed.
+
 - **`remove_control keepText=true` on a block-level repeater now unwraps it** instead of refusing
   (GitHub issue #31): section, group and item go at once and the content stays in place, printing
   once. It is the undo of `wrap_in_repeater`, and works on the stock statement and work-description
@@ -155,6 +167,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   it with the new `--expect-version`.
 
 ### Fixed
+
+- `insert_table` placed inside a table cell (`locationType` `tableCell`) without widths now splits the
+  host cell's width across its columns, as `insert_repeater_table` does. It split the page's content
+  width, so the nested table's fixed grid overran the cell and the outer table with it.
 
 - **Inline inserts now take the formatting of the text before them** (GitHub issue #122).
   `insert_text`, `insert_field`, `insert_label` and `insert_page_number` built bare runs, which
