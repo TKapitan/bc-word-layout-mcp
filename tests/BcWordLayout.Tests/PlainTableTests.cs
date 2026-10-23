@@ -248,7 +248,7 @@ public class PlainTableTests
     }
 
     [Fact]
-    public void Without_columnWidths_a_plain_table_placed_in_a_cell_splits_the_host_cells_width()
+    public void Without_widths_a_plain_table_placed_in_a_cell_splits_the_host_cells_width()
     {
         // A table nested in a cell has the cell to fit in, not the page: a page-wide fixed grid there overran the
         // host cell, and the outer table's own fixed grid with it. insert_repeater_table already split the host
@@ -363,7 +363,7 @@ public class PlainTableTests
     public void Fresh_plain_table_pins_its_grid_with_tblW_and_a_fixed_tblLayout()
     {
         // Without w:tblLayout the OOXML default is autofit, so Word recomputes every column from cell
-        // content and the columnWidths passed here hold only until someone opens the file - one plain Word
+        // content and the column widths passed here hold only until someone opens the file - one plain Word
         // save rewrote an untouched 2800,3000 grid to 3177,3066 (GitHub issue #52). Every corpus table
         // declares both elements.
         var path = CopyOfCorpus(Corpus.SalesInvoice);

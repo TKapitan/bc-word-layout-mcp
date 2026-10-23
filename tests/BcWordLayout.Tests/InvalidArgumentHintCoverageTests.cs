@@ -483,6 +483,35 @@ public class InvalidArgumentHintCoverageTests
         }
     }
 
+    // ---- "rowCount" — LayoutEditor.InsertPlainTable's row range ----
+
+    [Fact]
+    public void InsertTable_rowCount_out_of_range_hint_names_rowCount()
+    {
+        var path = CopyOfCorpus(Corpus.SalesInvoice);
+        try
+        {
+            var response = TableTools.InsertTable(path, rowCount: 0, columns: TableArgs.Columns(2), locationType: "documentEnd");
+            AssertActionableFailure(response, "invalid_argument", "insert_table's rowCount is how many rows");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    // ---- "sampleRows" — LifecycleTools.PreviewLayout's own check, run before the layout is even opened ----
+
+    [Fact]
+    public void PreviewLayout_sampleRows_below_1_hint_names_sampleRows()
+    {
+        var missing = Path.Combine(Path.GetTempPath(), $"bcwl-hintcov-missing-{Guid.NewGuid():N}.docx");
+
+        var response = LifecycleTools.PreviewLayout(missing, sampleRows: 0);
+
+        AssertActionableFailure(response, "invalid_argument", "preview_layout's sampleRows is how many sample rows");
+    }
+
     // ---- "borders" — TableTools.ParseBordersOrThrow ----
 
     [Theory]

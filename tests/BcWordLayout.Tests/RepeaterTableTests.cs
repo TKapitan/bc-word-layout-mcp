@@ -348,7 +348,7 @@ public class RepeaterTableTests
     // ---- column widths ----
 
     [Fact]
-    public void InsertRepeaterTable_explicit_columnWidths_are_applied_to_tblGrid_and_cells()
+    public void InsertRepeaterTable_explicit_widths_are_applied_to_tblGrid_and_cells()
     {
         var path = CopyOfCorpus(Corpus.SalesInvoice);
         try
@@ -939,7 +939,7 @@ public class RepeaterTableTests
     // ---- default column widths (GitHub issue #84) ----
 
     [Fact]
-    public void Without_columnWidths_a_seven_column_table_splits_the_page_content_width_and_fits_the_page()
+    public void Without_widths_a_seven_column_table_splits_the_page_content_width_and_fits_the_page()
     {
         // The issue's own reproduction: the old fixed 2000-twip default made this table 14000 twips wide
         // on a 10206-twip content width, and since the grid is pinned fixed, Word cut the 6th column at the
@@ -1001,7 +1001,7 @@ public class RepeaterTableTests
     }
 
     [Fact]
-    public void Without_columnWidths_a_table_placed_in_a_cell_splits_the_host_cells_width()
+    public void Without_widths_a_table_placed_in_a_cell_splits_the_host_cells_width()
     {
         // A table nested in a cell has the cell to fit in, not the page: a page-wide fixed grid there would
         // overrun the host cell (and the outer table's own fixed grid with it).
