@@ -143,14 +143,14 @@ public class NestedRepeaterRowTests
         try
         {
             var table = Assert.IsType<EditResultDto>(TableTools.InsertRepeaterTable(
-                path, "/Header/Line", "ItemNo_Line,Description_Line,Quantity_Line,LineAmount_Line", "documentEnd").Data);
+                path, "/Header/Line", TableArgs.FieldsOf("/Header/Line", "ItemNo_Line", "Description_Line", "Quantity_Line", "LineAmount_Line"), "documentEnd").Data);
             var tableIndex = table.TableIndex!.Value;
             Assert.True(TableTools.InsertRepeaterRow(
-                path, table.ControlId, "/Header/Line/AssemblyLine", cells: "-,2:Description_AssemblyLine,-").Ok);
-            Assert.True(TableTools.InsertSubtotalRow(path, table.ControlId, cells: "4:-").Ok);
+                path, table.ControlId, "/Header/Line/AssemblyLine", cells: [new(), new() { Fields = ["/Header/Line/AssemblyLine/Description_AssemblyLine"], Span = 2 }, new()]).Ok);
+            Assert.True(TableTools.InsertSubtotalRow(path, table.ControlId, cells: [new() { Span = 4 }]).Ok);
             Assert.True(TableTools.InsertSubtotalRow(
                 path, table.ControlId,
-                cells: "2:-,/Header/Line/AmountExcludingVAT_Line_Lbl,/Header/Line/AmountExcludingVAT_Line").Ok);
+                cells: [new() { Span = 2 }, new() { Fields = ["/Header/Line/AmountExcludingVAT_Line_Lbl"] }, new() { Fields = ["/Header/Line/AmountExcludingVAT_Line"] }]).Ok);
 
             var response = TableTools.InsertColumn(path, tableIndex, mode: "field", dataPath: "/Header/Line/UnitPrice");
             Assert.True(response.Ok, response.Error?.Message);
@@ -210,9 +210,9 @@ public class NestedRepeaterRowTests
         try
         {
             var table = Assert.IsType<EditResultDto>(TableTools.InsertRepeaterTable(
-                path, "/Header/Line", "ItemNo_Line,Description_Line", "documentEnd").Data);
+                path, "/Header/Line", TableArgs.FieldsOf("/Header/Line", "ItemNo_Line", "Description_Line"), "documentEnd").Data);
             Assert.True(TableTools.InsertRepeaterRow(
-                path, table.ControlId, "/Header/Line/AssemblyLine", cells: "-,Description_AssemblyLine").Ok);
+                path, table.ControlId, "/Header/Line/AssemblyLine", cells: [new(), new() { Fields = ["/Header/Line/AssemblyLine/Description_AssemblyLine"] }]).Ok);
 
             var response = TableTools.InsertColumn(
                 path, table.TableIndex!.Value, mode: "field", dataPath: "/Header/BillToContactEmail");
@@ -247,7 +247,7 @@ public class NestedRepeaterRowTests
         try
         {
             var widths = Enumerable.Range(0, 10).Select(i => 1000 + (i * 10)).ToArray();
-            var response = TableTools.SetColumnWidths(path, tableIndex: 0, string.Join(",", widths));
+            var response = TableTools.SetColumnWidths(path, tableIndex: 0, widths);
             Assert.True(response.Ok, response.Error?.Message);
             Assert.Contains("resized 9 row(s)", Assert.IsType<TableEditResultDto>(response.Data).Summary);
 
@@ -280,7 +280,7 @@ public class NestedRepeaterRowTests
         try
         {
             var widths = Enumerable.Range(0, 10).Select(i => 900 + (i * 10)).ToArray();
-            Assert.True(TableTools.SetColumnWidths(path, tableIndex: 0, string.Join(",", widths)).Ok);
+            Assert.True(TableTools.SetColumnWidths(path, tableIndex: 0, widths).Ok);
 
             using var doc = WordprocessingDocument.Open(path, false);
             var wrapper = doc.MainDocumentPart!.Document!.Body!.Descendants<SdtCell>()
@@ -391,7 +391,7 @@ public class NestedRepeaterRowTests
         {
             // Row 6 is the /Item item's subtotal row; its cell 2 is a plain, empty cell.
             Assert.True(EditTools.SetCellText(path, tableIndex: 0, row: 6, col: 2, text: "Subtotal").Ok);
-            Assert.True(TableTools.SetCellFormat(path, tableIndex: 0, row: 6, edges: "top").Ok);
+            Assert.True(TableTools.SetCellFormat(path, tableIndex: 0, row: 6, edges: ["top"]).Ok);
             Assert.True(TableTools.MergeCells(path, tableIndex: 0, row: 6, fromColumn: 2, toColumn: 3).Ok);
 
             using var doc = WordprocessingDocument.Open(path, false);
@@ -421,7 +421,7 @@ public class NestedRepeaterRowTests
         {
             var before = File.ReadAllBytes(path);
 
-            var response = TableTools.InsertTableRow(path, tableIndex: 0, cells: "10:-", atRow: atRow);
+            var response = TableTools.InsertTableRow(path, tableIndex: 0, cells: [new() { Span = 10 }], atRow: atRow);
 
             Assert.False(response.Ok);
             Assert.Equal("invalid_argument", response.Error!.Code);
@@ -442,7 +442,7 @@ public class NestedRepeaterRowTests
         var path = CopyOfCorpus(Corpus.InventoryOrderDetails);
         try
         {
-            var response = TableTools.InsertTableRow(path, tableIndex: 0, cells: "10:-", atRow: atRow);
+            var response = TableTools.InsertTableRow(path, tableIndex: 0, cells: [new() { Span = 10 }], atRow: atRow);
             Assert.True(response.Ok, response.Error?.Message);
 
             using var doc = WordprocessingDocument.Open(path, false);

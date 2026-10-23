@@ -210,6 +210,12 @@ Conventions that hold across the surface:
   host's call-tool filter wraps the SDK's tool lookup and argument binding, so an unknown tool name, a
   missing required argument or a wrong-typed one returns `invalid_argument` naming the tool or
   parameter.
+- **Typed, self-describing arguments.** A list is a JSON array and a table column or row cell is one
+  object (`columns: [{field, width?, alignment?}]`), never a comma-separated string or parallel lists; a
+  field is always a full dataset path; and the input schema lists every enumerated value and every
+  bounded number's range. The call boundary refuses an unknown member as it refuses an unknown argument,
+  names a wrong entry by its path (`columns[1].width`), and reads an object or array sent as a JSON
+  string as the value it holds.
 - **Shared location addressing**: `{locationType: documentEnd | afterControl | tableCell | atText, controlId?,
   tableIndex?, row?, col?, searchText?, layoutPart?, partName?}`. Edits stay deterministic without the
   agent knowing OOXML positions. `layoutPart: header|footer` with no `partName` resolves the **first

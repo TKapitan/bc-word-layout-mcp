@@ -48,7 +48,7 @@ public class NestedRepeaterTests
         try
         {
             var response = TableTools.InsertRepeaterTable(
-                path, OuterItem, "ItemNo_Line,Description_Line", "documentEnd");
+                path, OuterItem, TableArgs.FieldsOf(OuterItem, "ItemNo_Line", "Description_Line"), "documentEnd");
             Assert.True(response.Ok, response.Error?.Message);
 
             var dto = Assert.IsType<EditResultDto>(response.Data);
@@ -75,14 +75,14 @@ public class NestedRepeaterTests
         try
         {
             var outer = Assert.IsType<EditResultDto>(TableTools.InsertRepeaterTable(
-                path, OuterItem, "ItemNo_Line,Description_Line", "documentEnd").Data);
+                path, OuterItem, TableArgs.FieldsOf(OuterItem, "ItemNo_Line", "Description_Line"), "documentEnd").Data);
 
             // A column of its own for the nested table — the shape a real BC nested block has.
             var column = TableTools.InsertColumn(path, outer.TableIndex!.Value, mode: "plainText", headerText: "Shipments");
             Assert.True(column.Ok, column.Error?.Message);
 
             var inner = TableTools.InsertRepeaterTable(
-                path, InnerItem, "PostingDate_ShipmentLine,Quantity_ShipmentLine", "tableCell",
+                path, InnerItem, TableArgs.FieldsOf(InnerItem, "PostingDate_ShipmentLine", "Quantity_ShipmentLine"), "tableCell",
                 tableIndex: outer.TableIndex, row: outer.DataRowIndex, col: 2);
             Assert.True(inner.Ok, inner.Error?.Message);
             var innerDto = Assert.IsType<EditResultDto>(inner.Data);
@@ -116,12 +116,20 @@ public class NestedRepeaterTests
         try
         {
             var outer = Assert.IsType<EditResultDto>(TableTools.InsertRepeaterTable(
-                path, OuterItem, "ItemNo_Line,Description_Line,LineAmount_Line", "documentEnd").Data);
+                path, OuterItem, TableArgs.FieldsOf(OuterItem, "ItemNo_Line", "Description_Line", "LineAmount_Line"), "documentEnd").Data);
 
             var response = TableTools.InsertRepeaterRow(
                 path, outer.ControlId, InnerItem,
-                cells: "-,2:PostingDate_ShipmentLine+Quantity_ShipmentLine",
-                alignments: "-,left");
+                cells:
+                [
+                    new(),
+                    new()
+                    {
+                        Fields = [$"{InnerItem}/PostingDate_ShipmentLine", $"{InnerItem}/Quantity_ShipmentLine"],
+                        Span = 2,
+                        Alignment = "left",
+                    },
+                ]);
             Assert.True(response.Ok, response.Error?.Message);
             var dto = Assert.IsType<EditResultDto>(response.Data);
             Assert.Equal("Repeater", dto.Kind);
@@ -170,9 +178,9 @@ public class NestedRepeaterTests
         try
         {
             var outer = Assert.IsType<EditResultDto>(TableTools.InsertRepeaterTable(
-                path, OuterItem, "ItemNo_Line,Description_Line", "documentEnd").Data);
+                path, OuterItem, TableArgs.FieldsOf(OuterItem, "ItemNo_Line", "Description_Line"), "documentEnd").Data);
             Assert.True(TableTools.InsertRepeaterRow(
-                path, outer.ControlId, InnerItem, cells: "-,PostingDate_ShipmentLine").Ok);
+                path, outer.ControlId, InnerItem, cells: [new(), new() { Fields = [$"{InnerItem}/PostingDate_ShipmentLine"] }]).Ok);
 
             var result = MergeEngine.Merge(path, mergedPath, new MergeOptions { Rows = 2 });
             Assert.Equal(0, result.Stats.Unresolved);
@@ -203,10 +211,10 @@ public class NestedRepeaterTests
         try
         {
             var outer = Assert.IsType<EditResultDto>(TableTools.InsertRepeaterTable(
-                path, OuterItem, "ItemNo_Line,Description_Line,LineAmount_Line", "documentEnd").Data);
+                path, OuterItem, TableArgs.FieldsOf(OuterItem, "ItemNo_Line", "Description_Line", "LineAmount_Line"), "documentEnd").Data);
 
             var response = TableTools.InsertRepeaterRow(
-                path, outer.ControlId, InnerItem, cells: "-,PostingDate_ShipmentLine"); // covers 2 of 3
+                path, outer.ControlId, InnerItem, cells: [new(), new() { Fields = [$"{InnerItem}/PostingDate_ShipmentLine"] }]); // covers 2 of 3
             Assert.False(response.Ok);
             Assert.Equal("invalid_argument", response.Error!.Code);
             Assert.Contains("grid", response.Error.Message);
@@ -224,10 +232,10 @@ public class NestedRepeaterTests
         try
         {
             var outer = Assert.IsType<EditResultDto>(TableTools.InsertRepeaterTable(
-                path, OuterItem, "ItemNo_Line,Description_Line", "documentEnd").Data);
+                path, OuterItem, TableArgs.FieldsOf(OuterItem, "ItemNo_Line", "Description_Line"), "documentEnd").Data);
 
             var response = TableTools.InsertRepeaterRow(
-                path, outer.ControlId, "/Header/VATAmountLine", cells: "-,VATPct_VatAmountLine");
+                path, outer.ControlId, "/Header/VATAmountLine", cells: [new(), new() { Fields = ["/Header/VATAmountLine/VATPct_VatAmountLine"] }]);
             Assert.False(response.Ok);
             Assert.Equal("invalid_argument", response.Error!.Code);
             Assert.Contains("DIRECT child", response.Error.Message);
@@ -248,10 +256,10 @@ public class NestedRepeaterTests
         try
         {
             var outer = Assert.IsType<EditResultDto>(TableTools.InsertRepeaterTable(
-                path, OuterItem, "ItemNo_Line,Description_Line", "documentEnd").Data);
+                path, OuterItem, TableArgs.FieldsOf(OuterItem, "ItemNo_Line", "Description_Line"), "documentEnd").Data);
             Assert.True(TableTools.InsertColumn(path, outer.TableIndex!.Value, mode: "plainText", headerText: "Shipments").Ok);
             var inner = Assert.IsType<EditResultDto>(TableTools.InsertRepeaterTable(
-                path, InnerItem, "PostingDate_ShipmentLine,Quantity_ShipmentLine", "tableCell",
+                path, InnerItem, TableArgs.FieldsOf(InnerItem, "PostingDate_ShipmentLine", "Quantity_ShipmentLine"), "tableCell",
                 tableIndex: outer.TableIndex, row: outer.DataRowIndex, col: 2).Data);
 
             var result = MergeEngine.Merge(path, mergedPath, new MergeOptions { Rows = 2 });

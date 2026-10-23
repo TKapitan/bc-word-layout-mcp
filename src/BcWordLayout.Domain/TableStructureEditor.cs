@@ -143,8 +143,8 @@ public static class TableStructureEditor
         if (borders is { AnyEdge: false })
         {
             throw new ArgumentException(
-                "set_cell_format's edges must name at least one edge: a comma-separated list of "
-                + "'top'/'bottom'/'left'/'right' (or 'all').",
+                "set_cell_format's edges must name at least one edge: an array of 'top', 'bottom', 'left', "
+                + "'right' (or 'all'), e.g. [\"top\"].",
                 "edges");
         }
 
@@ -1006,7 +1006,7 @@ public static class TableStructureEditor
     /// (leading empty cells, <c>gridSpan</c>-merged content cells, bound totals fields — corpus:
     /// <c>StandardSalesQuote</c>/<c>StandardPurchaseOrder</c>/<c>StandardSalesInvoiceVatSpec</c>) rather
     /// than the separate totals table that used to be the only buildable route. Cell construction is
-    /// <see cref="SdtFactory.BuildStaticRow"/>'s (each <see cref="RepeaterRowCell.Columns"/> entry a FULL
+    /// <see cref="SdtFactory.BuildStaticRow"/>'s (each <see cref="RepeaterRowCell.Fields"/> entry a FULL
     /// dataset path; label-shaped paths become labels); the spans must cover the grid exactly, which the
     /// grid-consistency guard also enforces mechanically before anything reaches disk. The optional
     /// <paramref name="format"/> styles every bound cell's runs (the corpus grand-total rows are bold) via

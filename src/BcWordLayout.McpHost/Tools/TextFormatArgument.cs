@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.ComponentModel.DataAnnotations;
 using BcWordLayout.Domain.Models;
 
 namespace BcWordLayout.McpHost.Tools;
@@ -43,6 +44,7 @@ public sealed record TextFormatArgument
     public bool? Underline { get; init; }
 
     [Description("Font size in points, 4 to 96; halves allowed (8.5).")]
+    [Range(4.0, 96.0)]
     public double? FontSizePoints { get; init; }
 
     [Description("Font family name, e.g. 'Segoe UI' (what Microsoft's own layouts use).")]

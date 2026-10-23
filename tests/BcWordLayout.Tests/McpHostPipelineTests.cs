@@ -105,8 +105,8 @@ public sealed class McpHostPipelineTests(McpHostPipeline pipeline) : IClassFixtu
     [Theory]
     [InlineData("insert_field", """ "field":"/Header/CustomerAddress1","locationType":"tableCell","tableIndex":"abc" """, "tableIndex", "an integer or null", "the string \"abc\"")]
     [InlineData("remove_control", """ "controlId":1,"keepText":"true" """, "keepText", "a boolean (true or false)", "the string \"true\"")]
-    [InlineData("insert_table", """ "rows":1.5,"columns":2,"locationType":"documentEnd" """, "rows", "an integer", "the number 1.5")]
-    [InlineData("set_cell_format", """ "tableIndex":0,"row":0,"edges":"top","borderSize":"thick" """, "borderSize", "an integer or null", "the string \"thick\"")]
+    [InlineData("insert_table", """ "rowCount":1.5,"columns":[{},{}],"locationType":"documentEnd" """, "rowCount", "an integer", "the number 1.5")]
+    [InlineData("set_cell_format", """ "tableIndex":0,"row":0,"edges":["top"],"borderSize":"thick" """, "borderSize", "an integer or null", "the string \"thick\"")]
     [InlineData("remove_control", """ "controlId":[1] """, "controlId", "an integer", "an array")]
     public async Task A_wrong_typed_argument_is_invalid_argument_naming_the_parameter_and_its_type(
         string tool, string otherArguments, string parameter, string expected, string sent)
@@ -134,8 +134,9 @@ public sealed class McpHostPipelineTests(McpHostPipeline pipeline) : IClassFixtu
     }
 
     [Theory]
-    [InlineData("insert_repeater_table", """ "dataItem":"/Header/Line","columns":"ItemNo_Line","locationType":"documentEnd","look":null """)]
-    [InlineData("set_cell_format", """ "tableIndex":0,"row":0,"edges":"top","borderStyle":null """)]
+    [InlineData("insert_repeater_table", """ "dataItem":"/Header/Line","columns":[{"field":"/Header/Line/ItemNo_Line"}],"locationType":"documentEnd","borders":null """)]
+    [InlineData("insert_table", """ "rowCount":1,"columns":[{},{}],"locationType":"documentEnd","borders":null """)]
+    [InlineData("set_cell_format", """ "tableIndex":0,"row":0,"edges":["top"],"borderStyle":null """)]
     [InlineData("validate_layout", """ "level":null """)]
     public async Task An_explicit_null_for_an_optional_enum_like_string_is_its_documented_default(
         string tool, string otherArguments)
@@ -169,14 +170,15 @@ public sealed class McpHostPipelineTests(McpHostPipeline pipeline) : IClassFixtu
     }
 
     /// <summary>
-    /// Sends an explicit JSON null for EVERY string parameter of EVERY tool, one at a time, with the other
-    /// required arguments set to plausible values: none may come back as <c>internal_error</c> (the "bug in the
-    /// tool" code). New tools and parameters are covered automatically; a new REQUIRED parameter name needs a
-    /// baseline value below, and the test says so. <c>preview_layout</c> is always pointed at a missing layout
-    /// and the converter seam at a fake that records any use, so the sweep can never start a conversion.
+    /// Sends an explicit JSON null for EVERY parameter of EVERY tool that can bind one — strings, and the object and
+    /// array arguments (GitHub issue #133) — one at a time, with the other required arguments set to plausible
+    /// values: none may come back as <c>internal_error</c> (the "bug in the tool" code). New tools and parameters
+    /// are covered automatically; a new REQUIRED parameter name needs a baseline value below, and the test says
+    /// so. <c>preview_layout</c> is always pointed at a missing layout and the converter seam at a fake that
+    /// records any use, so the sweep can never start a conversion.
     /// </summary>
     [Fact]
-    public async Task No_string_parameter_of_any_tool_turns_an_explicit_null_into_internal_error()
+    public async Task No_parameter_of_any_tool_turns_an_explicit_null_into_internal_error()
     {
         var converterUses = 0;
         LifecycleTools.SelectConverter = _ =>
@@ -190,7 +192,7 @@ public sealed class McpHostPipelineTests(McpHostPipeline pipeline) : IClassFixtu
         {
             foreach (var (tool, method) in ToolMethods())
             {
-                foreach (var nulled in method.GetParameters().Where(p => p.ParameterType == typeof(string)))
+                foreach (var nulled in method.GetParameters().Where(p => !p.ParameterType.IsValueType))
                 {
                     var arguments = new Dictionary<string, object?> { [nulled.Name!] = null };
                     foreach (var p in method.GetParameters().Where(p => !p.HasDefaultValue && p.Name != nulled.Name))
@@ -221,9 +223,29 @@ public sealed class McpHostPipelineTests(McpHostPipeline pipeline) : IClassFixtu
         {
             return parameter.Name switch
             {
-                "rows" or "columns" or "toColumn" => 1,
+                "rowCount" or "toColumn" => 1,
                 _ => 0,
             };
+        }
+
+        if (parameter.ParameterType == typeof(IReadOnlyList<int>))
+        {
+            return new[] { 1000 };
+        }
+
+        if (parameter.ParameterType == typeof(IReadOnlyList<RepeaterColumnArgument>))
+        {
+            return new[] { new { field = "/Header/Line/ItemNo_Line" } };
+        }
+
+        if (parameter.ParameterType == typeof(IReadOnlyList<TableColumnArgument>))
+        {
+            return new[] { new { width = 3000 } };
+        }
+
+        if (parameter.ParameterType == typeof(IReadOnlyList<RowCellArgument>))
+        {
+            return new[] { new { span = 1 } };
         }
 
         Assert.True(parameter.ParameterType == typeof(string), $"{tool}.{parameter.Name}: no baseline for type {parameter.ParameterType}.");
@@ -237,13 +259,9 @@ public sealed class McpHostPipelineTests(McpHostPipeline pipeline) : IClassFixtu
             "label" => "/Header/Contact_Lbl",
             "picture" => "/Header/CompanyPicture",
             "dataItem" => "/Header/Line",
-            "columns" => "ItemNo_Line",
             "locationType" => "documentEnd",
             "mode" => "plainText",
             "text" => "x",
-            "cells" => "-",
-            "widths" => "1000",
-            "edges" => "top",
             "target" => "row",
             _ => throw new InvalidOperationException(
                 $"{tool}.{parameter.Name} is a required string parameter with no baseline value in this sweep; add one."),
@@ -284,7 +302,7 @@ public sealed class McpHostPipelineTests(McpHostPipeline pipeline) : IClassFixtu
     [Theory]
     [InlineData("insert_text", """ "text":"x","locationType":"documentEnd","layoutpart":"footer" """, "layoutpart", "layoutPart")]
     [InlineData("insert_column", """ "tableIndex":0,"mode":"plainText","atcolumn":0 """, "atcolumn", "atColumn")]
-    [InlineData("set_cell_format", """ "tableIndex":0,"row":0,"edges":"top","column":1 """, "column", "col")]
+    [InlineData("set_cell_format", """ "tableIndex":0,"row":0,"edges":["top"],"column":1 """, "column", "col")]
     [InlineData("insert_field", """ "field":"/Header/CustomerAddress1","locationType":"tableCell","tableIndex":0,"row":0,"col":0,"tabelIndex":1 """, "tabelIndex", "tableIndex")]
     public async Task An_unknown_argument_name_is_refused_naming_the_closest_real_parameter_and_nothing_is_written(
         string tool, string otherArguments, string sent, string meant)
@@ -310,6 +328,26 @@ public sealed class McpHostPipelineTests(McpHostPipeline pipeline) : IClassFixtu
         result.AssertFailure("invalid_argument", "no argument named 'zzz';");
         Assert.DoesNotContain("did you mean", result.Message, StringComparison.Ordinal);
         Assert.Contains("remove_control takes: layoutPath, controlId, keepText.", result.Hint, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("layoutPart", "header")]
+    [InlineData("partName", "header2.xml")]
+    public async Task Insert_repeater_table_has_no_part_arguments_so_a_header_target_is_refused_as_unknown(
+        string argument, string value)
+    {
+        // A repeater table is body-only, and the tool used to take layoutPart/partName anyway, described as "always
+        // omit" (GitHub issue #132). Without them it is body-only by construction: the refusal names the argument
+        // like any other unknown one, and nothing is written.
+        var path = CopyOfCorpus(Corpus.SalesInvoice);
+        var before = await File.ReadAllBytesAsync(path);
+
+        var result = await pipeline.CallAsync(
+            "insert_repeater_table",
+            $$"""{"layoutPath":{{J(path)}},"dataItem":"/Header/Line","columns":[{"field":"/Header/Line/ItemNo_Line"}],"locationType":"documentEnd","{{argument}}":"{{value}}"}""");
+
+        result.AssertFailure("invalid_argument", $"insert_repeater_table has no argument named '{argument}'");
+        Assert.Equal(before, await File.ReadAllBytesAsync(path));
     }
 
     [Fact]
@@ -390,6 +428,70 @@ public sealed class McpHostPipelineTests(McpHostPipeline pipeline) : IClassFixtu
 
         Assert.True(result.IsError);
         result.AssertFailure("invalid_argument", "Argument 'format' of insert_text", "must be a JSON object", $"sent {sent}");
+    }
+
+    // ---- array arguments (GitHub issue #133) ----
+
+    [Fact]
+    public async Task A_list_sent_as_a_json_string_is_read_as_the_array_it_holds()
+    {
+        // The same tolerance as for format: the string is unambiguous JSON, so it is read rather than refused.
+        var path = CopyOfCorpus(Corpus.SalesInvoice);
+
+        var result = await pipeline.CallAsync(
+            "set_column_widths", $$"""{"layoutPath":{{J(path)}},"tableIndex":0,"widths":"[1500, 8706]"}""");
+
+        Assert.True(result.Ok, result.RawText);
+    }
+
+    [Fact]
+    public async Task A_comma_separated_list_is_invalid_argument_asking_for_a_json_array()
+    {
+        // The pre-2.0 form. It is not read as a list: a comma could never be part of a value, and empty entries
+        // were silently dropped.
+        var result = await pipeline.CallAsync(
+            "set_column_widths", $$"""{"layoutPath":{{J(MissingFile())}},"tableIndex":0,"widths":"1500,8706"}""");
+
+        result.AssertFailure(
+            "invalid_argument", "Argument 'widths' of set_column_widths", "must be a JSON array of integers", "sent the string \"1500,8706\"");
+        Assert.Contains("a list is a JSON array ([1500, 6000]), not a comma-separated string", result.Hint, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("set_column_widths", """ "tableIndex":0,"widths":[1500,"wide"] """, "Item 'widths[1]'", "an integer", "the string \"wide\"")]
+    [InlineData("set_column_widths", """ "tableIndex":0,"widths":[1500,null] """, "Item 'widths[1]'", "an integer", "null")]
+    [InlineData("set_cell_format", """ "tableIndex":0,"row":0,"edges":["top",5] """, "Item 'edges[1]'", "a string", "the number 5")]
+    [InlineData("set_cell_format", """ "tableIndex":0,"row":0,"edges":"top" """, "Argument 'edges'", "a JSON array of strings or null", "the string \"top\"")]
+    public async Task A_wrong_typed_list_or_item_is_invalid_argument_naming_exactly_that_item(
+        string tool, string otherArguments, string what, string expected, string sent)
+    {
+        var result = await pipeline.CallAsync(tool, $$"""{"layoutPath":{{J(MissingFile())}},{{otherArguments}}}""");
+
+        Assert.True(result.IsError);
+        result.AssertFailure("invalid_argument", $"{what} of {tool}", $"must be {expected},", $"sent {sent}");
+    }
+
+    [Fact]
+    public async Task The_input_schema_puts_a_lists_allowed_values_and_range_on_its_items()
+    {
+        // The SDK writes [AllowedValues]/[Range] on a LIST parameter onto the array node, where no value can satisfy
+        // them; ToolInputSchemas moves them onto items, so tools/list says what each entry may be.
+        var tools = await pipeline.Client.ListToolsAsync();
+        JsonElement Parameter(string tool, string name) =>
+            tools.Single(t => t.Name == tool).ProtocolTool.InputSchema.GetProperty("properties").GetProperty(name);
+
+        var edges = Parameter("set_cell_format", "edges");
+        Assert.False(edges.TryGetProperty("enum", out _));
+        Assert.Equal(
+            new[] { "top", "bottom", "left", "right", "all" },
+            edges.GetProperty("items").GetProperty("enum").EnumerateArray().Select(e => e.GetString()));
+        Assert.Equal(1, edges.GetProperty("minItems").GetInt32());
+
+        var widths = Parameter("set_column_widths", "widths");
+        Assert.False(widths.TryGetProperty("minimum", out _));
+        Assert.Equal(1, widths.GetProperty("items").GetProperty("minimum").GetInt32());
+        Assert.Equal(TableTools.MaxColumnWidthTwips, widths.GetProperty("items").GetProperty("maximum").GetInt32());
+        Assert.Equal("integer", widths.GetProperty("items").GetProperty("type").GetString());
     }
 
     // ---- relative paths (GitHub issue #90) ----
@@ -482,12 +584,12 @@ public sealed class McpHostPipelineTests(McpHostPipeline pipeline) : IClassFixtu
     // ---- numeric ranges (GitHub issue #98) ----
 
     [Theory]
-    [InlineData("set_column_widths", """ "tableIndex":0,"widths":"-500,5103" """, "widths entry '-500'", "set_column_widths' widths")]
-    [InlineData("set_column_widths", """ "tableIndex":0,"widths":"0,0" """, "widths entry '0'", "set_column_widths' widths")]
-    [InlineData("set_column_widths", """ "tableIndex":0,"widths":"40000,100" """, "widths entry '40000'", "set_column_widths' widths")]
-    [InlineData("insert_table", """ "rows":1,"columns":2,"locationType":"documentEnd","columnWidths":"-100,200" """, "columnWidths entry '-100'", "columnWidths, if supplied")]
-    [InlineData("insert_table", """ "rows":1,"columns":2,"locationType":"documentEnd","columnWidths":"0,200" """, "columnWidths entry '0'", "columnWidths, if supplied")]
-    [InlineData("insert_repeater_table", """ "dataItem":"/Header/Line","columns":"ItemNo_Line","locationType":"documentEnd","columnWidths":"-5" """, "columnWidths entry '-5'", "columnWidths, if supplied")]
+    [InlineData("set_column_widths", """ "tableIndex":0,"widths":[-500,5103] """, "widths[0] (-500)", "set_column_widths' widths")]
+    [InlineData("set_column_widths", """ "tableIndex":0,"widths":[5103,0] """, "widths[1] (0)", "set_column_widths' widths")]
+    [InlineData("set_column_widths", """ "tableIndex":0,"widths":[40000,100] """, "widths[0] (40000)", "set_column_widths' widths")]
+    [InlineData("insert_table", """ "rowCount":1,"columns":[{"width":-100},{"width":200}],"locationType":"documentEnd" """, "columns[0].width (-100)", "A width is in twips")]
+    [InlineData("insert_table", """ "rowCount":1,"columns":[{"width":200},{"width":0}],"locationType":"documentEnd" """, "columns[1].width (0)", "A width is in twips")]
+    [InlineData("insert_repeater_table", """ "dataItem":"/Header/Line","columns":[{"field":"/Header/Line/ItemNo_Line","width":-5}],"locationType":"documentEnd" """, "columns[0].width (-5)", "A width is in twips")]
     [InlineData("insert_column", """ "tableIndex":0,"mode":"plainText","width":40000 """, "width 40000", "insert_column's width")]
     [InlineData("insert_column", """ "tableIndex":0,"mode":"plainText","width":0 """, "width 0", "insert_column's width")]
     public async Task A_column_width_outside_1_to_Words_maximum_page_width_is_invalid_argument_and_nothing_is_written(
@@ -509,67 +611,160 @@ public sealed class McpHostPipelineTests(McpHostPipeline pipeline) : IClassFixtu
     public async Task Column_widths_at_both_bounds_are_accepted()
     {
         var result = await pipeline.CallAsync(
-            "set_column_widths", $$"""{"layoutPath":{{J(CopyOfCorpus(Corpus.SalesInvoice))}},"tableIndex":0,"widths":"1,{{TableTools.MaxColumnWidthTwips}}"}""");
+            "set_column_widths", $$"""{"layoutPath":{{J(CopyOfCorpus(Corpus.SalesInvoice))}},"tableIndex":0,"widths":[1,{{TableTools.MaxColumnWidthTwips}}]}""");
 
         Assert.True(result.Ok, result.RawText);
     }
 
     [Theory]
-    [InlineData("insert_table_row", """ "tableIndex":0,"cells":"3:-,-1:-" """, "'-1:-' spans -1")]
-    [InlineData("insert_table_row", """ "tableIndex":0,"cells":"-5:-,13:-" """, "'-5:-' spans -5")]
-    [InlineData("insert_table_row", """ "tableIndex":0,"cells":"0:-,2:-" """, "'0:-' spans 0")]
-    [InlineData("insert_table_row", """ "tableIndex":0,"cells":"64:-" """, "'64:-' spans 64")]
-    [InlineData("insert_subtotal_row", """ "parentControlId":0,"cells":"1:-,-1:-" """, "'-1:-' spans -1")]
-    [InlineData("insert_repeater_row", """ "parentControlId":0,"dataItem":"/Header/Line","cells":"-3:-" """, "'-3:-' spans -3")]
+    [InlineData("insert_table_row", """ "tableIndex":0,"cells":[{"span":3},{"span":-1}] """, "cells[1].span is -1")]
+    [InlineData("insert_table_row", """ "tableIndex":0,"cells":[{"span":-5},{"span":13}] """, "cells[0].span is -5")]
+    [InlineData("insert_table_row", """ "tableIndex":0,"cells":[{"span":0},{"span":2}] """, "cells[0].span is 0")]
+    [InlineData("insert_table_row", """ "tableIndex":0,"cells":[{"span":64}] """, "cells[0].span is 64")]
+    [InlineData("insert_subtotal_row", """ "parentControlId":0,"cells":[{"span":1},{"span":-1}] """, "cells[1].span is -1")]
+    [InlineData("insert_repeater_row", """ "parentControlId":0,"dataItem":"/Header/Line","cells":[{"span":-3}] """, "cells[0].span is -3")]
     public async Task A_cell_span_outside_1_to_63_is_invalid_argument_with_the_cells_hint(
         string tool, string otherArguments, string messageFragment)
     {
         var result = await pipeline.CallAsync(
             tool, $$"""{"layoutPath":{{J(CopyOfCorpus(Corpus.SalesInvoice))}},{{otherArguments}}}""");
 
-        // "3:-,-1:-" used to crash with "Index was out of range (Parameter 'index')" and a generic hint.
+        // A span of -1 used to crash with "Index was out of range (Parameter 'index')" and a generic hint.
         result.AssertFailure("invalid_argument", messageFragment, "between 1 and 63");
-        Assert.Contains("cells is a comma-separated list of cell specs", result.Hint, StringComparison.Ordinal);
+        Assert.Contains("cells is an array with one object per cell", result.Hint, StringComparison.Ordinal);
     }
 
     [Theory]
-    [InlineData(""" "rows":1,"columns":0 """, "columns must be between 1 and 30", "insert_table's columns is how many columns")]
-    [InlineData(""" "rows":1,"columns":31 """, "columns must be between 1 and 30", "insert_table's columns is how many columns")]
-    [InlineData(""" "rows":0,"columns":2 """, "rows must be between 1 and 100", "insert_table's rows is how many rows")]
-    public async Task Insert_table_count_hints_describe_insert_tables_own_parameters(
-        string counts, string messageFragment, string hintFragment)
+    [InlineData("insert_table", """ "rowCount":1,"columns":[] """, "columns must hold at least one entry", "columns is an array with one object per table column")]
+    [InlineData("insert_table", """ "rowCount":1,"columns":[{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}] """, "columns must hold between 1 and 30 columns (got 31)", "columns is an array with one object per table column")]
+    [InlineData("insert_table", """ "rowCount":0,"columns":[{},{}] """, "rowCount must be between 1 and 100", "insert_table's rowCount is how many rows")]
+    [InlineData("insert_repeater_table", """ "dataItem":"/Header/Line","columns":[] """, "columns must hold at least one entry", "columns is an array with one object per table column")]
+    public async Task Insert_table_count_hints_describe_the_tools_own_parameters(
+        string tool, string counts, string messageFragment, string hintFragment)
     {
+        // insert_table's columns was a count while insert_repeater_table's was a list of names, and rows meant
+        // something else on preview_layout, so their hints had to be keyed per tool. Both tables now take the same
+        // array of column objects, and the counts are rowCount and sampleRows (GitHub issue #133).
         var result = await pipeline.CallAsync(
-            "insert_table", $$"""{"layoutPath":{{J(CopyOfCorpus(Corpus.SalesInvoice))}},{{counts}},"locationType":"documentEnd"}""");
+            tool, $$"""{"layoutPath":{{J(CopyOfCorpus(Corpus.SalesInvoice))}},{{counts}},"locationType":"documentEnd"}""");
 
-        // The columns hint used to describe insert_repeater_table's comma-separated list of column names.
         result.AssertFailure("invalid_argument", messageFragment);
         Assert.Contains(hintFragment, result.Hint, StringComparison.Ordinal);
-        Assert.DoesNotContain("LEAF column names", result.Hint, StringComparison.Ordinal);
     }
 
     [Fact]
-    public async Task Insert_repeater_tables_columns_keeps_its_own_list_hint()
+    public async Task An_unknown_member_of_an_object_in_an_array_is_refused_naming_its_item()
+    {
+        var path = CopyOfCorpus(Corpus.SalesInvoice);
+        var before = await File.ReadAllBytesAsync(path);
+
+        var result = await pipeline.CallAsync(
+            "insert_table", $$"""{"layoutPath":{{J(path)}},"rowCount":1,"columns":[{},{"Width":1500}],"locationType":"documentEnd"}""");
+
+        Assert.True(result.IsError);
+        result.AssertFailure("invalid_argument", "insert_table's columns[1] has no member named 'Width' (did you mean 'width'?)");
+        Assert.Contains("Each item of columns takes: width, alignment.", result.Hint, StringComparison.Ordinal);
+        Assert.Equal(before, await File.ReadAllBytesAsync(path));
+    }
+
+    [Fact]
+    public async Task An_object_in_an_array_without_a_required_member_is_refused_naming_it()
     {
         var result = await pipeline.CallAsync(
-            "insert_repeater_table", $$"""{"layoutPath":{{J(CopyOfCorpus(Corpus.SalesInvoice))}},"dataItem":"/Header/Line","columns":" , ","locationType":"documentEnd"}""");
+            "insert_repeater_table",
+            $$"""{"layoutPath":{{J(MissingFile())}},"dataItem":"/Header/Line","columns":[{"field":"/Header/Line/ItemNo_Line"},{"width":1500}],"locationType":"documentEnd"}""");
 
-        result.AssertFailure("invalid_argument", "At least one column is required");
-        Assert.Contains("insert_repeater_table's columns must be a non-empty, comma-separated list", result.Hint, StringComparison.Ordinal);
+        Assert.True(result.IsError);
+        result.AssertFailure("invalid_argument", "'columns[1]' of insert_repeater_table has no 'field', which it requires.");
+    }
+
+    [Theory]
+    [InlineData("insert_table", """ "rowCount":1,"columns":[{"width":"wide"}],"locationType":"documentEnd" """, "Member 'columns[0].width'", "an integer or null", "the string \"wide\"")]
+    [InlineData("insert_table_row", """ "tableIndex":0,"cells":[{"span":2,"fields":"/Header/No"}] """, "Member 'cells[0].fields'", "a JSON array of strings or null", "the string \"/Header/No\"")]
+    [InlineData("insert_table_row", """ "tableIndex":0,"cells":[5] """, "Item 'cells[0]'", "a JSON object", "the number 5")]
+    public async Task A_wrong_typed_member_of_an_object_in_an_array_is_named_by_its_path(
+        string tool, string otherArguments, string what, string expected, string sent)
+    {
+        var result = await pipeline.CallAsync(tool, $$"""{"layoutPath":{{J(MissingFile())}},{{otherArguments}}}""");
+
+        Assert.True(result.IsError);
+        result.AssertFailure("invalid_argument", $"{what} of {tool}", $"must be {expected}", $"sent {sent}");
+    }
+
+    [Fact]
+    public async Task An_array_of_objects_sent_as_a_json_string_is_read_as_the_array_it_holds()
+    {
+        // SalesInvoice's first table has two grid columns: one cell spanning both covers it.
+        var path = CopyOfCorpus(Corpus.SalesInvoice);
+
+        var result = await pipeline.CallAsync(
+            "insert_table_row", $$"""{"layoutPath":{{J(path)}},"tableIndex":0,"cells":"[{\"span\": 2}]"}""");
+
+        Assert.True(result.Ok, result.RawText);
+    }
+
+    [Fact]
+    public async Task The_input_schema_lists_the_values_of_enumerated_arguments_and_the_range_of_bounded_numbers()
+    {
+        // The value lists of AllowedValueAttributes.cs reach tools/list as "enum" through the SDK, and [Range] as
+        // minimum/maximum, so an agent reads the choices from the schema rather than from prose.
+        var tools = await pipeline.Client.ListToolsAsync();
+        JsonElement Parameter(string tool, string name) =>
+            tools.Single(t => t.Name == tool).ProtocolTool.InputSchema.GetProperty("properties").GetProperty(name);
+        string?[] Values(JsonElement schema) =>
+            [.. schema.GetProperty("enum").EnumerateArray().Select(v => v.ValueKind == JsonValueKind.Null ? null : v.GetString())];
+
+        Assert.Equal(new[] { "documentEnd", "afterControl", "tableCell", "atText" }, Values(Parameter("insert_field", "locationType")));
+        Assert.Equal(new[] { "body", "header", "footer" }, Values(Parameter("set_cell_format", "layoutPart")));
+        Assert.Equal(new[] { "left", "center", "right" }, Values(Parameter("set_cell_text", "alignment")));
+        Assert.Equal(new[] { "none", "headerRule", "grid" }, Values(Parameter("insert_repeater_table", "borders")));
+        Assert.Equal(new[] { "quick", "full" }, Values(Parameter("validate_layout", "level")));
+
+        var borderSize = Parameter("set_cell_format", "borderSize");
+        Assert.Equal(2, borderSize.GetProperty("minimum").GetInt32());
+        Assert.Equal(96, borderSize.GetProperty("maximum").GetInt32());
+        var fontSize = Parameter("insert_text", "format").GetProperty("properties").GetProperty("fontSizePoints");
+        Assert.Equal(4, fontSize.GetProperty("minimum").GetDouble());
+        Assert.Equal(96, fontSize.GetProperty("maximum").GetDouble());
+    }
+
+    [Fact]
+    public async Task The_input_schema_describes_each_column_and_cell_object()
+    {
+        // One object per column or cell (GitHub issue #133): tools/list says what each member may hold.
+        var tools = await pipeline.Client.ListToolsAsync();
+        JsonElement Items(string tool, string parameter) =>
+            tools.Single(t => t.Name == tool).ProtocolTool.InputSchema.GetProperty("properties").GetProperty(parameter).GetProperty("items");
+
+        var repeaterColumn = Items("insert_repeater_table", "columns");
+        Assert.Equal("field", Assert.Single(repeaterColumn.GetProperty("required").EnumerateArray()).GetString());
+        Assert.Equal(TableTools.MaxColumnWidthTwips, repeaterColumn.GetProperty("properties").GetProperty("width").GetProperty("maximum").GetInt32());
+
+        var tableColumn = Items("insert_table", "columns").GetProperty("properties");
+        Assert.Equal(new[] { "width", "alignment" }, tableColumn.EnumerateObject().Select(p => p.Name));
+        Assert.Equal(
+            new[] { "left", "center", "right" },
+            tableColumn.GetProperty("alignment").GetProperty("enum").EnumerateArray()
+                .Where(v => v.ValueKind == JsonValueKind.String).Select(v => v.GetString()));
+
+        var cell = Items("insert_table_row", "cells").GetProperty("properties");
+        Assert.Equal(1, cell.GetProperty("span").GetProperty("minimum").GetInt32());
+        Assert.Equal(TableTools.MaxCellSpan, cell.GetProperty("span").GetProperty("maximum").GetInt32());
+        Assert.Equal("array", cell.GetProperty("fields").GetProperty("type").EnumerateArray().First().GetString());
     }
 
     [Theory]
     [InlineData(0)]
     [InlineData(-5)]
-    public async Task Preview_rows_below_1_is_invalid_argument_with_the_preview_hint(int rows)
+    public async Task Preview_sampleRows_below_1_is_invalid_argument_with_the_preview_hint(int sampleRows)
     {
-        // The layout is missing, so even a regression in the rows check could not reach a conversion: the
+        // The layout is missing, so even a regression in the sampleRows check could not reach a conversion: the
         // call would stop at file_not_found instead, and fail this test.
         var result = await pipeline.CallAsync(
-            "preview_layout", $$"""{"layoutPath":{{J(MissingFile())}},"rows":{{rows}}}""");
+            "preview_layout", $$"""{"layoutPath":{{J(MissingFile())}},"sampleRows":{{sampleRows}}}""");
 
-        result.AssertFailure("invalid_argument", $"rows must be 1 or more (got {rows})");
-        Assert.Contains("preview_layout's rows is how many sample rows", result.Hint, StringComparison.Ordinal);
+        result.AssertFailure("invalid_argument", $"sampleRows must be 1 or more (got {sampleRows})");
+        Assert.Contains("preview_layout's sampleRows is how many sample rows", result.Hint, StringComparison.Ordinal);
     }
 
     [Theory]

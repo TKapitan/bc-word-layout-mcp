@@ -195,10 +195,10 @@ other tool is conversion-free and works everywhere the server runs.
 | `insert_label` | Insert a plain-text LABEL content control bound to a label-suffixed (`Lbl`/`_Lbl`) dataset path. |
 | `insert_text` | Insert plain STATIC text — a literal run, not a content control: the separator space, colon or `" / "` that glues two inline controls together (without it, chained controls render as `Document NoDOCU-0150`). Creates no control, so it has no `controlId` and cannot be targeted by `remove_control`. |
 | `insert_page_number` | Insert Word `PAGE`/`NUMPAGES` field codes — the "Page X / Y" chrome every stock BC document header carries (by default the full `X / Y` shape; `includeTotal=false` for the current page alone). Field codes are plain runs, so no `controlId`. |
-| `insert_repeater_table` | Insert a complete repeater table (label/static header row + one bound data row) for a repeating data item — the flagship editing tool. Draws the BC-native look by default (no grid, one rule under the header row); optional per-column widths and alignments, pinned with a fixed table layout so Word renders the grid as specified. |
+| `insert_repeater_table` | Insert a complete repeater table (label/static header row + one bound data row) for a repeating data item, in the body — the flagship editing tool. Draws the BC-native look by default (no grid, one rule under the header row; `borders` also offers none or a full grid) and can reference a table style the layout defines; optional per-column widths and alignments, pinned with a fixed table layout so Word renders the grid as specified. |
 | `insert_repeater_row` | Add a nested DETAIL ROW repeater inside an existing repeater's item — the standard BC shape for per-line detail (assembly components, serial/lot nos): a row under each line, aligned to the parent grid via spans, repeating once per parent row. |
 | `insert_picture` | Insert a PICTURE content control bound to a picture dataset path (e.g. `/Header/CompanyPicture`) — the logo placeholder a from-scratch layout needs; BC fills it at render time. |
-| `insert_table` | Insert a plain (unbound) table — the building block for non-repeating layout sections (address columns, label/value header grids, right-anchored totals blocks). Column widths are pinned with a fixed table layout, so Word keeps the grid you asked for. Returns the new table's index for `set_cell_text`/`insert_field` to fill. |
+| `insert_table` | Insert a plain (unbound) table, in the body, a header or a footer — the building block for non-repeating layout sections (address columns, label/value header grids, right-anchored totals blocks, the stock header and footer tables). Borderless by default, with the same `borders` and `tableStyle` options as `insert_repeater_table`. Column widths are pinned with a fixed table layout, so Word keeps the grid you asked for. Returns the new table's index for `set_cell_text`/`insert_field` to fill. |
 | `wrap_in_repeater` | Wrap a run of existing body blocks in a block-level repeater over a data item, so they print once per record: a page per customer in a statement, a paragraph per work-description line. Over a top-level item it adds the `w:group` Business Central needs. |
 | `remove_control` | Remove a content control (field/label/repeater/picture/unbound) by its `w:id`, searching the body and every header/footer; `keepText=true` on a block-level repeater unwraps it and keeps its content. |
 | `set_cell_text` | Set (replace) the PLAIN TEXT of a table cell, addressed by table/row/column index — e.g. re-label a line-items column header. Rejects cells that hold a bound control. |
@@ -255,16 +255,27 @@ that step, so a call that never reaches a body still returns `isError: true` wit
 - **Missing required argument:** `invalid_argument` naming it; the hint lists the tool's required
   parameters.
 - **Wrong JSON type** (`"abc"` or `1.5` for an integer, `"true"` for a boolean, `null` for a number or
-  boolean): `invalid_argument` naming the parameter, the type it needs, and what the call sent.
+  boolean): `invalid_argument` naming the parameter, the type it needs, and what the call sent. Inside
+  an object or array argument it names the member or item by its path (`columns[1].width`), or the
+  required member an object lacks.
 - **Unknown argument name:** refused with `invalid_argument` rather than ignored, naming the closest
   real parameter (`layoutpart` → `layoutPart`; names are case-sensitive) and listing them all. An
-  ignored misspelling would silently fall back to the parameter's default.
+  ignored misspelling would silently fall back to the parameter's default. The same holds for the
+  members of an object argument and of the objects in an array (`format.size`, `columns[1].Width`).
+- **Object or array sent as a JSON string** (`"[1500, 6206]"` for `[1500, 6206]`): read as the value
+  it holds, since the string is unambiguous. A comma-separated list is not a JSON array and is refused,
+  with a hint that asks for one.
 - **Relative path:** every path parameter must be absolute; a relative one (or a drive- or
   root-relative one like `C:Report.docx`) is refused with `invalid_argument` naming the parameter,
   instead of resolving against the server's working directory.
-- **Explicit `null` for a string:** an optional enum-like string (`layoutPart`, `look`, `style`,
+- **Explicit `null` for a string:** an optional enum-like string (`layoutPart`, `borders`, `borderStyle`,
   `converter`, `level`) takes its documented default, exactly as if it were omitted; a required one
   (`locationType`, `mode`) is refused with `invalid_argument`.
+
+The input schemas say what an argument may hold before any call is made: every enumerated argument
+lists its values (`enum`) and every bounded number its range (`minimum`/`maximum`), including the
+members of `format` and of the table tools' column and cell objects. The server still reads an
+enumerated value case-insensitively.
 
 Only a request too malformed for the SDK to parse as a tool call at all (no tool `name`, or `arguments`
 that is not a JSON object) fails earlier, as a JSON-RPC error with no tool result; MCP client libraries

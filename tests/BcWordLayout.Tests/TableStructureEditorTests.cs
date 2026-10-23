@@ -1287,7 +1287,7 @@ public class TableStructureToolTests
         try
         {
             var response = TableTools.SetColumnWidths(
-                path, LineTableIndex, "1000,2000,800,500,500,400,1300,700,1600");
+                path, LineTableIndex, [1000, 2000, 800, 500, 500, 400, 1300, 700, 1600]);
 
             Assert.True(response.Ok, response.Error?.Message);
             var dto = Assert.IsType<TableEditResultDto>(response.Data);

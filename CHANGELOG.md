@@ -121,6 +121,82 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Pass `edges`, `fill`, or both. The `set_cell_borders` fixes listed under *Fixed* below apply to
   `set_cell_format`.
 
+- **BREAKING: one `borders` option on `insert_table` and `insert_repeater_table`** (GitHub issue
+  #131). It replaces `insert_table`'s `withBorders` and `insert_repeater_table`'s `look`: the two tools
+  described the same choice in two ways, and `look='bc'` did not say what it draws. Both now take the
+  same three values:
+  - `none`: no border at all (`insert_table`'s default, as before);
+  - `headerRule`: a ½ pt rule under the first row, the one `set_cell_format` draws for a bottom edge
+    (`insert_repeater_table`'s default, `look='bc'` before);
+  - `grid`: a single-line border on every edge and between every cell.
+
+  `withBorders=true` becomes `borders="grid"`, and `look="bc"`/`look="grid"` become
+  `borders="headerRule"`/`borders="grid"`. `none` on a repeater table is new: a composable body's line
+  table takes its look from the theme's table style, and the header rule had to be removed by hand.
+
+- **BREAKING: `insert_table` takes `tableStyle` too, and both table tools refuse a style the layout
+  does not define** (GitHub issue #131). Without it, a plain block could not take a branded shell's
+  table style while authoring. A `w:tblStyle` naming an undefined style, or one that is not a table
+  style, is valid OOXML that Word and Business Central silently ignore, so it was written and the
+  table rendered in the defaults. It is now refused with `invalid_argument`, and the message lists the
+  table styles the layout defines, as `format.characterStyle` already does. Style ids are
+  case-sensitive.
+
+- **BREAKING: `insert_repeater_table` no longer takes `layoutPart` or `partName`, and `insert_table`
+  now works in headers and footers** (GitHub issue #132). Both tools took the two arguments while
+  their descriptions said to always omit them, so an agent that passed them only got an
+  `invalid_argument` round trip. A repeater table stays body-only (nothing shows Business Central
+  renders a repeating section in a header or footer), so it now has no part arguments at all, and
+  passing one is refused as an unknown argument. A plain table is what every stock header and footer
+  is built from (the logo beside the document details, the company details across the footer), so
+  `insert_table` takes `layoutPart` and `partName` like `insert_field`: it creates the part first in a
+  layout that has none, and its summary warns when the default header of a layout with a distinct
+  first page will not show on page 1. A test now fails if any tool parameter is described as never to
+  be passed.
+
+- **BREAKING: list arguments are JSON arrays, with one object per column or cell** (GitHub issue
+  #133). Every list was a comma-separated string: the schema could not say what an entry may be, an
+  empty entry was silently dropped, and a value could never contain a comma. Columns and cells were
+  worse: `columns`, `columnWidths` and `columnAlignments` described the same columns as three lists
+  kept in step by hand, and a cell was a mini-grammar (`-`, `a+b`, `N:`). Now:
+  - a list is a JSON array of typed entries, and tools/list states each entry's allowed values or
+    range;
+  - a column or cell is one object holding everything about it, and a member you omit takes its
+    default;
+  - every field is a **full dataset path**, as `list_dataset_fields` reports it, on every tool.
+    `insert_repeater_table` and `insert_repeater_row` took leaf names until now, and a bare name is
+    refused with the full path it stands for;
+  - a column without a `width` shares what the other columns leave of the available width;
+  - `insert_table`'s `rows` is `rowCount`, and `preview_layout`'s `rows` is `sampleRows`. No argument
+    name means different things on different tools any more.
+
+  A list sent as a JSON-encoded string (`"[1500, 6206]"`) is read as the array it holds, as `format`
+  already is. A comma-separated string is refused with a hint that asks for an array. A wrong entry
+  is named by its path (`widths[2]`, `columns[1].width`), and so is an unknown member
+  (`columns[1].Width`, "did you mean 'width'?").
+
+  | Tool | Before | After |
+  | --- | --- | --- |
+  | `set_column_widths` | `"widths": "1500,6206,2500"` | `"widths": [1500, 6206, 2500]` |
+  | `set_cell_format` | `"edges": "top,bottom"` | `"edges": ["top", "bottom"]` |
+  | `insert_table` | `"rows": 2, "columns": 2, "columnWidths": "7206,3000", "columnAlignments": "left,right"` | `"rowCount": 2, "columns": [{"width": 7206}, {"width": 3000, "alignment": "right"}]` |
+  | `insert_repeater_table` | `"columns": "ItemNo_Line,Quantity_Line", "columnWidths": "1500,1200", "columnAlignments": "left,right"` | `"columns": [{"field": "/Header/Line/ItemNo_Line", "width": 1500}, {"field": "/Header/Line/Quantity_Line", "width": 1200, "alignment": "right"}]` |
+  | `insert_repeater_row` | `"cells": "-,3:Description_AssemblyLine", "alignments": "-,left"` | `"cells": [{}, {"fields": ["/Header/Line/AssemblyLine/Description_AssemblyLine"], "span": 3, "alignment": "left"}]` |
+  | `insert_table_row`, `insert_subtotal_row` | `"cells": "4:-,3:/Header/Totals/TotalText,/Header/Totals/TotalAmount", "alignments": "-,-,right"` | `"cells": [{"span": 4}, {"fields": ["/Header/Totals/TotalText"], "span": 3}, {"fields": ["/Header/Totals/TotalAmount"], "alignment": "right"}]` |
+  | `preview_layout` | `"rows": 20` | `"sampleRows": 20` |
+
+- **The input schemas list every enumerated argument's values and every bounded number's range**
+  (GitHub issue #133). An agent reads the choices from tools/list instead of from the prose
+  descriptions:
+  - `locationType`, `layoutPart`, `alignment`, `borders`, `borderStyle`, `edges`, `mode`, `target`,
+    `level` and `converter` carry an `enum`;
+  - column widths, spans, `rowCount`, `borderSize`, `widthMm`/`heightMm` and `format.fontSizePoints`
+    carry a `minimum` and `maximum`.
+
+  Nothing a caller sends is read differently: an enumerated value is still matched
+  case-insensitively. A test holds every listed value to the parser that reads it, and requires every
+  argument of those names to publish its list.
+
 - **`remove_control keepText=true` on a block-level repeater now unwraps it** instead of refusing
   (GitHub issue #31): section, group and item go at once and the content stays in place, printing
   once. It is the undo of `wrap_in_repeater`, and works on the stock statement and work-description
@@ -134,6 +210,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   it with the new `--expect-version`.
 
 ### Fixed
+
+- `insert_table` placed inside a table cell (`locationType` `tableCell`) without widths now splits the
+  host cell's width across its columns, as `insert_repeater_table` does. It split the page's content
+  width, so the nested table's fixed grid overran the cell and the outer table with it.
 
 - **Inline inserts now take the formatting of the text before them** (GitHub issue #122).
   `insert_text`, `insert_field`, `insert_label` and `insert_page_number` built bare runs, which

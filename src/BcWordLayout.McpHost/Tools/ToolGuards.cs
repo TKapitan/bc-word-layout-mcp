@@ -141,8 +141,7 @@ internal static class ToolGuards
     private static void RetryTransientFileDenial(Action fileOperation) => TransientFileRetry.Run(fileOperation);
 
     private static ToolResponse GuardMutate<TResult>(
-        string layoutPath, Func<WordprocessingDocument, TResult> mutate, Func<TResult, ValidationResult, ToolResponse> onSuccess,
-        string? tool = null)
+        string layoutPath, Func<WordprocessingDocument, TResult> mutate, Func<TResult, ValidationResult, ToolResponse> onSuccess)
     {
         return Guard(() =>
         {
@@ -358,7 +357,7 @@ internal static class ToolGuards
                     ScratchFiles.Delete(workingCopy);
                 }
             }
-        }, layoutPath, tool);
+        }, layoutPath);
     }
 
     /// <summary>
@@ -629,11 +628,10 @@ internal static class ToolGuards
     /// post-edit QuickValidation guarantee as <see cref="GuardEdit"/>/<see cref="GuardCellEdit"/>, plus the
     /// <see cref="TableGridConsistencyGuard"/> backstop <see cref="GuardMutate{TResult}"/> now runs for every
     /// mutating tool — so a structural table edit that would desync a row's cells from the grid is rejected
-    /// with the file untouched. <paramref name="tool"/> is passed by a tool whose parameter names collide with
-    /// another tool's, so its <c>invalid_argument</c> hints key on both (see <see cref="ToolSpecificInvalidArgumentHint"/>).
+    /// with the file untouched.
     /// </summary>
     internal static ToolResponse GuardTableEdit(
-        string layoutPath, Func<WordprocessingDocument, TableEditResult> mutate, string? tool = null) =>
+        string layoutPath, Func<WordprocessingDocument, TableEditResult> mutate) =>
         GuardMutate(layoutPath, mutate, (tableResult, quick) =>
         {
             var dto = new TableEditResultDto(
@@ -648,7 +646,7 @@ internal static class ToolGuards
                 new ValidationSummaryDto("quick", quick.Passed, quick.ErrorCount, quick.WarningCount));
 
             return ToolResponse.Success(dto);
-        }, tool);
+        });
 
     /// <summary>
     /// Thin <see cref="GuardMutate{TResult}"/> instantiation for <see cref="LifecycleTools"/>'s
@@ -1051,7 +1049,7 @@ internal static class ToolGuards
     /// repair, rather than the generic "confirm the file contains a dataset part" one.
     /// </para>
     /// </remarks>
-    internal static ToolResponse Guard(Func<ToolResponse> body, string path, string? tool = null)
+    internal static ToolResponse Guard(Func<ToolResponse> body, string path)
     {
         try
         {
@@ -1189,7 +1187,7 @@ internal static class ToolGuards
             return ToolResponse.Failure(
                 ErrorCodes.InvalidArgument,
                 ex.Message,
-                ToolSpecificInvalidArgumentHint(tool, ex.ParamName) ?? InvalidArgumentHint(ex.ParamName));
+                InvalidArgumentHint(ex.ParamName));
         }
         catch (NotFoundException ex)
         {
@@ -1271,36 +1269,6 @@ internal static class ToolGuards
     }
 
     /// <summary>
-    /// The <c>invalid_argument</c> hint for a parameter whose NAME means different things on different tools,
-    /// keyed by tool + parameter; null when the pair has no tool-specific hint, so <see cref="InvalidArgumentHint"/>'s
-    /// name-only map applies. It exists because a name-only key cannot tell <c>insert_table</c>'s integer
-    /// <c>columns</c> (a column COUNT) from <c>insert_repeater_table</c>'s comma-separated list of column NAMES,
-    /// or <c>insert_table</c>'s <c>rows</c> from <c>preview_layout</c>'s sample-row count — the hint used to
-    /// describe the wrong tool's parameter (GitHub issue #98). The tool name arrives through
-    /// <see cref="Guard"/>'s <c>tool</c> argument, which only the tools that own one of these colliding names
-    /// pass; every other call keeps the name-only hint. Each pair is pinned through the real server pipeline by
-    /// <c>McpHostPipelineTests</c>.
-    /// </summary>
-    private static string? ToolSpecificInvalidArgumentHint(string? tool, string? paramName) =>
-        (tool, paramName?.ToLowerInvariant()) switch
-        {
-            ("insert_table", "rows") =>
-                "insert_table's rows is how many rows the new table has: an integer from 1 to 100.",
-
-            ("insert_table", "columns") =>
-                "insert_table's columns is how many columns the new table has: an integer from 1 to 30 (not a "
-                + "list of column names - that is insert_repeater_table's columns). Size them with columnWidths, "
-                + "one width in twips per column.",
-
-            ("preview_layout", "rows") =>
-                "preview_layout's rows is how many sample rows to generate per repeating section: 1 or more "
-                + "(default 3). Values above the internal cap of 100 are capped with a row-cap warning. To preview "
-                + "real records instead of sample rows, pass an exported dataset via dataOverridesPath.",
-
-            _ => null,
-        };
-
-    /// <summary>
     /// Builds an <c>invalid_argument</c> hint tailored to the specific argument that failed, keyed off
     /// <see cref="ArgumentException.ParamName"/> (populated via <c>nameof(...)</c> at every throw site across
     /// this tool surface - <c>ToolGuards</c>/the tool-family classes themselves, <c>SdtFactory</c>,
@@ -1348,10 +1316,9 @@ internal static class ToolGuards
             "The location you targeted is not valid for this operation (see the message above for which "
             + "applies). For set_cell_text/clear_cell_text: the cell must be PLAIN TEXT - a cell that holds a "
             + "bound field/label control is rejected; use remove_control (the cell/column is preserved) or "
-            + "insert_field/insert_label for those. For insert_repeater_table: only layoutPart='body' (the "
-            + "default) is supported - a repeater TABLE in a header/footer is not supported, since nothing "
-            + "shows that Business Central renders a repeating section there (unlike insert_field/insert_label, "
-            + "which do support 'header'/'footer'). For the insert tools: a "
+            + "insert_field/insert_label for those. insert_repeater_table builds BODY tables only - nothing "
+            + "shows that Business Central renders a repeating section in a header/footer (a plain insert_table, "
+            + "insert_field and insert_label all work there). For the insert tools: a "
             + "location that resolves INSIDE a data-bound field/label/picture control's own content (afterControl "
             + "on a cell-level control, tableCell on a cell that IS such a control, atText matching its text) is "
             + "refused, because Word discards or rejects anything placed there; use tableCell on a plain cell "
@@ -1389,29 +1356,38 @@ internal static class ToolGuards
             + "(not a leaf column); wrap_in_repeater also needs at least one control in its range bound under "
             + "that item, and no repeater in the range over data outside it.",
 
-        "columns" or "column" =>
-            "insert_repeater_table's columns must be a non-empty, comma-separated list of LEAF column names "
-            + "belonging to the given dataItem (not full paths, not nested data items) - see "
-            + "list_dataset_fields for the exact column names available under that data item.",
+        "columns" =>
+            "columns is an array with one object per table column, in order. insert_repeater_table: "
+            + "{\"field\": the FULL dataset path of a leaf column of dataItem, exactly as list_dataset_fields "
+            + "reports it, e.g. '/Header/Line/ItemNo_Line' (not a bare column name, not a nested data item), plus "
+            + "optional \"width\" and \"alignment\"}. insert_table: 1 to 30 objects with optional \"width\" and "
+            + "\"alignment\" ({} takes both defaults). A width is in twips, 1 to "
+            + $"{TableTools.MaxColumnWidthTwips}; the columns without one share what the given widths leave of the "
+            + "available width, so the given widths must leave some. An alignment is 'left', 'center' or 'right'.",
 
-        "columnwidths" or "options" =>
-            "columnWidths, if supplied, must be a comma-separated list of integers with exactly one width "
-            + $"(in twips, each 1 to {TableTools.MaxColumnWidthTwips}) per column, matching the column count "
-            + "exactly - omit it entirely for an even default width per column instead.",
+        "rowcount" =>
+            "insert_table's rowCount is how many rows the new table has: an integer from 1 to 100.",
+
+        "samplerows" =>
+            "preview_layout's sampleRows is how many sample rows to generate per repeating section: 1 or more "
+            + "(default 3). Values above the internal cap of 100 are capped with a row-cap warning. To preview "
+            + "real records instead of sample rows, pass an exported dataset via dataOverridesPath.",
 
         "widths" =>
-            "set_column_widths' widths must be a non-empty comma-separated list of integers (twips, each 1 to "
-            + $"{TableTools.MaxColumnWidthTwips}), exactly one per GRID column - the count must equal the table's "
-            + "columnCount from get_layout_info (a cell's own columns are positions "
-            + "gridColumn..gridColumn+gridSpan-1 in that list).",
+            "set_column_widths' widths is an array of integers - twips, each 1 to "
+            + $"{TableTools.MaxColumnWidthTwips} - with exactly one per GRID column, e.g. [1500, 6206, 2500]: the count "
+            + "must equal the table's columnCount from get_layout_info (a cell's own columns are positions "
+            + "gridColumn..gridColumn+gridSpan-1 in that array).",
 
         "cells" =>
-            "cells is a comma-separated list of cell specs, one per cell of the new row: '-' is an empty spacer, "
-            + "a name is a bound cell (insert_repeater_row: a leaf column of the child data item; "
-            + "insert_table_row/insert_subtotal_row: a FULL dataset path), 'a+b' chains several in one cell, and "
-            + $"an optional 'N:' prefix spans N grid columns (1 to {TableTools.MaxCellSpan}). The spans must sum to "
-            + "the table's columnCount (get_layout_info's tables[]), e.g. '4:-,3:/Header/Totals/TotalText,"
-            + "/Header/Totals/TotalAmount' on an 8-column table.",
+            "cells is an array with one object per cell of the new row: \"fields\" is an array of FULL dataset "
+            + "paths, exactly as list_dataset_fields reports them (several chain inline in the cell; on "
+            + "insert_repeater_row each must be a leaf column of its dataItem), and no fields makes an empty spacer "
+            + $"cell; \"span\" is how many grid columns the cell covers, 1 to {TableTools.MaxCellSpan} (default 1); "
+            + "\"alignment\" is 'left', 'center' or 'right'. The spans must sum to the table's columnCount "
+            + "(get_layout_info's tables[]), e.g. [{\"span\": 4}, {\"fields\": [\"/Header/Totals/TotalText\"], "
+            + "\"span\": 3}, {\"fields\": [\"/Header/Totals/TotalAmount\"], \"alignment\": \"right\"}] on an "
+            + "8-column table.",
 
         "atcolumn" =>
             "insert_column's atColumn is the 0-based GRID position for the new column (0..columnCount from "
@@ -1465,16 +1441,23 @@ internal static class ToolGuards
             "alignment must be 'left', 'center' or 'right' (case-insensitive); omit it to keep the paragraph's "
             + "existing alignment.",
 
-        "look" =>
-            "insert_repeater_table's look must be 'bc' (the default - no drawn table grid, just a rule under "
-            + "the header row, matching every real BC lines table) or 'grid' (an explicit single-line border "
-            + "on every edge and between every cell).",
+        "borders" =>
+            "borders must be 'none' (no border at all - insert_table's default, the shape of BC's address, info and "
+            + "totals blocks), 'headerRule' (no grid, just a 1/2-pt rule under the first row - insert_repeater_table's "
+            + "default, matching every real BC lines table) or 'grid' (an explicit single-line border on every edge "
+            + "and between every cell), case-insensitive.",
+
+        "tablestyle" =>
+            "tableStyle must be the id of a TABLE style this layout's styles part defines - the message above lists "
+            + "them; ids are case-sensitive. create_layout's blank layouts define 'TableGrid'; a branded templatePath "
+            + "shell brings its own. Omit tableStyle for no style reference, and draw the rules with borders and "
+            + "set_cell_format instead.",
 
         "edges" =>
-            "set_cell_format changes rules (edges), a fill, or both - pass at least one. edges is a "
-            + "comma-separated list of 'top', 'bottom', 'left', 'right' (or 'all') naming at least one edge - "
-            + "e.g. edges='top' for the rule above a totals row; borderStyle/borderSize only apply with it. Edges "
-            + "you do not name keep whatever they already had.",
+            "set_cell_format changes rules (edges), a fill, or both - pass at least one. edges is an array of "
+            + "'top', 'bottom', 'left', 'right' (or 'all') naming at least one edge - e.g. [\"top\"] for the rule "
+            + "above a totals row; borderStyle/borderSize only apply with it. Edges you do not name keep whatever "
+            + "they already had.",
 
         "borderstyle" or "bordersize" =>
             "set_cell_format's borderStyle must be 'single' (draw a line) or 'none' (explicitly clear the named "

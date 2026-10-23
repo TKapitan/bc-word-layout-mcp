@@ -12,7 +12,7 @@ namespace BcWordLayout.Domain;
 /// <para>
 /// WHY IT MATTERS: without <c>w:tblLayout</c> the OOXML default is AUTOFIT, so Word is free to recompute
 /// every column width from cell content, and a table's <c>w:tblGrid</c>/<c>w:tcW</c> values become a
-/// preference rather than a specification. The <c>columnWidths</c> a caller passes to
+/// preference rather than a specification. The column widths a caller passes to
 /// <c>insert_table</c>/<c>insert_repeater_table</c> then hold only until Word opens the file: a 5-column line
 /// table authored at <c>1500,4700,1200,1300,1300</c> read as near-uniform in Word (narrow columns' captions
 /// wrapping rather than the columns keeping their proportions), and one plain Word save rewrote an

@@ -1554,33 +1554,6 @@ public class McpHostToolTests
         }
     }
 
-    [Fact]
-    public void InsertRepeaterTable_layoutPart_header_is_rejected_as_invalid_argument_v1_scopes_repeaters_to_body_only()
-    {
-        // Follow-up review (post-Phase-4.3): unlike insert_field/insert_label, a repeater TABLE is scoped
-        // to the main body only - nothing shows BC renders a repeating section in a header/footer (GitHub
-        // issue #10 closed without a probe; see LayoutEditor.InsertRepeaterTable's own chokepoint rejection). This inverts what was
-        // originally a "lands in a header part" success test.
-        var path = CopyOfCorpus(Corpus.SalesInvoice);
-        try
-        {
-            var before = File.ReadAllBytes(path);
-
-            var response = TableTools.InsertRepeaterTable(
-                path, "/Header/Line", "ItemNo_Line,Description_Line", "documentEnd", layoutPart: "header");
-
-            Assert.False(response.Ok);
-            Assert.NotNull(response.Error);
-            Assert.Equal("invalid_argument", response.Error!.Code);
-            Assert.False(string.IsNullOrWhiteSpace(response.Error.Hint));
-            Assert.Equal(before, File.ReadAllBytes(path));
-        }
-        finally
-        {
-            File.Delete(path);
-        }
-    }
-
     // ---- insert_repeater_table ----
 
     [Fact]
@@ -1590,7 +1563,7 @@ public class McpHostToolTests
         try
         {
             var response = TableTools.InsertRepeaterTable(
-                path, "/Header/Line", "ItemNo_Line, Description_Line, TransHeaderAmount", "documentEnd");
+                path, "/Header/Line", TableArgs.FieldsOf("/Header/Line", "ItemNo_Line", "Description_Line", "TransHeaderAmount"), "documentEnd");
 
             Assert.True(response.Ok);
             Assert.Null(response.Error);
@@ -1623,7 +1596,7 @@ public class McpHostToolTests
         {
             // Deliberately irregular spacing around commas - the tool must split+trim internally.
             var response = TableTools.InsertRepeaterTable(
-                path, "/Header/Line", "  ItemNo_Line ,Description_Line,  TransHeaderAmount  ", "documentEnd");
+                path, "/Header/Line", TableArgs.FieldsOf("/Header/Line", "ItemNo_Line", "Description_Line", "TransHeaderAmount"), "documentEnd");
 
             Assert.True(response.Ok);
             var dto = Assert.IsType<EditResultDto>(response.Data);
@@ -1643,7 +1616,7 @@ public class McpHostToolTests
         try
         {
             var response = TableTools.InsertRepeaterTable(
-                path, "/Header/ThisDataItemDoesNotExistAnywhere", "ItemNo_Line", "documentEnd");
+                path, "/Header/ThisDataItemDoesNotExistAnywhere", TableArgs.FieldsOf("/Header/ThisDataItemDoesNotExistAnywhere", "ItemNo_Line"), "documentEnd");
 
             Assert.False(response.Ok);
             Assert.NotNull(response.Error);
@@ -1663,7 +1636,7 @@ public class McpHostToolTests
         try
         {
             var response = TableTools.InsertRepeaterTable(
-                path, "/Header/Line", "ThisColumnDoesNotExistAnywhere", "documentEnd");
+                path, "/Header/Line", TableArgs.FieldsOf("/Header/Line", "ThisColumnDoesNotExistAnywhere"), "documentEnd");
 
             Assert.False(response.Ok);
             Assert.NotNull(response.Error);
@@ -1682,7 +1655,7 @@ public class McpHostToolTests
         var path = CopyOfCorpus(Corpus.SalesInvoice);
         try
         {
-            var response = TableTools.InsertRepeaterTable(path, "/Header/Line", "   ", "documentEnd");
+            var response = TableTools.InsertRepeaterTable(path, "/Header/Line", [], "documentEnd");
 
             Assert.False(response.Ok);
             Assert.Equal("invalid_argument", response.Error!.Code);
@@ -1694,17 +1667,19 @@ public class McpHostToolTests
     }
 
     [Fact]
-    public void InsertRepeaterTable_columnWidths_count_mismatch_returns_invalid_argument()
+    public void InsertRepeaterTable_widths_that_leave_a_column_nothing_return_invalid_argument()
     {
+        // A column without a width shares what the given ones leave (GitHub issue #133); 40000 twips leave a page
+        // nothing, so the call is refused rather than writing a zero-width column.
         var path = CopyOfCorpus(Corpus.SalesInvoice);
         try
         {
             var response = TableTools.InsertRepeaterTable(
-                path, "/Header/Line", "ItemNo_Line,Description_Line,TransHeaderAmount", "documentEnd",
-                columnWidths: "1000,2000");
+                path, "/Header/Line", [new() { Field = "/Header/Line/ItemNo_Line", Width = 20000 }, new() { Field = "/Header/Line/Description_Line", Width = 20000 }, new() { Field = "/Header/Line/TransHeaderAmount" }], "documentEnd");
 
             Assert.False(response.Ok);
             Assert.Equal("invalid_argument", response.Error!.Code);
+            Assert.Contains("1 of the 3 columns have no width", response.Error.Message, StringComparison.Ordinal);
         }
         finally
         {
@@ -1716,7 +1691,7 @@ public class McpHostToolTests
     public void InsertRepeaterTable_missing_file_returns_file_not_found_with_hint()
     {
         var response = TableTools.InsertRepeaterTable(
-            "Z:\\does-not-exist.docx", "/Header/Line", "ItemNo_Line", "documentEnd");
+            "Z:\\does-not-exist.docx", "/Header/Line", TableArgs.FieldsOf("/Header/Line", "ItemNo_Line"), "documentEnd");
 
         Assert.False(response.Ok);
         Assert.NotNull(response.Error);
@@ -2183,7 +2158,7 @@ public class McpHostToolTests
             Assert.False(unknownRemoveTarget.Ok);
 
             var badRepeaterTable = TableTools.InsertRepeaterTable(
-                path, "/Header/ThisDataItemDoesNotExistAnywhere", "ItemNo_Line", "documentEnd");
+                path, "/Header/ThisDataItemDoesNotExistAnywhere", TableArgs.FieldsOf("/Header/ThisDataItemDoesNotExistAnywhere", "ItemNo_Line"), "documentEnd");
             Assert.False(badRepeaterTable.Ok);
 
             var after = File.ReadAllBytes(path);

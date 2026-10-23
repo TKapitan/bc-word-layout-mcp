@@ -37,7 +37,7 @@ public class SubtotalRowTests
         LayoutEditor.InsertRepeaterTable(
             doc,
             "/Header/Line",
-            ["ItemNo_Line", "Description_Line", "Quantity_Line"],
+            TableArgs.DomainFieldsOf("/Header/Line", "ItemNo_Line", "Description_Line", "Quantity_Line"),
             new Location { Type = LocationKind.DocumentEnd },
             new RepeaterTableOptions());
 
@@ -57,12 +57,12 @@ public class SubtotalRowTests
 
                 // The corpus group shape: a nested detail repeater first, then the trailing static rows.
                 LayoutEditor.InsertRepeaterRow(doc, repeater.ControlId, "/Header/Line/AssemblyLine",
-                    [new RepeaterRowCell { Span = 3, Columns = ["Description_AssemblyLine"] }]);
+                    [new RepeaterRowCell { Span = 3, Fields = ["/Header/Line/AssemblyLine/Description_AssemblyLine"] }]);
 
                 result = LayoutEditor.InsertSubtotalRow(doc, repeater.ControlId,
                     [
-                        new RepeaterRowCell { Span = 2, Columns = ["/Header/Line/Description_Line_Lbl"] },
-                        new RepeaterRowCell { Span = 1, Columns = ["/Header/Line/AmountExcludingVAT_Line"], Alignment = "right" },
+                        new RepeaterRowCell { Span = 2, Fields = ["/Header/Line/Description_Line_Lbl"] },
+                        new RepeaterRowCell { Span = 1, Fields = ["/Header/Line/AmountExcludingVAT_Line"], Alignment = "right" },
                     ],
                     new TextFormat { Bold = true });
 
@@ -132,7 +132,7 @@ public class SubtotalRowTests
                 LayoutEditor.InsertSubtotalRow(doc, repeater.ControlId,
                     [
                         new RepeaterRowCell { Span = 2 },
-                        new RepeaterRowCell { Span = 1, Columns = ["/Header/Line/AmountExcludingVAT_Line"] },
+                        new RepeaterRowCell { Span = 1, Fields = ["/Header/Line/AmountExcludingVAT_Line"] },
                     ]);
 
                 doc.MainDocumentPart!.Document!.Save();
@@ -168,11 +168,11 @@ public class SubtotalRowTests
             {
                 var repeater = BuildLineRepeater(doc);
                 LayoutEditor.InsertRepeaterRow(doc, repeater.ControlId, "/Header/Line/AssemblyLine",
-                    [new RepeaterRowCell { Span = 3, Columns = ["Description_AssemblyLine"] }]);
+                    [new RepeaterRowCell { Span = 3, Fields = ["/Header/Line/AssemblyLine/Description_AssemblyLine"] }]);
                 LayoutEditor.InsertSubtotalRow(doc, repeater.ControlId,
                     [
                         new RepeaterRowCell { Span = 2 },
-                        new RepeaterRowCell { Span = 1, Columns = ["/Header/Line/AmountExcludingVAT_Line"] },
+                        new RepeaterRowCell { Span = 1, Fields = ["/Header/Line/AmountExcludingVAT_Line"] },
                     ]);
                 doc.MainDocumentPart!.Document!.Save();
             }
@@ -337,18 +337,17 @@ public class SubtotalRowTests
             var baseline = Assert.IsType<ValidationResultDto>(ReadTools.ValidateLayout(path, "quick").Data);
 
             var table = TableTools.InsertRepeaterTable(
-                path, "/Header/Line", "ItemNo_Line,Description_Line,Quantity_Line", "documentEnd");
+                path, "/Header/Line", TableArgs.FieldsOf("/Header/Line", "ItemNo_Line", "Description_Line", "Quantity_Line"), "documentEnd");
             Assert.True(table.Ok, table.Error?.Message);
             var tableDto = Assert.IsType<EditResultDto>(table.Data);
 
             // Spacer row, then the bold subtotal row - the corpus order, as the tool description says.
-            var spacer = TableTools.InsertSubtotalRow(path, tableDto.ControlId, "3:-");
+            var spacer = TableTools.InsertSubtotalRow(path, tableDto.ControlId, [new() { Span = 3 }]);
             Assert.True(spacer.Ok, spacer.Error?.Message);
 
             var subtotal = TableTools.InsertSubtotalRow(
                 path, tableDto.ControlId,
-                cells: "2:/Header/Line/Description_Line_Lbl,/Header/Line/AmountExcludingVAT_Line",
-                alignments: "-,right",
+                cells: [new() { Fields = ["/Header/Line/Description_Line_Lbl"], Span = 2 }, new() { Fields = ["/Header/Line/AmountExcludingVAT_Line"], Alignment = "right" }],
                 format: new TextFormatArgument { Bold = true });
             Assert.True(subtotal.Ok, subtotal.Error?.Message);
             var dto = Assert.IsType<EditResultDto>(subtotal.Data);
@@ -372,7 +371,7 @@ public class SubtotalRowTests
     [Fact]
     public void InsertSubtotalRow_tool_reports_not_found_for_an_unknown_parent_id()
     {
-        var response = TableTools.InsertSubtotalRow(Corpus.Path(Corpus.SalesInvoice), 123456789, "3:-");
+        var response = TableTools.InsertSubtotalRow(Corpus.Path(Corpus.SalesInvoice), 123456789, [new() { Span = 3 }]);
 
         Assert.False(response.Ok);
         Assert.Equal("not_found", response.Error!.Code);

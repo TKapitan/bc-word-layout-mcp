@@ -88,7 +88,7 @@ public static class CellTextEditor
     /// <see cref="LayoutEditor.InsertPlainTable"/>'s per-column alignments.
     /// </summary>
     /// <exception cref="ArgumentException">Anything else.</exception>
-    internal static JustificationValues ParseAlignment(string alignment, string paramName)
+    internal static JustificationValues ParseAlignment(string alignment, string paramName, string? what = null)
     {
         return alignment.Trim().ToLowerInvariant() switch
         {
@@ -96,7 +96,9 @@ public static class CellTextEditor
             "center" => JustificationValues.Center,
             "right" => JustificationValues.Right,
             _ => throw new ArgumentException(
-                $"Unknown alignment '{alignment}'; use 'left', 'center', or 'right'.", paramName),
+                $"Unknown alignment '{alignment}'{(what is null ? string.Empty : $" for {what}")}; use 'left', "
+                + "'center', or 'right'.",
+                paramName),
         };
     }
 

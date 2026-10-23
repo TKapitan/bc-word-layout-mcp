@@ -13,7 +13,7 @@ namespace BcWordLayout.Tests;
 /// Covers <see cref="TableStructureEditor.SetCellFormat"/> and its <c>set_cell_format</c> tool surface —
 /// the per-cell half of the BC table look. Real BC documents draw no table grid: their rules
 /// are per-cell <c>w:tcBorders</c> (a line under the lines-table header row, a line above a totals block),
-/// which <c>insert_repeater_table</c>'s <c>look='bc'</c> default only covers for the header row. Everything
+/// which <c>insert_repeater_table</c>'s <c>borders='headerRule'</c> default only covers for the header row. Everything
 /// else an author needs is this tool.
 /// </summary>
 public class CellFormatTests
@@ -31,7 +31,7 @@ public class CellFormatTests
     /// <summary>Authors a fresh 2x3 plain table to draw rules on, returning its addressable table index.</summary>
     private static int NewPlainTable(string path, int rows = 2, int columns = 3)
     {
-        var response = TableTools.InsertTable(path, rows, columns, locationType: "documentEnd");
+        var response = TableTools.InsertTable(path, rows, TableArgs.Columns(columns), locationType: "documentEnd");
         Assert.True(response.Ok, response.Error?.Message);
         return Assert.IsType<TableEditResultDto>(response.Data).TableIndex;
     }
@@ -52,7 +52,7 @@ public class CellFormatTests
         {
             var tableIndex = NewPlainTable(path);
 
-            var response = TableTools.SetCellFormat(path, tableIndex, row: 1, edges: "top");
+            var response = TableTools.SetCellFormat(path, tableIndex, row: 1, edges: ["top"]);
             Assert.True(response.Ok, response.Error?.Message);
             var dto = Assert.IsType<TableEditResultDto>(response.Data);
             Assert.Equal("set_cell_format", dto.Operation);
@@ -87,8 +87,8 @@ public class CellFormatTests
         {
             var tableIndex = NewPlainTable(path);
 
-            Assert.True(TableTools.SetCellFormat(path, tableIndex, row: 0, edges: "bottom", col: 1).Ok);
-            var second = TableTools.SetCellFormat(path, tableIndex, row: 0, edges: "top", col: 1);
+            Assert.True(TableTools.SetCellFormat(path, tableIndex, row: 0, edges: ["bottom"], col: 1).Ok);
+            var second = TableTools.SetCellFormat(path, tableIndex, row: 0, edges: ["top"], col: 1);
             Assert.True(second.Ok, second.Error?.Message);
             Assert.Equal(1, Assert.IsType<TableEditResultDto>(second.Data).ColumnIndex);
 
@@ -118,10 +118,10 @@ public class CellFormatTests
         var path = CopyOfCorpus(Corpus.SalesInvoice);
         try
         {
-            var inserted = TableTools.InsertTable(path, rows: 1, columns: 2, locationType: "documentEnd", withBorders: true);
+            var inserted = TableTools.InsertTable(path, rowCount: 1, columns: TableArgs.Columns(2), locationType: "documentEnd", borders: "grid");
             var tableIndex = Assert.IsType<TableEditResultDto>(inserted.Data).TableIndex;
 
-            var response = TableTools.SetCellFormat(path, tableIndex, row: 0, edges: "left,right", borderStyle: "none");
+            var response = TableTools.SetCellFormat(path, tableIndex, row: 0, edges: ["left", "right"], borderStyle: "none");
             Assert.True(response.Ok, response.Error?.Message);
 
             using var reopened = WordprocessingDocument.Open(path, false);
@@ -151,7 +151,7 @@ public class CellFormatTests
         try
         {
             var tableIndex = NewPlainTable(path, rows: 1, columns: 2);
-            Assert.True(TableTools.SetCellFormat(path, tableIndex, row: 0, edges: "all").Ok);
+            Assert.True(TableTools.SetCellFormat(path, tableIndex, row: 0, edges: ["all"]).Ok);
 
             using var reopened = WordprocessingDocument.Open(path, false);
             var tcPr = RowCells(reopened, tableIndex, 0)[0].TableCellProperties!;
@@ -173,25 +173,25 @@ public class CellFormatTests
         {
             var tableIndex = NewPlainTable(path);
 
-            var badEdge = TableTools.SetCellFormat(path, tableIndex, row: 0, edges: "diagonal");
+            var badEdge = TableTools.SetCellFormat(path, tableIndex, row: 0, edges: ["diagonal"]);
             Assert.False(badEdge.Ok);
             Assert.Equal("invalid_argument", badEdge.Error!.Code);
             Assert.Contains("top", badEdge.Error.Hint, StringComparison.OrdinalIgnoreCase);
 
-            var noEdge = TableTools.SetCellFormat(path, tableIndex, row: 0, edges: "");
+            var noEdge = TableTools.SetCellFormat(path, tableIndex, row: 0, edges: []);
             Assert.False(noEdge.Ok);
             Assert.Equal("invalid_argument", noEdge.Error!.Code);
 
-            var badSize = TableTools.SetCellFormat(path, tableIndex, row: 0, edges: "top", borderSize: 500);
+            var badSize = TableTools.SetCellFormat(path, tableIndex, row: 0, edges: ["top"], borderSize: 500);
             Assert.False(badSize.Ok);
             Assert.Equal("invalid_argument", badSize.Error!.Code);
             Assert.Contains("eighths", badSize.Error.Hint, StringComparison.OrdinalIgnoreCase);
 
-            var badStyle = TableTools.SetCellFormat(path, tableIndex, row: 0, edges: "top", borderStyle: "dotted");
+            var badStyle = TableTools.SetCellFormat(path, tableIndex, row: 0, edges: ["top"], borderStyle: "dotted");
             Assert.False(badStyle.Ok);
             Assert.Equal("invalid_argument", badStyle.Error!.Code);
 
-            var badRow = TableTools.SetCellFormat(path, tableIndex, row: 99, edges: "top");
+            var badRow = TableTools.SetCellFormat(path, tableIndex, row: 99, edges: ["top"]);
             Assert.False(badRow.Ok);
             Assert.Equal("not_found", badRow.Error!.Code);
         }
@@ -243,7 +243,7 @@ public class CellFormatTests
         {
             var tableIndex = NewPlainTable(path);
 
-            var response = TableTools.SetCellFormat(path, tableIndex, row: 1, col: 2, edges: "top", fill: "0070C0");
+            var response = TableTools.SetCellFormat(path, tableIndex, row: 1, col: 2, edges: ["top"], fill: "0070C0");
             Assert.True(response.Ok, response.Error?.Message);
             Assert.Contains("drew the top rule(s) and filled them with 0070C0",
                 Assert.IsType<TableEditResultDto>(response.Data).Summary, StringComparison.Ordinal);
@@ -297,7 +297,7 @@ public class CellFormatTests
     [InlineData(null, "none", null, "borderStyle and borderSize describe the edges you name")]
     [InlineData(null, null, "grey", "fill must be a colour as six hex digits")]
     public void Tool_set_cell_format_refuses_a_call_it_cannot_act_on_exactly(
-        string? edges, string? borderStyle, string? fill, string fragment)
+        string[]? edges, string? borderStyle, string? fill, string fragment)
     {
         var path = CopyOfCorpus(Corpus.SalesInvoice);
         try

@@ -33,8 +33,7 @@ public class PlainTableTests
         var path = CopyOfCorpus(Corpus.SalesInvoice);
         try
         {
-            var response = TableTools.InsertTable(path, rows: 2, columns: 3, locationType: "documentEnd",
-                columnWidths: "3000,4000,3206", columnAlignments: "left,center,right");
+            var response = TableTools.InsertTable(path, rowCount: 2, columns: [new() { Width = 3000, Alignment = "left" }, new() { Width = 4000, Alignment = "center" }, new() { Width = 3206, Alignment = "right" }], locationType: "documentEnd");
             Assert.True(response.Ok, response.Error?.Message);
             var dto = Assert.IsType<TableEditResultDto>(response.Data);
             Assert.Equal("insert_table", dto.Operation);
@@ -74,13 +73,13 @@ public class PlainTableTests
     }
 
     [Fact]
-    public void Tool_insert_table_with_borders_draws_the_explicit_single_line_grid()
+    public void Tool_insert_table_borders_grid_draws_the_explicit_single_line_grid()
     {
         var path = CopyOfCorpus(Corpus.SalesInvoice);
         try
         {
-            var response = TableTools.InsertTable(path, rows: 1, columns: 2, locationType: "documentEnd",
-                withBorders: true);
+            var response = TableTools.InsertTable(path, rowCount: 1, columns: TableArgs.Columns(2), locationType: "documentEnd",
+                borders: "grid");
             Assert.True(response.Ok, response.Error?.Message);
             var dto = Assert.IsType<TableEditResultDto>(response.Data);
 
@@ -100,19 +99,34 @@ public class PlainTableTests
         }
     }
 
-    [Theory]
-    [InlineData("left,right", 3, "columnAlignments")]     // count mismatch (3 columns, 2 alignments)
-    [InlineData("left,middle,right", 3, "columnAlignments")] // unknown alignment name
-    public void Tool_insert_table_rejects_bad_alignment_input(string alignments, int columns, string expectedParam)
+    [Fact]
+    public void Tool_insert_table_borders_headerRule_draws_set_cell_formats_bottom_rule_under_the_first_row_only()
     {
+        // The repeater table's BC-native look, now on a plain table too (GitHub issue #131): one rule under row 0,
+        // byte-identical to the one set_cell_format draws for a bottom edge, and nothing anywhere else.
         var path = CopyOfCorpus(Corpus.SalesInvoice);
         try
         {
-            var response = TableTools.InsertTable(path, rows: 1, columns: columns,
-                locationType: "documentEnd", columnAlignments: alignments);
-            Assert.False(response.Ok);
-            Assert.Equal("invalid_argument", response.Error!.Code);
-            Assert.Contains(expectedParam, response.Error.Message);
+            var ruled = Assert.IsType<TableEditResultDto>(TableTools.InsertTable(
+                path, rowCount: 3, columns: TableArgs.Columns(2), locationType: "documentEnd", borders: "headerRule").Data);
+            var drawnLater = Assert.IsType<TableEditResultDto>(TableTools.InsertTable(
+                path, rowCount: 3, columns: TableArgs.Columns(2), locationType: "documentEnd").Data);
+            Assert.True(TableTools.SetCellFormat(path, drawnLater.TableIndex, row: 0, edges: ["bottom"]).Ok);
+
+            using var reopened = WordprocessingDocument.Open(path, false);
+            var tables = TableGridNavigator.Tables(reopened.MainDocumentPart!.Document!.Body!);
+            var table = tables[ruled.TableIndex];
+            Assert.Null(table.GetFirstChild<TableProperties>()!.GetFirstChild<TableBorders>());
+
+            var rows = table.Elements<TableRow>().ToList();
+            var expected = tables[drawnLater.TableIndex].Elements<TableRow>().First()
+                .Elements<TableCell>().Select(c => c.TableCellProperties!.TableCellBorders!.OuterXml).ToList();
+            Assert.Equal(expected, rows[0].Elements<TableCell>().Select(c => c.TableCellProperties!.TableCellBorders!.OuterXml));
+            Assert.All(rows.Skip(1).SelectMany(r => r.Elements<TableCell>()), c => Assert.Null(c.TableCellProperties!.TableCellBorders));
+
+            // A rule, not a header: no w:tblHeader, which insert_column reads as "this row takes a header cell".
+            Assert.Null(rows[0].TableRowProperties);
+            Assert.Empty(OpenXmlErrors(reopened));
         }
         finally
         {
@@ -121,15 +135,139 @@ public class PlainTableTests
     }
 
     [Fact]
-    public void Tool_insert_table_rejects_header_and_footer_parts()
+    public void Tool_insert_table_tableStyle_references_a_table_style_the_layout_defines()
     {
+        // insert_table had no tableStyle, so a body block could not take a branded shell's table style while
+        // authoring (GitHub issue #131); it now takes the same option, with the same refusal for a style the
+        // layout does not define.
         var path = CopyOfCorpus(Corpus.SalesInvoice);
         try
         {
-            var response = TableTools.InsertTable(path, rows: 1, columns: 1,
-                locationType: "documentEnd", layoutPart: "footer");
+            var dto = Assert.IsType<TableEditResultDto>(TableTools.InsertTable(
+                path, rowCount: 1, columns: TableArgs.Columns(2), locationType: "documentEnd", tableStyle: "TableGrid").Data);
+
+            var refused = TableTools.InsertTable(path, rowCount: 1, columns: TableArgs.Columns(2), locationType: "documentEnd", tableStyle: "NoSuchStyle");
+            Assert.Equal("invalid_argument", refused.Error?.Code);
+            Assert.Contains("'TableGrid'", refused.Error!.Message, StringComparison.Ordinal);
+
+            using var reopened = WordprocessingDocument.Open(path, false);
+            var tblPr = TableGridNavigator.Tables(reopened.MainDocumentPart!.Document!.Body!)[dto.TableIndex]
+                .GetFirstChild<TableProperties>()!;
+            Assert.Equal("TableGrid", tblPr.TableStyle!.Val!.Value);
+            Assert.Equal(new[] { "tblStyle", "tblW", "tblLayout" }, tblPr.ChildElements.Select(e => e.LocalName));
+            Assert.DoesNotContain(LayoutValidator.Quick(reopened).Findings, f => f.Check == "table-style-resolves");
+            Assert.Empty(OpenXmlErrors(reopened));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Tool_insert_table_rejects_an_unknown_alignment_naming_its_column()
+    {
+        // Each column carries its own alignment (GitHub issue #133), so a count mismatch cannot happen any more;
+        // an unknown value is refused naming the column it belongs to.
+        var path = CopyOfCorpus(Corpus.SalesInvoice);
+        try
+        {
+            var response = TableTools.InsertTable(path, rowCount: 1,
+                columns: [new() { Alignment = "left" }, new() { Alignment = "middle" }, new()], locationType: "documentEnd");
             Assert.False(response.Ok);
             Assert.Equal("invalid_argument", response.Error!.Code);
+            Assert.Contains("Unknown alignment 'middle' for columns[1].alignment", response.Error.Message, StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Tool_insert_table_in_the_default_header_lands_there_and_its_cells_take_text_in_that_part()
+    {
+        // Every stock header and footer is built from plain tables - the logo beside the document details, the
+        // company details across the footer - so insert_table works there like insert_field (GitHub issue #132).
+        // StandardPurchaseOrder's DEFAULT header is header2.xml, not the first header in the package, and the
+        // layout renders a distinct first page: the summary has to say both.
+        var path = CopyOfCorpus(Corpus.StandardPurchaseOrder);
+        try
+        {
+            var response = TableTools.InsertTable(path, rowCount: 1, columns: TableArgs.Columns(2), locationType: "documentEnd", layoutPart: "header");
+            Assert.True(response.Ok, response.Error?.Message);
+            var dto = Assert.IsType<TableEditResultDto>(response.Data);
+            Assert.Equal("header2.xml", dto.Part);
+            Assert.Contains("layoutPart 'header', partName 'header2.xml'", dto.Summary, StringComparison.Ordinal);
+            Assert.Contains("DIFFERENT FIRST PAGE", dto.Summary, StringComparison.Ordinal);
+
+            var filled = EditTools.SetCellText(path, dto.TableIndex, row: 0, col: 1, "Page", layoutPart: "header", partName: "header2.xml");
+            Assert.True(filled.Ok, filled.Error?.Message);
+
+            using var reopened = WordprocessingDocument.Open(path, false);
+            var header = reopened.MainDocumentPart!.HeaderParts
+                .Single(p => p.Uri.OriginalString.EndsWith("/header2.xml", StringComparison.Ordinal)).Header!;
+            var table = TableGridNavigator.Tables(header)[dto.TableIndex];
+            Assert.Same(header.Elements<Table>().Last(), table);
+            Assert.IsType<Paragraph>(table.NextSibling());
+            Assert.Equal("Page", table.Elements<TableRow>().Single().Elements<TableCell>().ElementAt(1).InnerText);
+            Assert.Empty(TableGridConsistencyGuard.Find(reopened));
+            Assert.Empty(OpenXmlErrors(reopened));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Tool_insert_table_in_a_blank_layouts_empty_footer_takes_its_lone_paragraph_as_the_trailing_one()
+    {
+        // create_layout scaffolds each header/footer with one empty paragraph (a part must hold a block). The
+        // table goes BEFORE it, so that paragraph becomes the one InsertBlock guarantees after a table, and the
+        // footer does not start with a stray empty line (the GitHub issue #91 shape, for block content).
+        var path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"bcwl-plaintable-blank-{Guid.NewGuid():N}.docx");
+        try
+        {
+            LayoutBuilder.Create(Corpus.Path(Corpus.SalesInvoice), path);
+
+            var dto = Assert.IsType<TableEditResultDto>(TableTools.InsertTable(
+                path, rowCount: 1, columns: TableArgs.Columns(3), locationType: "documentEnd", layoutPart: "footer").Data);
+            Assert.Equal(0, dto.TableIndex);
+
+            using var reopened = WordprocessingDocument.Open(path, false);
+            var footer = reopened.MainDocumentPart!.FooterParts
+                .Single(p => p.Uri.OriginalString.EndsWith("/" + dto.Part, StringComparison.Ordinal)).Footer!;
+            Assert.Equal(new[] { "tbl", "p" }, footer.ChildElements.Select(e => e.LocalName));
+            Assert.Empty(OpenXmlErrors(reopened));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Without_widths_a_plain_table_placed_in_a_cell_splits_the_host_cells_width()
+    {
+        // A table nested in a cell has the cell to fit in, not the page: a page-wide fixed grid there overran the
+        // host cell, and the outer table's own fixed grid with it. insert_repeater_table already split the host
+        // cell's width (GitHub issue #84); insert_table now resolves its location first and does the same.
+        var path = CopyOfCorpus(Corpus.SalesInvoice);
+        try
+        {
+            var outer = Assert.IsType<TableEditResultDto>(TableTools.InsertTable(
+                path, rowCount: 1, columns: [new() { Width = 6000 }, new() { Width = 4206 }], locationType: "documentEnd").Data);
+
+            var inner = Assert.IsType<TableEditResultDto>(TableTools.InsertTable(
+                path, rowCount: 1, columns: TableArgs.Columns(2), locationType: "tableCell", tableIndex: outer.TableIndex, row: 0, col: 0).Data);
+
+            using var reopened = WordprocessingDocument.Open(path, false);
+            var innerTable = TableGridNavigator.Tables(reopened.MainDocumentPart!.Document!.Body!)[inner.TableIndex];
+            Assert.Equal(
+                new[] { "3000", "3000" },
+                innerTable.GetFirstChild<TableGrid>()!.Elements<GridColumn>().Select(g => g.Width!.Value));
+            Assert.Empty(OpenXmlErrors(reopened));
         }
         finally
         {
@@ -143,7 +281,7 @@ public class PlainTableTests
         var path = CopyOfCorpus(Corpus.SalesInvoice);
         try
         {
-            var tableResponse = TableTools.InsertTable(path, rows: 1, columns: 2, locationType: "documentEnd");
+            var tableResponse = TableTools.InsertTable(path, rowCount: 1, columns: TableArgs.Columns(2), locationType: "documentEnd");
             var dto = Assert.IsType<TableEditResultDto>(tableResponse.Data);
 
             var response = EditTools.InsertLabel(
@@ -177,10 +315,10 @@ public class PlainTableTests
         var path = CopyOfCorpus(Corpus.SalesInvoice);
         try
         {
-            Assert.True(TableTools.InsertTable(path, rows: 1, columns: 2, locationType: "documentEnd").Ok);
-            Assert.True(TableTools.InsertTable(path, rows: 1, columns: 3, locationType: "documentEnd").Ok);
+            Assert.True(TableTools.InsertTable(path, rowCount: 1, columns: TableArgs.Columns(2), locationType: "documentEnd").Ok);
+            Assert.True(TableTools.InsertTable(path, rowCount: 1, columns: TableArgs.Columns(3), locationType: "documentEnd").Ok);
             Assert.True(TableTools.InsertRepeaterTable(
-                path, "/Header/Line", "ItemNo_Line,Description_Line", "documentEnd").Ok);
+                path, "/Header/Line", TableArgs.FieldsOf("/Header/Line", "ItemNo_Line", "Description_Line"), "documentEnd").Ok);
 
             using var reopened = WordprocessingDocument.Open(path, false);
             var body = reopened.MainDocumentPart!.Document!.Body!;
@@ -202,7 +340,7 @@ public class PlainTableTests
         var path = CopyOfCorpus(Corpus.SalesInvoice);
         try
         {
-            var tableResponse = TableTools.InsertTable(path, rows: 1, columns: 2, locationType: "documentEnd");
+            var tableResponse = TableTools.InsertTable(path, rowCount: 1, columns: TableArgs.Columns(2), locationType: "documentEnd");
             var dto = Assert.IsType<TableEditResultDto>(tableResponse.Data);
 
             var fieldResponse = EditTools.InsertField(
@@ -225,14 +363,14 @@ public class PlainTableTests
     public void Fresh_plain_table_pins_its_grid_with_tblW_and_a_fixed_tblLayout()
     {
         // Without w:tblLayout the OOXML default is autofit, so Word recomputes every column from cell
-        // content and the columnWidths passed here hold only until someone opens the file - one plain Word
+        // content and the column widths passed here hold only until someone opens the file - one plain Word
         // save rewrote an untouched 2800,3000 grid to 3177,3066 (GitHub issue #52). Every corpus table
         // declares both elements.
         var path = CopyOfCorpus(Corpus.SalesInvoice);
         try
         {
             var response = TableTools.InsertTable(
-                path, rows: 2, columns: 3, locationType: "documentEnd", columnWidths: "3000,4000,3206");
+                path, rowCount: 2, columns: [new() { Width = 3000 }, new() { Width = 4000 }, new() { Width = 3206 }], locationType: "documentEnd");
             Assert.True(response.Ok, response.Error?.Message);
             var dto = Assert.IsType<TableEditResultDto>(response.Data);
 
@@ -268,7 +406,7 @@ public class PlainTableTests
         try
         {
             var response = TableTools.InsertTable(
-                path, rows: 1, columns: 2, locationType: "documentEnd", withBorders: true);
+                path, rowCount: 1, columns: TableArgs.Columns(2), locationType: "documentEnd", borders: "grid");
             var dto = Assert.IsType<TableEditResultDto>(response.Data);
 
             using var reopened = WordprocessingDocument.Open(path, false);

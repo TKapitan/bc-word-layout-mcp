@@ -39,8 +39,9 @@ print("created (blank body)")
 if THROUGH < 3: sys.exit(0)
 
 # ---- step 3: title band - document title left, company-logo picture placeholder right ----
-t = edit("insert_table", rows=1, columns=2, columnWidths="7206,3000",
-         locationType="documentEnd", columnAlignments="left,right")
+t = edit("insert_table", rowCount=1,
+         columns=[{"width": 7206, "alignment": "left"}, {"width": 3000, "alignment": "right"}],
+         locationType="documentEnd")
 edit("set_cell_text", tableIndex=t["tableIndex"], row=0, col=0,
      text="Sales Order Confirmation", format={"bold": True, "fontSizePoints": 18})
 edit("insert_picture", picture="/Header/CompanyPicture", locationType="tableCell",
@@ -49,7 +50,8 @@ print("title band + logo")
 if THROUGH < 4: sys.exit(0)
 
 # ---- step 4: address block (customer left / company right) ----
-t = edit("insert_table", rows=8, columns=2, locationType="documentEnd", columnAlignments="left,right")
+t = edit("insert_table", rowCount=8, columns=[{"alignment": "left"}, {"alignment": "right"}],
+         locationType="documentEnd")
 for i in range(8):
     edit("insert_field", field=f"/Header/CustomerAddress{i+1}", locationType="tableCell",
          tableIndex=t["tableIndex"], row=i, col=0)
@@ -59,7 +61,7 @@ print("addresses")
 if THROUGH < 5: sys.exit(0)
 
 # ---- step 5: header info grid (two label/field row pairs, bold 8pt captions) ----
-t = edit("insert_table", rows=4, columns=4, locationType="documentEnd")
+t = edit("insert_table", rowCount=4, columns=[{}] * 4, locationType="documentEnd")
 grid = [
     (0, ["/Header/YourReference_Lbl", "/Header/SelltoCustomerNo_Lbl", "/Header/SalesPerson_Lbl",
          "/Header/PaymentTermsDescription_Lbl"]),
@@ -82,18 +84,22 @@ print("info grid")
 if THROUGH < 6: sys.exit(0)
 
 # ---- step 6: lines repeater - BC-native look (no grid, rule under the header row) ----
+LINE_COLUMNS = [("ItemNo_Line", 1100, "left"), ("Description_Line", 3100, "left"), ("Quantity_Line", 900, "right"),
+                ("UnitOfMeasure", 900, "left"), ("UnitPrice", 1400, "right"), ("VATPct_Line", 1000, "right"),
+                ("LineAmount_Line", 1806, "right")]
 lines = edit("insert_repeater_table", dataItem="/Header/Line",
-             columns="ItemNo_Line,Description_Line,Quantity_Line,UnitOfMeasure,UnitPrice,VATPct_Line,LineAmount_Line",
-             locationType="documentEnd",
-             columnWidths="1100,3100,900,900,1400,1000,1806",
-             columnAlignments="left,left,right,left,right,right,right")
+             columns=[{"field": f"/Header/Line/{name}", "width": width, "alignment": alignment}
+                      for name, width, alignment in LINE_COLUMNS],
+             locationType="documentEnd")
 LINES_TABLE, DATA_ROW, LINES_REPEATER = lines["tableIndex"], lines["dataRowIndex"], lines["controlId"]
-print(f"lines (bc look) tableIndex={LINES_TABLE} dataRowIndex={DATA_ROW} repeaterId={LINES_REPEATER}")
+print(f"lines (headerRule borders) tableIndex={LINES_TABLE} dataRowIndex={DATA_ROW} repeaterId={LINES_REPEATER}")
 if THROUGH < 7: sys.exit(0)
 
 # ---- step 7: totals block, right-anchored, with the corpus rules ----
-t = edit("insert_table", rows=3, columns=3, columnWidths="5400,3000,1806",
-         locationType="documentEnd", columnAlignments="left,left,right")
+t = edit("insert_table", rowCount=3,
+         columns=[{"width": 5400, "alignment": "left"}, {"width": 3000, "alignment": "left"},
+                  {"width": 1806, "alignment": "right"}],
+         locationType="documentEnd")
 TOTALS_TABLE = t["tableIndex"]
 totals = [
     (0, "/Header/Totals/TotalExcludingVATText", "/Header/Totals/TotalNetAmount", False),
@@ -107,8 +113,8 @@ for row, caption, amount, emphasize in totals:
          tableIndex=TOTALS_TABLE, row=row, col=2, format={"bold": emphasize})
 # The rules a real BC totals block carries: one above the block, one above and below the grand total.
 for col in (1, 2):
-    edit("set_cell_format", tableIndex=TOTALS_TABLE, row=0, col=col, edges="top")
-    edit("set_cell_format", tableIndex=TOTALS_TABLE, row=2, col=col, edges="top,bottom")
+    edit("set_cell_format", tableIndex=TOTALS_TABLE, row=0, col=col, edges=["top"])
+    edit("set_cell_format", tableIndex=TOTALS_TABLE, row=2, col=col, edges=["top", "bottom"])
 print("totals + rules")
 if THROUGH < 8: sys.exit(0)
 
@@ -125,8 +131,9 @@ edit("insert_field", field="/Header/CompanyLegalStatement", locationType="docume
      layoutPart="footer", format={"fontSizePoints": 8})
 edit("insert_field", field="/Header/CompanyVATRegNo", locationType="documentEnd",
      layoutPart="footer", format={"fontSizePoints": 8})
-# Body contact strip (insert_table builds body tables only, so the grid cannot go in the footer).
-t = edit("insert_table", rows=2, columns=4, locationType="documentEnd")
+# Body contact strip. The scenario keeps it in the body as first verified; insert_table can put it in the
+# footer now (layoutPart="footer"), where the stock layouts carry it.
+t = edit("insert_table", rowCount=2, columns=[{}] * 4, locationType="documentEnd")
 contact = [
     ("/Header/CompanyPhoneNo_Lbl", "/Header/CompanyPhoneNo"),
     ("/Header/EMail_Header_Lbl", "/Header/CompanyEMail"),
@@ -147,7 +154,7 @@ edit("insert_column", tableIndex=LINES_TABLE, mode="field",
      headerLabelPath="/Header/Line/ItemReferenceNo_Line_Lbl",
      atColumn=2, width=1200)
 edit("set_column_widths", tableIndex=LINES_TABLE,
-     widths="1100,2400,1200,800,800,1300,900,1706")  # re-fit to the 10206 content width
+     widths=[1100, 2400, 1200, 800, 800, 1300, 900, 1706])  # re-fit to the 10206 content width
 print("interior Item Reference column")
 if THROUGH < 10: sys.exit(0)
 
@@ -156,7 +163,10 @@ if THROUGH < 10: sys.exit(0)
 # (indented one column, description wide, quantity + unit right where the line's own numbers sit).
 edit("insert_repeater_row", parentControlId=LINES_REPEATER,
      dataItem="/Header/Line/AssemblyLine",
-     cells="-,3:Description_AssemblyLine,1:Quantity_AssemblyLine,2:UnitOfMeasure_AssemblyLine,1:-",
-     alignments="-,left,right,left,-")
+     cells=[{},
+            {"fields": ["/Header/Line/AssemblyLine/Description_AssemblyLine"], "span": 3, "alignment": "left"},
+            {"fields": ["/Header/Line/AssemblyLine/Quantity_AssemblyLine"], "alignment": "right"},
+            {"fields": ["/Header/Line/AssemblyLine/UnitOfMeasure_AssemblyLine"], "span": 2, "alignment": "left"},
+            {}])
 print("nested AssemblyLine detail rows")
 print("AUTHORING COMPLETE")

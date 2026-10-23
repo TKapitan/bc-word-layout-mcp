@@ -48,6 +48,19 @@ RENDER_PAGES = 3
 # affects how much of the mock a reviewer sees - it is not a fidelity dimension.
 
 
+# ---------------------------------------------------------------- table-tool arguments
+
+def widths_and_alignments(widths, alignments=None):
+    """insert_table columns: one object per column (GitHub issue #133)."""
+    alignments = alignments or [None] * len(widths)
+    return [{k: v for k, v in (("width", w), ("alignment", a)) if v is not None} for w, a in zip(widths, alignments)]
+
+
+def repeater_columns(data_item, names, widths, alignments):
+    """insert_repeater_table columns: one object per column, each field a full dataset path."""
+    return [{"field": f"{data_item}/{n}", "width": w, "alignment": a} for n, w, a in zip(names, widths, alignments)]
+
+
 # ---------------------------------------------------------------- build context
 
 class ItemFailure(Exception):
@@ -189,8 +202,8 @@ def p01(b: Build):
            locationType="documentEnd", widthMm=35, heightMm=18)
     b.note("logo PICTURE control bound to /Header/CompanyPicture")
 
-    addr = b.edit("insert_table", rows=6, columns=2, locationType="documentEnd",
-                  columnWidths="4600,4600")["data"]
+    addr = b.edit("insert_table", rowCount=6, columns=widths_and_alignments([4600, 4600]),
+                  locationType="documentEnd")["data"]
     addr_idx = addr["tableIndex"]
     for row in range(6):
         b.edit("insert_field", field=f"/Header/CompanyAddress{row + 1}", locationType="tableCell",
@@ -200,8 +213,8 @@ def p01(b: Build):
     b.note("2x6 unbound table filled with CompanyAddress1-6 / CustomerAddress1-6 FIELD controls")
 
     # Document info: label/value pairs in a small borderless grid.
-    info_tbl = b.edit("insert_table", rows=3, columns=2, locationType="documentEnd",
-                      columnWidths="2800,3000")["data"]
+    info_tbl = b.edit("insert_table", rowCount=3, columns=widths_and_alignments([2800, 3000]),
+                      locationType="documentEnd")["data"]
     info_idx = info_tbl["tableIndex"]
     pairs = [
         (Build.pick(all_paths, "/Header/DocumentDate_Lbl"), Build.pick(all_paths, "/Header/DocumentDate")),
@@ -218,21 +231,21 @@ def p01(b: Build):
 
     # The line items repeater - the flagship tool.
     rep = b.edit("insert_repeater_table", dataItem="/Header/Line",
-                 columns="ItemNo_Line,Description_Line,Quantity_Line,UnitPrice,LineAmount_Line",
-                 locationType="documentEnd", headerFromLabels=True,
-                 columnWidths="1600,4000,1100,1400,1600",
-                 columnAlignments="left,left,right,right,right")["data"]
+                 columns=repeater_columns(
+                     "/Header/Line", ["ItemNo_Line", "Description_Line", "Quantity_Line", "UnitPrice", "LineAmount_Line"],
+                     [1600, 4000, 1100, 1400, 1600], ["left", "left", "right", "right", "right"]),
+                 locationType="documentEnd", headerFromLabels=True)["data"]
     b.note(f"repeater table over /Header/Line, {rep['columnCount']} columns, header bound to the *_Lbl label columns")
 
     # Totals: a right-anchored two-column block with a rule above it, the BC-native shape.
-    totals = b.edit("insert_table", rows=2, columns=2, locationType="documentEnd",
-                    columnWidths="6200,2400", columnAlignments="right,right")["data"]
+    totals = b.edit("insert_table", rowCount=2, columns=widths_and_alignments([6200, 2400], ["right", "right"]),
+                    locationType="documentEnd")["data"]
     tot_idx = totals["tableIndex"]
     b.edit("insert_field", field=Build.pick(all_paths, "/Header/Totals/TotalIncludingVATText"),
            locationType="tableCell", tableIndex=tot_idx, row=0, col=0)
     b.edit("insert_field", field=Build.pick(all_paths, "/Header/Totals/TotalAmountIncludingVAT"),
            locationType="tableCell", tableIndex=tot_idx, row=0, col=1, format={"bold": True})
-    b.edit("set_cell_format", tableIndex=tot_idx, row=0, edges="top", borderSize=4)
+    b.edit("set_cell_format", tableIndex=tot_idx, row=0, edges=["top"], borderSize=4)
     b.note("right-anchored totals block with a 1/2pt rule above it (set_cell_format)")
 
 
@@ -279,7 +292,7 @@ def p02(b: Build):
     widths[1] = int(widths[1] * 1.25)
     drift = sum(widths) - total
     widths[-1] -= drift
-    b.edit("set_column_widths", tableIndex=idx, widths=",".join(str(w) for w in widths))
+    b.edit("set_column_widths", tableIndex=idx, widths=list(widths))
     b.note(f"set_column_widths: description column widened 25%, taken off the last column, grid total unchanged ({total} twips)")
 
     # Re-label the new column's header from a bound label to static text. Every header cell here is a
@@ -290,7 +303,7 @@ def p02(b: Build):
     b.note("remove_control + set_cell_text: the new column's header swapped from a bound label to "
            "static 'UoM' text (so the render shows a bound header and a static one side by side)")
 
-    b.edit("set_cell_format", tableIndex=idx, row=0, edges="bottom", borderSize=4)
+    b.edit("set_cell_format", tableIndex=idx, row=0, edges=["bottom"], borderSize=4)
     b.note("set_cell_format: 1/2pt rule under the header row")
 
 
@@ -398,13 +411,15 @@ def p04(b: Build):
     if slack < 0:
         detail = detail[:grid - spacer]
         slack = 0
-    cells = [f"{spacer}:-"] + detail[:-1] + [f"{slack + 1}:{detail[-1]}"]
-    b.edit("insert_repeater_row", parentControlId=outer["sdtId"],
-           dataItem="/Job/Job_Task/Job_Planning_Line",
-           cells=",".join(cells),
-           alignments=",".join(["-"] + ["left", "left"] + ["right"] * (len(detail) - 2)))
+    item = "/Job/Job_Task/Job_Planning_Line"
+    alignments = ["left", "left"] + ["right"] * (len(detail) - 2)
+    cells = [{"span": spacer}] + [
+        {"fields": [f"{item}/{name}"], "alignment": alignment}
+        | ({"span": slack + 1} if i == len(detail) - 1 else {})
+        for i, (name, alignment) in enumerate(zip(detail, alignments))]
+    b.edit("insert_repeater_row", parentControlId=outer["sdtId"], dataItem=item, cells=cells)
     b.note(f"rebuilt it with insert_repeater_row: an indented detail row spanning the parent's "
-           f"{grid}-column grid as {','.join(cells)}")
+           f"{grid}-column grid as a {spacer}-column spacer then {', '.join(detail)}")
 
 
 @item(
@@ -465,7 +480,7 @@ def p05(b: Build):
     table = next(t for t in info["tables"] if t["tableIndex"] == idx and t["part"] == "document.xml")
     widths = list(table["gridColumnWidths"])
     widths[1] += total - sum(widths)
-    b.edit("set_column_widths", tableIndex=idx, widths=",".join(str(w) for w in widths))
+    b.edit("set_column_widths", tableIndex=idx, widths=list(widths))
     b.note(f"set_column_widths: the freed width folded into the description column, grid total back "
            f"to {total} twips")
 
@@ -476,7 +491,7 @@ def p05(b: Build):
     b.note("remove_control + merge_cells: the second header cell's label removed, then the first two "
            "header cells merged into one spanning cell")
 
-    b.edit("set_cell_format", tableIndex=idx, row=0, edges="bottom", borderSize=4)
+    b.edit("set_cell_format", tableIndex=idx, row=0, edges=["bottom"], borderSize=4)
     b.note("set_cell_format: 1/2pt rule under the header row")
 
 
@@ -511,8 +526,8 @@ def p06(b: Build):
            locationType="documentEnd", widthMm=35, heightMm=18)
     b.note("logo PICTURE control bound to /Purchase_Header/CompanyPicture")
 
-    addr = b.edit("insert_table", rows=6, columns=2, locationType="documentEnd",
-                  columnWidths="4600,4600")["data"]
+    addr = b.edit("insert_table", rowCount=6, columns=widths_and_alignments([4600, 4600]),
+                  locationType="documentEnd")["data"]
     addr_idx = addr["tableIndex"]
     for row in range(6):
         b.edit("insert_field", field=f"/Purchase_Header/CompanyAddress{row + 1}",
@@ -522,8 +537,8 @@ def p06(b: Build):
     b.note("2x6 unbound table filled with CompanyAddress1-6 / VendAddr1-6 FIELD controls")
 
     # Document info: label/value pairs in a small borderless grid.
-    info_tbl = b.edit("insert_table", rows=3, columns=2, locationType="documentEnd",
-                      columnWidths="2800,3000")["data"]
+    info_tbl = b.edit("insert_table", rowCount=3, columns=widths_and_alignments([2800, 3000]),
+                      locationType="documentEnd")["data"]
     info_idx = info_tbl["tableIndex"]
     pairs = [
         (Build.pick(all_paths, "/Purchase_Header/OrderNo_Lbl"),
@@ -552,23 +567,25 @@ def p06(b: Build):
     # The line repeater, styled via the scaffolded TableGrid STYLE - a reference that resolved to
     # nothing before issue #3's fix.
     rep = b.edit("insert_repeater_table", dataItem="/Purchase_Header/Purchase_Line",
-                 columns="No_PurchLine,Desc_PurchLine,Qty_PurchLine,UOM_PurchLine,DirUnitCost_PurchLine,LineAmt_PurchLine",
-                 locationType="documentEnd", headerFromLabels=True, tableStyle="TableGrid",
-                 columnWidths="1400,3400,900,900,1600,1500",
-                 columnAlignments="left,left,right,left,right,right")["data"]
+                 columns=repeater_columns(
+                     "/Purchase_Header/Purchase_Line",
+                     ["No_PurchLine", "Desc_PurchLine", "Qty_PurchLine", "UOM_PurchLine", "DirUnitCost_PurchLine",
+                      "LineAmt_PurchLine"],
+                     [1400, 3400, 900, 900, 1600, 1500], ["left", "left", "right", "left", "right", "right"]),
+                 locationType="documentEnd", headerFromLabels=True, tableStyle="TableGrid")["data"]
     b.note(f"repeater table over /Purchase_Header/Purchase_Line, {rep['columnCount']} columns, "
            f"tableStyle='TableGrid' (the scaffolded style definition - w:tblStyle reference, no direct "
            f"border formatting)")
 
     # Totals: right-anchored block with a rule above it.
-    totals = b.edit("insert_table", rows=1, columns=2, locationType="documentEnd",
-                    columnWidths="6200,2400", columnAlignments="right,right")["data"]
+    totals = b.edit("insert_table", rowCount=1, columns=widths_and_alignments([6200, 2400], ["right", "right"]),
+                    locationType="documentEnd")["data"]
     tot_idx = totals["tableIndex"]
     b.edit("insert_field", field=Build.pick(all_paths, "/Purchase_Header/Totals/TotalInclVATText"),
            locationType="tableCell", tableIndex=tot_idx, row=0, col=0)
     b.edit("insert_field", field=Build.pick(all_paths, "/Purchase_Header/Totals/TotalAmountInclVAT"),
            locationType="tableCell", tableIndex=tot_idx, row=0, col=1, format={"bold": True})
-    b.edit("set_cell_format", tableIndex=tot_idx, row=0, edges="top", borderSize=4)
+    b.edit("set_cell_format", tableIndex=tot_idx, row=0, edges=["top"], borderSize=4)
     b.note("right-anchored totals block with a 1/2pt rule above it (set_cell_format)")
 
 
@@ -624,11 +641,12 @@ def p07(b: Build):
     # The salesperson repeater. No *_Lbl sibling columns exist on this report, so headerFromLabels
     # deliberately finds nothing and every header cell falls back to humanized static text.
     rep = b.edit("insert_repeater_table", dataItem="/Salesperson_Purchaser",
-                 columns="Salesperson_Purchaser_Code,Salesperson_Purchaser_Name,"
-                         "Salesperson_Purchaser__Commission___,SalesCommissionAmt,AdjProfitCommissionAmt",
-                 locationType="documentEnd", headerFromLabels=True,
-                 columnWidths="1400,3306,1500,2000,2000",
-                 columnAlignments="left,left,right,right,right")["data"]
+                 columns=repeater_columns(
+                     "/Salesperson_Purchaser",
+                     ["Salesperson_Purchaser_Code", "Salesperson_Purchaser_Name", "Salesperson_Purchaser__Commission___",
+                      "SalesCommissionAmt", "AdjProfitCommissionAmt"],
+                     [1400, 3306, 1500, 2000, 2000], ["left", "left", "right", "right", "right"]),
+                 locationType="documentEnd", headerFromLabels=True)["data"]
     b.note(f"repeater table over /Salesperson_Purchaser, {rep['columnCount']} columns, humanized "
            f"static headers (this old-style report has no *_Lbl columns to bind)")
 
@@ -636,22 +654,25 @@ def p07(b: Build):
     # (P04 rebuilt an EXISTING nested repeater; this one never existed).
     b.edit("insert_repeater_row", parentControlId=rep["controlId"],
            dataItem="/Salesperson_Purchaser/Cust_Ledger_Entry",
-           cells="-,Cust__Ledger_Entry__Posting_Date_,Cust__Ledger_Entry__Document_No__,"
-                 "CustLedgerEntry_CustomerName,Cust__Ledger_Entry__Sales__LCY__",
-           alignments="-,left,left,left,right")
+           cells=[{}] + [
+               {"fields": [f"/Salesperson_Purchaser/Cust_Ledger_Entry/{name}"], "alignment": alignment}
+               for name, alignment in [("Cust__Ledger_Entry__Posting_Date_", "left"),
+                                       ("Cust__Ledger_Entry__Document_No__", "left"),
+                                       ("CustLedgerEntry_CustomerName", "left"),
+                                       ("Cust__Ledger_Entry__Sales__LCY__", "right")]])
     b.note("nested DETAIL ROW over /Salesperson_Purchaser/Cust_Ledger_Entry via insert_repeater_row: "
            "posting date, document no, customer, sales LCY - one row per entry, first column left "
            "as an indent spacer")
 
     # Grand totals: right-anchored, rule above.
-    totals = b.edit("insert_table", rows=1, columns=2, locationType="documentEnd",
-                    columnWidths="6200,2400", columnAlignments="right,right")["data"]
+    totals = b.edit("insert_table", rowCount=1, columns=widths_and_alignments([6200, 2400], ["right", "right"]),
+                    locationType="documentEnd")["data"]
     tot_idx = totals["tableIndex"]
     b.edit("insert_label", label=Build.pick(all_paths, "/Labels/TotalsCaption"),
            locationType="tableCell", tableIndex=tot_idx, row=0, col=0)
     b.edit("insert_field", field=Build.pick(all_paths, "/Totals/Totals_SalesCommission"),
            locationType="tableCell", tableIndex=tot_idx, row=0, col=1, format={"bold": True})
-    b.edit("set_cell_format", tableIndex=tot_idx, row=0, edges="top", borderSize=4)
+    b.edit("set_cell_format", tableIndex=tot_idx, row=0, edges=["top"], borderSize=4)
     b.note("right-anchored totals block: TotalsCaption LABEL + total sales commission FIELD, "
            "1/2pt rule above")
 
@@ -935,7 +956,7 @@ def build_item(entry: dict, out_dir: str) -> dict:
         entry["fn"](b)
 
         validation = b.tool("validate_layout", {"layoutPath": work, "level": "full"})["data"]
-        preview = b.tool("preview_layout", {"layoutPath": work, "rows": PREVIEW_ROWS,
+        preview = b.tool("preview_layout", {"layoutPath": work, "sampleRows": PREVIEW_ROWS,
                                             "outputDir": out_dir})["data"]
         new_findings = [f for f in validation["findings"]
                         if finding_signature(f) not in base_sigs]

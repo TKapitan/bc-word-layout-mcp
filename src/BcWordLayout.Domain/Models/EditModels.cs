@@ -210,20 +210,52 @@ public sealed class TableEditResult
 }
 
 /// <summary>
-/// One cell of a nested detail row (<see cref="BcWordLayout.Domain.LayoutEditor.InsertRepeaterRow"/>):
-/// how many grid columns of the PARENT table it spans, which of the child data item's leaf columns it
-/// carries (label-shaped names become label controls, chained inline in one paragraph — the
+/// One cell of a row laid on an existing table's grid — a nested detail row
+/// (<see cref="BcWordLayout.Domain.LayoutEditor.InsertRepeaterRow"/>), a per-group row
+/// (<see cref="BcWordLayout.Domain.LayoutEditor.InsertSubtotalRow"/>) or a static row
+/// (<see cref="BcWordLayout.Domain.TableStructureEditor.InsertStaticRow"/>): how many grid columns it spans, which
+/// fields it carries (label-shaped paths become label controls, chained inline in one paragraph — the
 /// corpus-verified shape; empty for a spacer cell), and an optional paragraph alignment.
 /// </summary>
 public sealed record RepeaterRowCell
 {
-    /// <summary>Grid columns of the parent table this cell spans (≥1); all cells must sum to the parent's grid count.</summary>
+    /// <summary>Grid columns of the table this cell spans (≥1); all cells must sum to the table's grid count.</summary>
     public int Span { get; init; } = 1;
 
-    /// <summary>Leaf column names of the child data item rendered inline in this cell, in order; empty = spacer cell.</summary>
-    public IReadOnlyList<string> Columns { get; init; } = [];
+    /// <summary>
+    /// FULL dataset paths rendered inline in this cell, in order (GitHub issue #133 — leaf names are no longer
+    /// taken anywhere); empty = spacer cell. A detail row's fields must be columns of its own data item.
+    /// </summary>
+    public IReadOnlyList<string> Fields { get; init; } = [];
 
     /// <summary><c>left</c>/<c>center</c>/<c>right</c>; null keeps the default.</summary>
+    public string? Alignment { get; init; }
+}
+
+/// <summary>
+/// One column of a new table (GitHub issue #133): what <see cref="BcWordLayout.Domain.LayoutEditor.InsertRepeaterTable"/>
+/// and <see cref="BcWordLayout.Domain.LayoutEditor.InsertPlainTable"/> take per column instead of parallel lists of
+/// names, widths and alignments that had to be kept in step by hand.
+/// </summary>
+public sealed record TableColumn
+{
+    /// <summary>
+    /// For a repeater table: the FULL dataset path of a leaf column of its data item, e.g.
+    /// <c>/Header/Line/ItemNo_Line</c>. A plain table's columns bind nothing and leave it null.
+    /// </summary>
+    public string? Field { get; init; }
+
+    /// <summary>
+    /// Width in twips; null for an even share of the width the other columns leave (see
+    /// <see cref="BcWordLayout.Domain.TableShell.ResolveWidths"/>).
+    /// </summary>
+    public int? Width { get; init; }
+
+    /// <summary>
+    /// <c>left</c>/<c>center</c>/<c>right</c> (case-insensitive) for every cell of the column — a repeater table's
+    /// header cell and data cell alike, the way real BC line tables right-align a numeric column as a whole; null
+    /// keeps the default (left).
+    /// </summary>
     public string? Alignment { get; init; }
 }
 
@@ -264,8 +296,9 @@ public sealed class InsertColumnOptions
 }
 
 /// <summary>
-/// The border treatment a freshly authored repeater table gets. Real BC line-items tables are NOT drawn as
-/// a grid: they carry no table-level <c>w:tblBorders</c> at all, and their look comes entirely from per-cell
+/// The borders a freshly authored table gets — the one <c>borders</c> option <c>insert_table</c> and
+/// <c>insert_repeater_table</c> share (GitHub issue #131). Real BC tables are NOT drawn as a grid: they carry
+/// no table-level <c>w:tblBorders</c> at all, and their look comes entirely from per-cell
 /// <c>w:tcBorders</c> — a single rule under the header row, and (where a totals block follows) a rule above
 /// it. Corpus-verified: every <c>w:tcBorders</c> across the six captured layouts is one of exactly two
 /// shapes, <c>&lt;w:bottom w:val="single" w:sz="4" w:color="auto"/&gt;</c> or the same with <c>w:top</c>.
@@ -273,11 +306,18 @@ public sealed class InsertColumnOptions
 public enum TableBorderLook
 {
     /// <summary>
-    /// The BC-native look (default): no table-level border grid, one ½-pt rule under the header row. The
+    /// No border at all — the shape of BC's own address, info and totals blocks, and the default for a plain
+    /// table. A body styled by a theme's table style needs it too: a direct border would override the style.
+    /// </summary>
+    None,
+
+    /// <summary>
+    /// The BC-native line-items look (the repeater table's default): no table-level border grid, one ½-pt
+    /// rule under the first row, drawn per cell exactly as <c>set_cell_format</c> draws a bottom edge. The
     /// remaining rules a real BC document has (above a totals block, say) are per-cell decisions the author
     /// makes afterwards with <c>set_cell_format</c>.
     /// </summary>
-    Bc,
+    HeaderRule,
 
     /// <summary>
     /// An explicit single-line border on every table edge and between every cell — visible without depending
@@ -331,10 +371,11 @@ public sealed record CellBorderOptions
 public sealed class RepeaterTableOptions
 {
     /// <summary>
-    /// The table's border treatment — <see cref="TableBorderLook.Bc"/> (the default, matching real BC line-items
-    /// tables) or <see cref="TableBorderLook.Grid"/>. See <see cref="TableBorderLook"/> for the corpus evidence.
+    /// The table's borders — <see cref="TableBorderLook.HeaderRule"/> (the default, matching real BC line-items
+    /// tables), <see cref="TableBorderLook.None"/> or <see cref="TableBorderLook.Grid"/>. See
+    /// <see cref="TableBorderLook"/> for the corpus evidence.
     /// </summary>
-    public TableBorderLook Look { get; init; } = TableBorderLook.Bc;
+    public TableBorderLook Borders { get; init; } = TableBorderLook.HeaderRule;
 
     /// <summary>
     /// When true (the default), each header cell binds to its column's label column (by default suffixed
@@ -345,21 +386,9 @@ public sealed class RepeaterTableOptions
     /// </summary>
     public bool HeaderFromLabels { get; init; } = true;
 
-    /// <summary>Optional Word table style name to reference via <c>w:tblStyle</c> (e.g. <c>"TableGrid"</c>).</summary>
+    /// <summary>
+    /// Optional id of a TABLE style the layout's styles part defines, referenced via <c>w:tblStyle</c> (e.g.
+    /// <c>"TableGrid"</c>); refused when the layout does not define it (see <see cref="BcWordLayout.Domain.TableShell"/>).
+    /// </summary>
     public string? TableStyle { get; init; }
-
-    /// <summary>
-    /// Optional explicit column widths in twips (1/20 pt), one per column, applied to both <c>w:tblGrid</c>
-    /// and each column's cell width. Must have exactly one entry per column when supplied. When omitted,
-    /// every column gets the same even default width.
-    /// </summary>
-    public IReadOnlyList<int>? ColumnWidths { get; init; }
-
-    /// <summary>
-    /// Optional per-column paragraph alignments (<c>left</c>/<c>center</c>/<c>right</c>, case-insensitive),
-    /// one per column, applied to BOTH the header cell and the data cell of each column — real BC line
-    /// tables right-align their quantity/price/amount columns. Must have exactly one entry per column when
-    /// supplied; when omitted, cells keep the default (left).
-    /// </summary>
-    public IReadOnlyList<string>? ColumnAlignments { get; init; }
 }

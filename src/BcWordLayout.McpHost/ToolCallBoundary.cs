@@ -1,5 +1,6 @@
 using System.Collections.Frozen;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using ModelContextProtocol;
@@ -34,9 +35,10 @@ namespace BcWordLayout.McpHost;
 /// <item>A wrong-typed argument (<c>"abc"</c> or <c>1.5</c> for an integer, <c>"true"</c> for a boolean,
 /// <c>null</c> for a non-nullable number/boolean) — the binder throws <see cref="JsonException"/> whose
 /// path is just <c>$</c>, with no parameter name. <see cref="DescribeTypeMismatch"/> recovers the parameter
-/// by re-reading each supplied argument into its parameter's CLR type with the SAME serializer options the
-/// binder uses (<see cref="McpJsonUtilities.DefaultOptions"/>), so the diagnosis cannot disagree with the
-/// binding it explains.</item>
+/// — or, inside an object or array argument, the member or item (<c>columns[1].width</c>) — by re-reading each
+/// supplied argument into its parameter's CLR type with the SAME serializer options the binder uses
+/// (<see cref="McpJsonUtilities.DefaultOptions"/>), so the diagnosis cannot disagree with the binding it
+/// explains.</item>
 /// <item>An explicit <c>null</c> for a string parameter is NOT a binding failure: the binder passes it
 /// through, so each tool's own parser handles it (an optional enum-like string's null means its documented
 /// default; a required one is refused with <c>invalid_argument</c>).</item>
@@ -63,7 +65,8 @@ namespace BcWordLayout.McpHost;
 /// <c>atcolumn</c>, remove_column's <c>column</c> sent to set_cell_format, whose parameter is <c>col</c>)
 /// silently fell back to its default and the call "succeeded" doing something the agent did not ask for.
 /// Every key must now be a property of the tool's input schema; the refusal names the closest real
-/// parameter (<see cref="ClosestName"/>) and lists them all.</item>
+/// parameter (<see cref="ClosestName"/>) and lists them all. The same holds for the members of an object
+/// argument and of the objects in an array argument.</item>
 /// <item>RELATIVE PATHS. Every path parameter is documented as absolute, but a relative one used to resolve
 /// against the server process's working directory, which the agent cannot see (and <c>create_layout</c>
 /// happily wrote there). A non-blank string for a parameter in <see cref="FilePathParameters"/> must now be
@@ -98,6 +101,7 @@ internal static class ToolCallBoundary
     internal static IMcpServerBuilder WithBcWordLayoutTools(this IMcpServerBuilder builder) =>
         builder
             .WithToolsFromAssembly(typeof(ToolCallBoundary).Assembly)
+            .WithListConstraintsOnItems()
             .WithRequestFilters(filters => filters.AddCallToolFilter(Filter));
 
     /// <summary>
@@ -137,7 +141,7 @@ internal static class ToolCallBoundary
         }
 
         var arguments = context.Params?.Arguments;
-        DecodeObjectsSentAsStrings(tool, arguments);
+        DecodeStructuredArgumentsSentAsStrings(tool, arguments);
         if (RejectUnknownArguments(tool, arguments) is { } unknownArguments)
         {
             return unknownArguments;
@@ -228,58 +232,73 @@ internal static class ToolCallBoundary
             : [];
 
     /// <summary>
-    /// The tool's OBJECT-typed parameters (today the <c>format</c> argument, GitHub issue #15), each with the
-    /// member names its input schema lists — read from the same schema tools/list advertises.
+    /// One OBJECT or ARRAY parameter, read from the same input schema tools/list advertises: whether it is an array,
+    /// and the member names its objects take (the object's own, or each item's for an array of objects; none for an
+    /// array of plain values). The binder reads these as structured JSON, so they get the checks a flat argument
+    /// does not need: the <c>format</c> object (GitHub issue #15) and the table tools' arrays (GitHub issue #133).
     /// </summary>
-    private static List<(string Name, List<string> Members)> ObjectParameters(McpServerTool tool)
+    private sealed record StructuredParameter(string Name, bool IsArray, IReadOnlyList<string> Members);
+
+    private static List<StructuredParameter> StructuredParameters(McpServerTool tool)
     {
-        var objects = new List<(string, List<string>)>();
+        var structured = new List<StructuredParameter>();
         if (!tool.ProtocolTool.InputSchema.TryGetProperty("properties", out var properties)
             || properties.ValueKind != JsonValueKind.Object)
         {
-            return objects;
+            return structured;
         }
 
-        foreach (var parameter in properties.EnumerateObject())
+        foreach (var parameter in properties.EnumerateObject().Where(p => p.Value.ValueKind == JsonValueKind.Object))
         {
-            if (parameter.Value.ValueKind == JsonValueKind.Object
-                && parameter.Value.TryGetProperty("properties", out var members)
-                && members.ValueKind == JsonValueKind.Object
-                && IsObjectType(parameter.Value))
+            if (HasType(parameter.Value, "array"))
             {
-                objects.Add((parameter.Name, members.EnumerateObject().Select(m => m.Name).ToList()));
+                var items = parameter.Value.TryGetProperty("items", out var itemSchema) ? itemSchema : default;
+                structured.Add(new(
+                    parameter.Name,
+                    IsArray: true,
+                    items.ValueKind == JsonValueKind.Object && HasType(items, "object") ? MemberNames(items) : []));
+            }
+            else if (HasType(parameter.Value, "object"))
+            {
+                structured.Add(new(parameter.Name, IsArray: false, MemberNames(parameter.Value)));
             }
         }
 
-        return objects;
+        return structured;
     }
 
-    private static bool IsObjectType(JsonElement schema) =>
-        schema.TryGetProperty("type", out var type)
-        && (type.ValueKind == JsonValueKind.String
-            ? type.GetString() == "object"
-            : type.ValueKind == JsonValueKind.Array && type.EnumerateArray().Any(t => t.GetString() == "object"));
+    private static List<string> MemberNames(JsonElement schema) =>
+        schema.TryGetProperty("properties", out var members) && members.ValueKind == JsonValueKind.Object
+            ? members.EnumerateObject().Select(m => m.Name).ToList()
+            : [];
+
+    private static bool HasType(JsonElement schema, string type) =>
+        schema.TryGetProperty("type", out var declared)
+        && (declared.ValueKind == JsonValueKind.String
+            ? declared.GetString() == type
+            : declared.ValueKind == JsonValueKind.Array && declared.EnumerateArray().Any(t => t.GetString() == type));
 
     /// <summary>
-    /// Replaces an object-typed argument that arrived as a STRING holding a JSON object (<c>"{\"bold\":true}"</c>
-    /// instead of <c>{"bold":true}</c>) with the object itself. Models do send nested objects that way, and the
-    /// string is unambiguous, so reading it is not a guess (ADR-0003); refusing it would only cost the agent a
-    /// round trip. A string that is not a JSON object is left alone for the binder to reject, which
-    /// <see cref="DescribeTypeMismatch"/> then explains.
+    /// Replaces a structured argument that arrived as a STRING holding its JSON (<c>"{\"bold\":true}"</c> instead of
+    /// <c>{"bold":true}</c>, <c>"[1500,6000]"</c> instead of <c>[1500,6000]</c>) with the object or array itself.
+    /// Models do send nested JSON that way, and the string is unambiguous, so reading it is not a guess (ADR-0003);
+    /// refusing it would only cost the agent a round trip. Any other string - a comma-separated list included - is
+    /// left alone for the binder to reject, which <see cref="DescribeTypeMismatch"/> then explains.
     /// </summary>
-    private static void DecodeObjectsSentAsStrings(McpServerTool tool, IDictionary<string, JsonElement>? arguments)
+    private static void DecodeStructuredArgumentsSentAsStrings(McpServerTool tool, IDictionary<string, JsonElement>? arguments)
     {
         if (arguments is null || arguments.Count == 0)
         {
             return;
         }
 
-        foreach (var (name, _) in ObjectParameters(tool))
+        foreach (var parameter in StructuredParameters(tool))
         {
-            if (!arguments.TryGetValue(name, out var value)
+            var (opener, kind) = parameter.IsArray ? ('[', JsonValueKind.Array) : ('{', JsonValueKind.Object);
+            if (!arguments.TryGetValue(parameter.Name, out var value)
                 || value.ValueKind != JsonValueKind.String
                 || value.GetString() is not { } text
-                || !text.TrimStart().StartsWith('{'))
+                || !text.TrimStart().StartsWith(opener))
             {
                 continue;
             }
@@ -287,9 +306,9 @@ internal static class ToolCallBoundary
             try
             {
                 using var parsed = JsonDocument.Parse(text);
-                if (parsed.RootElement.ValueKind == JsonValueKind.Object)
+                if (parsed.RootElement.ValueKind == kind)
                 {
-                    arguments[name] = parsed.RootElement.Clone();
+                    arguments[parameter.Name] = parsed.RootElement.Clone();
                 }
             }
             catch (JsonException)
@@ -302,9 +321,9 @@ internal static class ToolCallBoundary
     /// <summary>
     /// Refuses a call carrying any argument key that is not a property of the tool's input schema (matched
     /// ordinally — argument names are case-sensitive, so <c>layoutpart</c> is unknown, not <c>layoutPart</c>),
-    /// or an object argument carrying a member its schema does not list (<c>format.size</c>; the binder would
-    /// drop it just as silently). Null when every key is known. See the class remarks for why an ignored key is
-    /// worse than a refusal.
+    /// or an object — an object argument, or an object inside an array argument — carrying a member its schema
+    /// does not list (<c>format.size</c>, <c>columns[1].widht</c>; the binder would drop it just as silently).
+    /// Null when every key is known. See the class remarks for why an ignored key is worse than a refusal.
     /// </summary>
     private static CallToolResult? RejectUnknownArguments(McpServerTool tool, IDictionary<string, JsonElement>? arguments)
     {
@@ -328,30 +347,41 @@ internal static class ToolCallBoundary
                 + $"back to its default. {tool.ProtocolTool.Name} takes: {string.Join(", ", known)}.");
         }
 
-        foreach (var (name, members) in ObjectParameters(tool))
+        foreach (var parameter in StructuredParameters(tool).Where(p => p.Members.Count > 0))
         {
-            if (!arguments.TryGetValue(name, out var value) || value.ValueKind != JsonValueKind.Object)
+            if (!arguments.TryGetValue(parameter.Name, out var value))
             {
                 continue;
             }
 
-            var unknownMembers = value.EnumerateObject()
-                .Select(m => m.Name)
-                .Where(member => !members.Contains(member, StringComparer.Ordinal))
-                .ToList();
-            if (unknownMembers.Count == 0)
+            IEnumerable<(JsonElement Value, string Path)> objects = parameter.IsArray
+                ? value.ValueKind == JsonValueKind.Array
+                    ? value.EnumerateArray().Select((item, index) => (item, $"{parameter.Name}[{index}]"))
+                    : []
+                : [(value, parameter.Name)];
+            foreach (var (candidate, path) in objects.Where(o => o.Value.ValueKind == JsonValueKind.Object))
             {
-                continue;
-            }
+                var unknownMembers = candidate.EnumerateObject()
+                    .Select(m => m.Name)
+                    .Where(member => !parameter.Members.Contains(member, StringComparer.Ordinal))
+                    .ToList();
+                if (unknownMembers.Count == 0)
+                {
+                    continue;
+                }
 
-            var described = unknownMembers.Select(member =>
-                ClosestName(member, members) is { } closest ? $"'{member}' (did you mean '{closest}'?)" : $"'{member}'");
-            return EnvelopeError(
-                ErrorCodes.InvalidArgument,
-                $"{tool.ProtocolTool.Name}'s {name} has no member named {string.Join(", ", described)}; the call was "
-                + "refused rather than run as if the member had not been sent.",
-                $"Member names are case-sensitive and must match the input schema exactly. {name} takes: "
-                + $"{string.Join(", ", members)}.");
+                var described = unknownMembers.Select(member =>
+                    ClosestName(member, parameter.Members) is { } closest
+                        ? $"'{member}' (did you mean '{closest}'?)"
+                        : $"'{member}'");
+                return EnvelopeError(
+                    ErrorCodes.InvalidArgument,
+                    $"{tool.ProtocolTool.Name}'s {path} has no member named {string.Join(", ", described)}; the call "
+                    + "was refused rather than run as if the member had not been sent.",
+                    "Member names are case-sensitive and must match the input schema exactly. "
+                    + (parameter.IsArray ? $"Each item of {parameter.Name}" : parameter.Name)
+                    + $" takes: {string.Join(", ", parameter.Members)}.");
+            }
         }
 
         return null;
@@ -459,8 +489,9 @@ internal static class ToolCallBoundary
     /// <summary>
     /// Recovers WHICH argument failed binding: re-reads every supplied argument into its parameter's CLR type
     /// with the binder's own serializer options and reports the first that does not convert, naming the
-    /// parameter, the JSON shape it needs, and what the call actually sent. Null when no supplied argument
-    /// fails — the caller then treats the <see cref="JsonException"/> as a genuine internal fault.
+    /// parameter, the JSON shape it needs, and what the call actually sent. For an object or array argument it
+    /// names the member or item at fault instead (<see cref="DescribeInnerMismatch"/>). Null when no supplied
+    /// argument fails — the caller then treats the <see cref="JsonException"/> as a genuine internal fault.
     /// </summary>
     private static CallToolResult? DescribeTypeMismatch(McpServerTool tool, IDictionary<string, JsonElement>? arguments)
     {
@@ -471,92 +502,161 @@ internal static class ToolCallBoundary
 
         foreach (var parameter in method.GetParameters())
         {
-            if (parameter.Name is null || !arguments.TryGetValue(parameter.Name, out var value))
+            if (parameter.Name is null
+                || !arguments.TryGetValue(parameter.Name, out var value)
+                || Reads(value, parameter.ParameterType))
             {
                 continue;
             }
 
-            try
+            if (DescribeInnerMismatch(tool, parameter.Name, parameter.ParameterType, value) is { } inner)
             {
-                JsonSerializer.Deserialize(value, parameter.ParameterType, McpJsonUtilities.DefaultOptions);
+                return inner;
             }
-            catch (JsonException) when (value.ValueKind == JsonValueKind.Object
-                                        && DescribeMemberMismatch(tool, parameter, value) is { } memberMismatch)
-            {
-                return memberMismatch;
-            }
-            catch (JsonException)
-            {
-                var expected = DescribeExpectedJson(parameter.ParameterType);
-                return EnvelopeError(
-                    ErrorCodes.InvalidArgument,
-                    $"Argument '{parameter.Name}' of {tool.ProtocolTool.Name} must be {expected}, but the call "
-                    + $"sent {DescribeSentJson(value)}.",
-                    $"Re-send the call with '{parameter.Name}' as {expected} (see the tool's input schema via "
-                    + "tools/list). Numbers and booleans go unquoted (5, true - not \"5\", \"true\"), an integer "
-                    + "parameter takes whole numbers only, and to get an optional parameter's default, omit it "
-                    + "instead of sending null.");
-            }
+
+            var expected = DescribeExpectedJson(parameter.ParameterType, parameter.HasDefaultValue);
+            return EnvelopeError(
+                ErrorCodes.InvalidArgument,
+                $"Argument '{parameter.Name}' of {tool.ProtocolTool.Name} must be {expected}, but the call "
+                + $"sent {DescribeSentJson(value)}.",
+                $"Re-send the call with '{parameter.Name}' as {expected} (see the tool's input schema via "
+                + "tools/list). Numbers and booleans go unquoted (5, true - not \"5\", \"true\"), an integer "
+                + "parameter takes whole numbers only, "
+                + (ElementType(parameter.ParameterType) is not null && value.ValueKind == JsonValueKind.String
+                    ? "a list is a JSON array ([1500, 6000]), not a comma-separated string, "
+                    : string.Empty)
+                + "and to get an optional parameter's default, omit it instead of sending null.");
         }
 
         return null;
     }
 
     /// <summary>
-    /// For an object argument that failed binding: the first MEMBER whose value does not read into its property's
-    /// type, reported as <c>format.bold</c> with the JSON shape it needs. Null when every member reads (or the
-    /// object maps to no known properties), so the caller falls back to describing the argument as a whole.
+    /// For an object or array value that failed binding: the first member or item whose own value does not read,
+    /// found recursively and reported by its path (<c>format.bold</c>, <c>widths[2]</c>, <c>columns[1].width</c>)
+    /// with the JSON shape it needs — or, for an object, the first <c>required</c> member it lacks. Null when every
+    /// part reads on its own, so the caller describes the value as a whole (it is the wrong shape altogether).
     /// </summary>
-    private static CallToolResult? DescribeMemberMismatch(McpServerTool tool, ParameterInfo parameter, JsonElement value)
+    private static CallToolResult? DescribeInnerMismatch(McpServerTool tool, string path, Type type, JsonElement value)
     {
+        if (value.ValueKind == JsonValueKind.Array && ElementType(type) is { } element)
+        {
+            var index = 0;
+            foreach (var item in value.EnumerateArray())
+            {
+                var itemPath = $"{path}[{index++}]";
+                if (!Reads(item, element))
+                {
+                    return DescribeInnerMismatch(tool, itemPath, element, item)
+                        ?? DescribePartMismatch(tool, $"Item '{itemPath}'", itemPath, DescribeExpectedJson(element, nullable: false), item);
+                }
+            }
+
+            return null;
+        }
+
+        if (value.ValueKind != JsonValueKind.Object || !IsObjectType(type))
+        {
+            return null;
+        }
+
         var naming = McpJsonUtilities.DefaultOptions.PropertyNamingPolicy;
-        var properties = parameter.ParameterType.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+        var properties = type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
             .ToDictionary(p => naming?.ConvertName(p.Name) ?? p.Name, StringComparer.Ordinal);
+
+        foreach (var (name, property) in properties)
+        {
+            if (property.IsDefined(typeof(RequiredMemberAttribute)) && !value.TryGetProperty(name, out _))
+            {
+                return EnvelopeError(
+                    ErrorCodes.InvalidArgument,
+                    $"'{path}' of {tool.ProtocolTool.Name} has no '{name}', which it requires.",
+                    $"Re-send the call with '{path}.{name}' set (see the tool's input schema via tools/list).");
+            }
+        }
 
         foreach (var member in value.EnumerateObject())
         {
-            if (!properties.TryGetValue(member.Name, out var property))
+            if (properties.TryGetValue(member.Name, out var property) && !Reads(member.Value, property.PropertyType))
             {
-                continue;
-            }
-
-            try
-            {
-                JsonSerializer.Deserialize(member.Value, property.PropertyType, McpJsonUtilities.DefaultOptions);
-            }
-            catch (JsonException)
-            {
-                var expected = DescribeExpectedJson(property.PropertyType);
-                var path = $"{parameter.Name}.{member.Name}";
-                return EnvelopeError(
-                    ErrorCodes.InvalidArgument,
-                    $"Member '{path}' of {tool.ProtocolTool.Name} must be {expected}, but the call sent "
-                    + $"{DescribeSentJson(member.Value)}.",
-                    $"Re-send the call with '{path}' as {expected} (see the tool's input schema via tools/list). "
-                    + "Numbers and booleans go unquoted (8, true - not \"8\", \"true\"); omit a member to leave "
-                    + "that property as it is.");
+                var memberPath = $"{path}.{member.Name}";
+                return DescribeInnerMismatch(tool, memberPath, property.PropertyType, member.Value)
+                    ?? DescribePartMismatch(
+                        tool,
+                        $"Member '{memberPath}'",
+                        memberPath,
+                        DescribeExpectedJson(property.PropertyType, nullable: !property.IsDefined(typeof(RequiredMemberAttribute))),
+                        member.Value);
             }
         }
 
         return null;
     }
 
-    private static string DescribeExpectedJson(Type type)
+    private static CallToolResult DescribePartMismatch(McpServerTool tool, string what, string path, string expected, JsonElement value) =>
+        EnvelopeError(
+            ErrorCodes.InvalidArgument,
+            $"{what} of {tool.ProtocolTool.Name} must be {expected}, but the call sent {DescribeSentJson(value)}.",
+            $"Re-send the call with '{path}' as {expected} (see the tool's input schema via tools/list). Numbers and "
+            + "booleans go unquoted (8, true - not \"8\", \"true\"); omit an optional member to take its default.");
+
+    /// <summary>Whether <paramref name="value"/> reads into <paramref name="type"/> with the binder's own options.</summary>
+    private static bool Reads(JsonElement value, Type type)
+    {
+        try
+        {
+            JsonSerializer.Deserialize(value, type, McpJsonUtilities.DefaultOptions);
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>The item type of a list-shaped parameter type (<c>IReadOnlyList&lt;int&gt;</c>, an array), else null.</summary>
+    private static Type? ElementType(Type type) =>
+        type == typeof(string)
+            ? null
+            : type.IsArray
+                ? type.GetElementType()
+                : type.IsGenericType && type.GetGenericArguments() is [var item]
+                  && typeof(IEnumerable<>).MakeGenericType(item).IsAssignableFrom(type)
+                    ? item
+                    : null;
+
+    private static bool IsObjectType(Type type) => type.IsClass && type != typeof(string) && ElementType(type) is null;
+
+    /// <summary>
+    /// The JSON shape <paramref name="type"/> binds from, in words. <paramref name="nullable"/> says whether null
+    /// is accepted too (an optional argument or member); a nullable value type always says so.
+    /// </summary>
+    private static string DescribeExpectedJson(Type type, bool nullable)
     {
         var underlying = Nullable.GetUnderlyingType(type);
-        var core = (underlying ?? type) switch
-        {
-            var t when t == typeof(int) || t == typeof(long) => "an integer",
-            var t when t == typeof(double) || t == typeof(float) || t == typeof(decimal) => "a number",
-            var t when t == typeof(bool) => "a boolean (true or false)",
-            var t when t == typeof(string) => "a string",
-            var t when t.IsClass => "a JSON object (e.g. {\"bold\": true})",
-            var t => $"a JSON value of type {t.Name}",
-        };
+        var core = DescribeJsonShape(underlying ?? type);
 
-        // An object argument (format) is optional and takes null too; only value types say so through their CLR type.
-        return underlying is not null || (type.IsClass && type != typeof(string)) ? core + " or null" : core;
+        // A string is never described as taking null: an explicit null for one is the tool's documented default.
+        return underlying is not null || (nullable && type != typeof(string) && !type.IsValueType) ? core + " or null" : core;
     }
+
+    private static string DescribeJsonShape(Type type) => type switch
+    {
+        var t when t == typeof(int) || t == typeof(long) => "an integer",
+        var t when t == typeof(double) || t == typeof(float) || t == typeof(decimal) => "a number",
+        var t when t == typeof(bool) => "a boolean (true or false)",
+        var t when t == typeof(string) => "a string",
+        var t when ElementType(t) is { } item => "a JSON array of " + DescribeJsonShape(item) switch
+        {
+            "an integer" => "integers",
+            "a number" => "numbers",
+            "a string" => "strings",
+            "a JSON object" => "objects",
+            var shape => $"items that are each {shape}",
+        },
+        var t when t.IsClass => "a JSON object",
+        var t => $"a JSON value of type {t.Name}",
+    };
 
     private static string DescribeSentJson(JsonElement value)
     {
