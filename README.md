@@ -5,7 +5,7 @@ Microsoft Word report layouts for Microsoft Dynamics 365 Business Central** thro
 typed tools — instead of free-hand OOXML editing, which is unreliable in a file format where a
 single misplaced element silently corrupts the document.
 
-**27 typed MCP tools** over stdio: inspect any layout, validate it (structurally, and via a real
+**28 typed MCP tools** over stdio: inspect any layout, validate it (structurally, and via a real
 dry-run merge), render an offline mock PDF preview the agent can look at, and author edits — fields,
 labels, repeater tables, nested detail rows, table structure, full lifecycle refresh. One uniform
 response envelope; nothing throws across the MCP boundary; every mutating edit is validated *before*
@@ -202,6 +202,7 @@ other tool is conversion-free and works everywhere the server runs.
 | `wrap_in_repeater` | Wrap a run of existing body blocks in a block-level repeater over a data item, so they print once per record: a page per customer in a statement, a paragraph per work-description line. Over a top-level item it adds the `w:group` Business Central needs. |
 | `remove_control` | Remove a content control (field/label/repeater/picture/unbound) by its `w:id`, searching the body and every header/footer; `keepText=true` on a block-level repeater unwraps it and keeps its content. |
 | `set_cell_text` | Set (replace) the PLAIN TEXT of a table cell, addressed by table/row/column index — e.g. re-label a line-items column header. Rejects cells that hold a bound control. |
+| `set_text_format` | Restyle text that is ALREADY in the layout without changing it: a control by id, a table cell, a whole row, or one exact piece of text, with the same `format` object the insert tools take (bold, italic, underline, size, font, colour, character style) and an optional alignment. |
 | `clear_cell_text` | Remove all PLAIN TEXT from a table cell, leaving a valid empty cell (the cell/column is preserved) — e.g. blank an unwanted column-header label. |
 | `insert_subtotal_row` | Append a STATIC per-group row at the end of an existing repeater's item — the stock BC shape for group subtotal (and spacer) rows: it renders once per PARENT row, after the nested detail rows, never per detail row. |
 | `insert_table_row` | Insert ONE STATIC (non-repeating) row into an existing table — the stock BC shape for the totals block INSIDE the line-items table (spacer cells, a spanned bound caption cell, a right-aligned bound amount cell). Cells bind FULL dataset paths; the row renders exactly once, never per data row. |
@@ -210,7 +211,7 @@ other tool is conversion-free and works everywhere the server runs.
 | `remove_column` | Remove a whole grid column — addressed by the `gridColumn` `get_layout_info` reports for its cells, not their `colIndex`: drops each row's covering cell (a bound cell too) or decrements its `gridSpan`, and removes the `w:gridCol`. The summary says per row which of the two happened. |
 | `merge_cells` | Horizontally merge a run of adjacent cells in one row into a single `gridSpan` cell (keeps the first cell's content). |
 | `split_cells` | Horizontally split one spanned cell back into single-column cells. |
-| `set_cell_borders` | Draw (or clear) the per-cell rules a BC document's look is actually made of — a line above a totals row, an underline on one cell — on a whole row or one cell. |
+| `set_cell_format` | Set the appearance of a whole row's cells, or one cell: the per-cell rules a BC document's look is actually made of (a line above a totals row, an underline on one cell) and/or a fill colour (a shaded header row). |
 | `refresh_xml_part` | Update a layout's BC dataset XML part to a new schema in place; remaps/orphans bindings, re-points any binding left naming a foreign report's namespace (which BC refuses to upload), and reports newly-unbound fields. Also the repair for a dataset part that no longer parses (`validate_layout` names the part and the parser error). |
 
 ### Response envelope
@@ -231,11 +232,11 @@ options the SDK applies to every other tool, so parsers see an identical shape e
 
 On failure, `error` is populated with `{ code, message, hint }` — `hint` is always
 a non-empty, agent-actionable next step (which argument to fix and its valid values, or which
-inspection tool to call first). Nothing throws across the MCP boundary. The 21 mutating tools
+inspection tool to call first). Nothing throws across the MCP boundary. The 22 mutating tools
 (`insert_field`, `insert_label`, `insert_text`, `insert_page_number`, `insert_picture`, `insert_table`,
 `insert_repeater_table`, `insert_repeater_row`, `insert_subtotal_row`, `insert_table_row`,
-`wrap_in_repeater`, `remove_control`, `set_cell_text`, `clear_cell_text`, `set_column_widths`, `insert_column`,
-`remove_column`, `merge_cells`, `split_cells`, `set_cell_borders`, `refresh_xml_part`) additionally run
+`wrap_in_repeater`, `remove_control`, `set_cell_text`, `set_text_format`, `clear_cell_text`, `set_column_widths`, `insert_column`,
+`remove_column`, `merge_cells`, `split_cells`, `set_cell_format`, `refresh_xml_part`) additionally run
 `OpenXmlValidator` *before* saving — a write that would introduce a **new** structural error is
 rejected (`edit_would_corrupt`) and the file on disk is left untouched. Every one of them is also
 checked by a grid-consistency guard that rejects (`edit_would_break_table`, file untouched) any edit
@@ -331,12 +332,14 @@ Error `message`/`hint` texts are not part of the contract — never parse them.
   grid-column-addressed, guarded against desyncing a row from its `w:tblGrid`; rows skipping grid
   columns via `w:gridBefore`/`w:gridAfter` are handled). Still deferred and refused with a clear
   message, pending real-add-in OOXML capture: any table using **vertical merges** (`w:vMerge`) —
-  except `set_cell_borders`, which is cosmetic and accepts them. See
+  except `set_cell_format`, which is cosmetic and accepts them. See
   [issue #9](https://github.com/TKapitan/bc-word-layout-mcp/issues/9).
-- **Cosmetic formatting** (fonts, colors, margins, styles/branding) — no dedicated tool beyond the
-  bold/size/alignment knobs on the cell and insert tools, `set_cell_borders`' per-cell rules, and the
-  deterministic default typography a blank `create_layout` ships (Calibri 11 pt via its scaffolded
-  styles part); restyle via `create_layout`'s `templatePath` or hand-edit the OOXML directly, then run
+- **Cosmetic formatting beyond text and cells** (margins, page setup, styles/branding) — no dedicated
+  tool. Text has the `format` object (bold, italic, underline, size, font, colour, character style) on
+  every tool that writes it, plus `set_text_format` to restyle text already in the layout; cells have
+  the alignment arguments and `set_cell_format`'s rules and fills; and a blank `create_layout` ships
+  deterministic default typography (Calibri 11 pt via its scaffolded styles part). For the rest,
+  restyle via `create_layout`'s `templatePath` or hand-edit the OOXML directly, then run
   `validate_layout` to confirm the edit didn't break structure or bindings. Restyling in **Word** is
   safe for a layout this tool created — it declares `compatibilityMode` 15, so Word preserves the
   repeating sections; a layout that declares a lower mode (an older build, or a `templatePath` shell
@@ -427,7 +430,7 @@ Or write the requests to a file of your own and pipe it (`Get-Content requests.j
 | `src/BcWordLayout.Domain` | Core: dataset models, `SchemaProvider` (schema parsing), `LayoutReader` (control inventory), `LayoutValidator` (quick validation), `LayoutEditor`/`SdtFactory`/`Location`+`LocationResolver` (edits), `LayoutBuilder` (`create_layout`), `LayoutRefresher` (`refresh_xml_part`). |
 | `src/BcWordLayout.Merge` | `SampleDataGenerator` (seeded, type-aware fakes), `MergeEngine` (binding fill, repeater expansion incl. nested/re-anchored XPaths, picture placeholders), `FullValidator` (the dry-run merge behind `validate_layout level=full`). |
 | `src/BcWordLayout.Render` | `IPdfConverter` + `WordComConverter` (primary) / `LibreOfficeConverter` (fallback) + `PdfConverterFactory` (auto-selection) + PDF output sanity checks. |
-| `src/BcWordLayout.McpHost` | The MCP stdio server (console app): the 27 tool definitions (`Tools/ReadTools.cs`, `Tools/EditTools.cs`, `Tools/TableTools.cs`, `Tools/LifecycleTools.cs`, sharing `Tools/ToolGuards.cs`) and the `{ok,data,error}` envelope (`ToolContracts.cs`). |
+| `src/BcWordLayout.McpHost` | The MCP stdio server (console app): the 28 tool definitions (`Tools/ReadTools.cs`, `Tools/EditTools.cs`, `Tools/TableTools.cs`, `Tools/LifecycleTools.cs`, sharing `Tools/ToolGuards.cs`) and the `{ok,data,error}` envelope (`ToolContracts.cs`). |
 | `tests/BcWordLayout.Tests` | xUnit tests: the 10 real corpus layouts in `tests/corpus/` plus synthetic fixtures — reader/validator/merge/editor/refresher/converter coverage, snapshot tests, MCP host tool tests, packaging-manifest guards, and the fidelity harness. |
 
 ## Contributing and security

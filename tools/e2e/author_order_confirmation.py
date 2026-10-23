@@ -4,7 +4,7 @@ The reference script for from-scratch document authoring, using the full 2026-07
 create_layout -> title band with a company-logo picture placeholder (insert_picture) -> plain
 address/info tables (insert_table) filled with bound fields/labels (bold 8pt captions) -> a
 BC-native-look lines repeater (no grid, header rule) with right-aligned numeric columns -> a
-right-anchored totals block with real rules (set_cell_borders) -> content in REAL header/footer
+right-anchored totals block with real rules (set_cell_format) -> content in REAL header/footer
 parts (auto-scaffolded) -> an interior-position insert_column -> a NESTED AssemblyLine repeater
 expanding once per line. Requires the Release build (dotnet build -c Release). Output:
 preview-output/from-scratch-order-conf/SalesOrderConfirmation.docx (preview it with preview_layout).
@@ -42,7 +42,7 @@ if THROUGH < 3: sys.exit(0)
 t = edit("insert_table", rows=1, columns=2, columnWidths="7206,3000",
          locationType="documentEnd", columnAlignments="left,right")
 edit("set_cell_text", tableIndex=t["tableIndex"], row=0, col=0,
-     text="Sales Order Confirmation", bold=True, fontSizePoints=18)
+     text="Sales Order Confirmation", format={"bold": True, "fontSizePoints": 18})
 edit("insert_picture", picture="/Header/CompanyPicture", locationType="tableCell",
      tableIndex=t["tableIndex"], row=0, col=1, widthMm=30, heightMm=20)
 print("title band + logo")
@@ -74,7 +74,7 @@ for row, paths in grid:
     for col, path in enumerate(paths):
         if path.endswith("_Lbl"):
             edit("insert_label", label=path, locationType="tableCell",
-                 tableIndex=t["tableIndex"], row=row, col=col, bold=True, fontSizePoints=8)
+                 tableIndex=t["tableIndex"], row=row, col=col, format={"bold": True, "fontSizePoints": 8})
         else:
             edit("insert_field", field=path, locationType="tableCell",
                  tableIndex=t["tableIndex"], row=row, col=col)
@@ -102,13 +102,13 @@ totals = [
 ]
 for row, caption, amount, emphasize in totals:
     edit("insert_field", field=caption, locationType="tableCell",
-         tableIndex=TOTALS_TABLE, row=row, col=1, bold=emphasize)
+         tableIndex=TOTALS_TABLE, row=row, col=1, format={"bold": emphasize})
     edit("insert_field", field=amount, locationType="tableCell",
-         tableIndex=TOTALS_TABLE, row=row, col=2, bold=emphasize)
+         tableIndex=TOTALS_TABLE, row=row, col=2, format={"bold": emphasize})
 # The rules a real BC totals block carries: one above the block, one above and below the grand total.
 for col in (1, 2):
-    edit("set_cell_borders", tableIndex=TOTALS_TABLE, row=0, col=col, edges="top")
-    edit("set_cell_borders", tableIndex=TOTALS_TABLE, row=2, col=col, edges="top,bottom")
+    edit("set_cell_format", tableIndex=TOTALS_TABLE, row=0, col=col, edges="top")
+    edit("set_cell_format", tableIndex=TOTALS_TABLE, row=2, col=col, edges="top,bottom")
 print("totals + rules")
 if THROUGH < 8: sys.exit(0)
 
@@ -117,14 +117,14 @@ if THROUGH < 8: sys.exit(0)
 # paragraphs, the simplest shape. (One inline line would be the label, then the field with afterControl
 # on the label, then insert_text ' ' with afterControl on the label - the skill's right-to-left rule.)
 edit("insert_label", label="/Header/DocumentNo_Lbl", locationType="documentEnd",
-     layoutPart="header", bold=True, fontSizePoints=8)
+     layoutPart="header", format={"bold": True, "fontSizePoints": 8})
 edit("insert_field", field="/Header/DocumentNo", locationType="documentEnd",
-     layoutPart="header", fontSizePoints=8)
+     layoutPart="header", format={"fontSizePoints": 8})
 # Footer: the legal statement + VAT registration, repeating on every page.
 edit("insert_field", field="/Header/CompanyLegalStatement", locationType="documentEnd",
-     layoutPart="footer", fontSizePoints=8)
+     layoutPart="footer", format={"fontSizePoints": 8})
 edit("insert_field", field="/Header/CompanyVATRegNo", locationType="documentEnd",
-     layoutPart="footer", fontSizePoints=8)
+     layoutPart="footer", format={"fontSizePoints": 8})
 # Body contact strip (insert_table builds body tables only, so the grid cannot go in the footer).
 t = edit("insert_table", rows=2, columns=4, locationType="documentEnd")
 contact = [
@@ -135,9 +135,9 @@ contact = [
 ]
 for col, (label, field) in enumerate(contact):
     edit("insert_label", label=label, locationType="tableCell",
-         tableIndex=t["tableIndex"], row=0, col=col, bold=True, fontSizePoints=8)
+         tableIndex=t["tableIndex"], row=0, col=col, format={"bold": True, "fontSizePoints": 8})
     edit("insert_field", field=field, locationType="tableCell",
-         tableIndex=t["tableIndex"], row=1, col=col, fontSizePoints=8)
+         tableIndex=t["tableIndex"], row=1, col=col, format={"fontSizePoints": 8})
 print("page header/footer + contact strip")
 if THROUGH < 9: sys.exit(0)
 

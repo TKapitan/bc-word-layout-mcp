@@ -106,7 +106,7 @@ public sealed class McpHostPipelineTests(McpHostPipeline pipeline) : IClassFixtu
     [InlineData("insert_field", """ "field":"/Header/CustomerAddress1","locationType":"tableCell","tableIndex":"abc" """, "tableIndex", "an integer or null", "the string \"abc\"")]
     [InlineData("remove_control", """ "controlId":1,"keepText":"true" """, "keepText", "a boolean (true or false)", "the string \"true\"")]
     [InlineData("insert_table", """ "rows":1.5,"columns":2,"locationType":"documentEnd" """, "rows", "an integer", "the number 1.5")]
-    [InlineData("set_cell_borders", """ "tableIndex":0,"row":0,"edges":"top","size":null """, "size", "an integer", "null")]
+    [InlineData("set_cell_format", """ "tableIndex":0,"row":0,"edges":"top","borderSize":"thick" """, "borderSize", "an integer or null", "the string \"thick\"")]
     [InlineData("remove_control", """ "controlId":[1] """, "controlId", "an integer", "an array")]
     public async Task A_wrong_typed_argument_is_invalid_argument_naming_the_parameter_and_its_type(
         string tool, string otherArguments, string parameter, string expected, string sent)
@@ -135,7 +135,7 @@ public sealed class McpHostPipelineTests(McpHostPipeline pipeline) : IClassFixtu
 
     [Theory]
     [InlineData("insert_repeater_table", """ "dataItem":"/Header/Line","columns":"ItemNo_Line","locationType":"documentEnd","look":null """)]
-    [InlineData("set_cell_borders", """ "tableIndex":0,"row":0,"edges":"top","style":null """)]
+    [InlineData("set_cell_format", """ "tableIndex":0,"row":0,"edges":"top","borderStyle":null """)]
     [InlineData("validate_layout", """ "level":null """)]
     public async Task An_explicit_null_for_an_optional_enum_like_string_is_its_documented_default(
         string tool, string otherArguments)
@@ -244,6 +244,7 @@ public sealed class McpHostPipelineTests(McpHostPipeline pipeline) : IClassFixtu
             "cells" => "-",
             "widths" => "1000",
             "edges" => "top",
+            "target" => "row",
             _ => throw new InvalidOperationException(
                 $"{tool}.{parameter.Name} is a required string parameter with no baseline value in this sweep; add one."),
         };
@@ -283,7 +284,7 @@ public sealed class McpHostPipelineTests(McpHostPipeline pipeline) : IClassFixtu
     [Theory]
     [InlineData("insert_text", """ "text":"x","locationType":"documentEnd","layoutpart":"footer" """, "layoutpart", "layoutPart")]
     [InlineData("insert_column", """ "tableIndex":0,"mode":"plainText","atcolumn":0 """, "atcolumn", "atColumn")]
-    [InlineData("set_cell_borders", """ "tableIndex":0,"row":0,"edges":"top","column":1 """, "column", "col")]
+    [InlineData("set_cell_format", """ "tableIndex":0,"row":0,"edges":"top","column":1 """, "column", "col")]
     [InlineData("insert_field", """ "field":"/Header/CustomerAddress1","locationType":"tableCell","tableIndex":0,"row":0,"col":0,"tabelIndex":1 """, "tabelIndex", "tableIndex")]
     public async Task An_unknown_argument_name_is_refused_naming_the_closest_real_parameter_and_nothing_is_written(
         string tool, string otherArguments, string sent, string meant)
@@ -321,6 +322,74 @@ public sealed class McpHostPipelineTests(McpHostPipeline pipeline) : IClassFixtu
         Assert.Equal("col", ToolCallBoundary.ClosestName("column", candidates));
         Assert.Null(ToolCallBoundary.ClosestName("foo", candidates));
         Assert.Null(ToolCallBoundary.ClosestName("x", candidates));
+    }
+
+    // ---- object arguments: format (GitHub issue #15) ----
+
+    [Fact]
+    public async Task A_format_sent_as_a_json_string_is_read_as_the_object_it_holds()
+    {
+        // Models do send a nested object JSON-encoded; the string is unambiguous, so it is read, not refused.
+        var path = CopyOfCorpus(Corpus.SalesInvoice);
+
+        var result = await pipeline.CallAsync(
+            "insert_text",
+            $$"""{"layoutPath":{{J(path)}},"text":"Formatted","locationType":"documentEnd","format":"{\"bold\":true,\"italic\":true}"}""");
+
+        Assert.True(result.Ok, result.RawText);
+        using var doc = DocumentFormat.OpenXml.Packaging.WordprocessingDocument.Open(path, false);
+        var run = doc.MainDocumentPart!.Document!.Descendants<DocumentFormat.OpenXml.Wordprocessing.Run>()
+            .Single(r => r.InnerText == "Formatted");
+        Assert.NotNull(run.RunProperties?.Bold);
+        Assert.NotNull(run.RunProperties?.Italic);
+    }
+
+    [Theory]
+    [InlineData("""{"Bold":true}""", "'Bold' (did you mean 'bold'?)")]
+    [InlineData("""{"fontsize":8}""", "'fontsize' (did you mean 'fontSizePoints'?)")]
+    [InlineData("""{"bold":true,"strike":true}""", "'strike';")]
+    public async Task An_unknown_format_member_is_refused_naming_the_closest_real_one_and_nothing_is_written(
+        string format, string described)
+    {
+        // The binder drops an unknown member as silently as an unknown argument, so it is refused the same way.
+        var path = CopyOfCorpus(Corpus.SalesInvoice);
+        var before = await File.ReadAllBytesAsync(path);
+
+        var result = await pipeline.CallAsync(
+            "insert_text", $$"""{"layoutPath":{{J(path)}},"text":"x","locationType":"documentEnd","format":{{format}}}""");
+
+        Assert.True(result.IsError);
+        result.AssertFailure("invalid_argument", $"insert_text's format has no member named {described}");
+        Assert.Contains(
+            "format takes: bold, italic, underline, fontSizePoints, fontName, color, characterStyle.",
+            result.Hint,
+            StringComparison.Ordinal);
+        Assert.Equal(before, await File.ReadAllBytesAsync(path));
+    }
+
+    [Theory]
+    [InlineData("""{"bold":"yes"}""", "format.bold", "a boolean (true or false) or null", "the string \"yes\"")]
+    [InlineData("""{"fontSizePoints":true}""", "format.fontSizePoints", "a number or null", "the boolean true")]
+    public async Task A_wrong_typed_format_member_is_invalid_argument_naming_the_member(
+        string format, string member, string expected, string sent)
+    {
+        var result = await pipeline.CallAsync(
+            "insert_text", $$"""{"layoutPath":{{J(MissingFile())}},"text":"x","locationType":"documentEnd","format":{{format}}}""");
+
+        Assert.True(result.IsError);
+        result.AssertFailure("invalid_argument", $"Member '{member}' of insert_text", $"must be {expected}", $"sent {sent}");
+    }
+
+    [Theory]
+    [InlineData("5", "the number 5")]
+    [InlineData("\"bold\"", "the string \"bold\"")]
+    public async Task A_format_that_is_not_an_object_is_invalid_argument_asking_for_one(string format, string sent)
+    {
+        var result = await pipeline.CallAsync(
+            "insert_text", $$"""{"layoutPath":{{J(MissingFile())}},"text":"x","locationType":"documentEnd","format":{{format}}}""");
+
+        Assert.True(result.IsError);
+        result.AssertFailure("invalid_argument", "Argument 'format' of insert_text", "must be a JSON object", $"sent {sent}");
     }
 
     // ---- relative paths (GitHub issue #90) ----

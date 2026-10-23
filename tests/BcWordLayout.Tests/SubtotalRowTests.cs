@@ -64,7 +64,7 @@ public class SubtotalRowTests
                         new RepeaterRowCell { Span = 2, Columns = ["/Header/Line/Description_Line_Lbl"] },
                         new RepeaterRowCell { Span = 1, Columns = ["/Header/Line/AmountExcludingVAT_Line"], Alignment = "right" },
                     ],
-                    new CellTextFormat { Bold = true });
+                    new TextFormat { Bold = true });
 
                 Assert.Empty(new OpenXmlValidator(FileFormatVersions.Office2021).Validate(doc));
                 doc.MainDocumentPart!.Document!.Save();
@@ -311,26 +311,6 @@ public class SubtotalRowTests
     }
 
     [Fact]
-    public void A_row_level_alignment_is_refused_up_front()
-    {
-        var path = CopyOfCorpus(Corpus.SalesInvoice);
-        try
-        {
-            using var doc = WordprocessingDocument.Open(path, true);
-            var repeater = BuildLineRepeater(doc);
-
-            var ex = Assert.Throws<ArgumentException>(() => LayoutEditor.InsertSubtotalRow(
-                doc, repeater.ControlId, [new RepeaterRowCell { Span = 3 }],
-                new CellTextFormat { Alignment = "right" }));
-            Assert.Contains("per-cell alignments", ex.Message, StringComparison.Ordinal);
-        }
-        finally
-        {
-            File.Delete(path);
-        }
-    }
-
-    [Fact]
     public void An_unknown_parent_id_is_reported_as_not_found()
     {
         var path = CopyOfCorpus(Corpus.SalesInvoice);
@@ -369,7 +349,7 @@ public class SubtotalRowTests
                 path, tableDto.ControlId,
                 cells: "2:/Header/Line/Description_Line_Lbl,/Header/Line/AmountExcludingVAT_Line",
                 alignments: "-,right",
-                bold: true);
+                format: new TextFormatArgument { Bold = true });
             Assert.True(subtotal.Ok, subtotal.Error?.Message);
             var dto = Assert.IsType<EditResultDto>(subtotal.Data);
             Assert.Equal("insert_subtotal_row", dto.Operation);

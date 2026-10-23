@@ -117,7 +117,8 @@ internal static class InheritedRunFormat
     private static Run? LastTextRun(OpenXmlElement container) =>
         container.Descendants<Run>().LastOrDefault(r => !IsGraphic(r));
 
-    private static bool IsGraphic(Run run) =>
+    /// <summary>True for a run that carries a picture or embedded object rather than text.</summary>
+    internal static bool IsGraphic(Run run) =>
         run.GetFirstChild<Drawing>() is not null
         || run.GetFirstChild<Picture>() is not null
         || run.GetFirstChild<EmbeddedObject>() is not null;

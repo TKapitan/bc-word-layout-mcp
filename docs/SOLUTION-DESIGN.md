@@ -47,9 +47,12 @@ unreliable in a file format where a single misplaced element silently corrupts t
   `#BC:HideTableIfEmpty`, which the table tools see through ([#85](https://github.com/TKapitan/bc-word-layout-mcp/issues/85)). Authoring them waits on a
   sandbox check of what BC treats as empty ([#123](https://github.com/TKapitan/bc-word-layout-mcp/issues/123)). *Hide Field if Zero* and layout comments
   have never been captured ([#8](https://github.com/TKapitan/bc-word-layout-mcp/issues/8)).
-- **Broad cosmetic formatting** (colours, fonts, margins). A deliberate exception exists: `bold`,
-  `fontSizePoints` and cell/column `alignment` are supported, because a control inserted into a freshly
-  authored table cell has no styling to inherit and would otherwise look obviously wrong. Where there IS
+- **Broad cosmetic formatting** (margins, page setup, branding). Text and cell formatting are supported
+  (issue [#15](https://github.com/TKapitan/bc-word-layout-mcp/issues/15)): one `format` object (bold,
+  italic, underline, size, font, colour, character style) on every tool that writes text,
+  `set_text_format` to restyle text already in the layout, cell/column `alignment`, and
+  `set_cell_format` for cell rules and fills. A control inserted into a freshly authored table cell has
+  no styling to inherit and would otherwise look obviously wrong. Where there IS
   styling to inherit, inline inserts take the run formatting of the text before them, as typing in Word
   does, so they match a stock layout's own runs without any knob (issue
   [#122](https://github.com/TKapitan/bc-word-layout-mcp/issues/122)). Anything beyond that stays a
@@ -183,7 +186,7 @@ alongside the quick checks in `Domain.LayoutValidator`.
 
 ## 4. Tool surface
 
-**27 tools.** The per-parameter reference is the companion skill's §2
+**28 tools.** The per-parameter reference is the companion skill's §2
 ([`skills/al-word-layout/SKILL.md`](../skills/al-word-layout/SKILL.md)); this is the shape and the grouping.
 
 | Group | Tools |
@@ -192,7 +195,7 @@ alongside the quick checks in `Domain.LayoutValidator`.
 | Validate | `validate_layout` (`quick` \| `full`) |
 | Preview | `preview_layout`, `render_preview_pages` |
 | Author | `create_layout`, `insert_field`, `insert_label`, `insert_text`, `insert_page_number`, `insert_picture`, `insert_table`, `insert_repeater_table`, `insert_repeater_row`, `insert_subtotal_row`, `wrap_in_repeater` |
-| Table structure | `insert_table_row`, `insert_column`, `remove_column`, `set_column_widths`, `merge_cells`, `split_cells`, `set_cell_text`, `clear_cell_text`, `set_cell_borders` |
+| Table structure | `insert_table_row`, `insert_column`, `remove_column`, `set_column_widths`, `merge_cells`, `split_cells`, `set_cell_text`, `clear_cell_text`, `set_cell_format` |
 | Lifecycle | `remove_control`, `refresh_xml_part` |
 
 Conventions that hold across the surface:
