@@ -25,7 +25,8 @@ public class RepeaterTableTests
     // TransHeaderAmount has no matching label anywhere in the whole schema (verified against the real
     // dataset custom XML part) - exercising both header-label-resolution branches in a single call.
     private const string LineItemPath = "/Header/Line";
-    private static readonly string[] ThreeColumns = { "ItemNo_Line", "Description_Line", "TransHeaderAmount" };
+    private static readonly string[] ThreeLeaves = { "ItemNo_Line", "Description_Line", "TransHeaderAmount" };
+    private static readonly List<TableColumn> ThreeColumns = TableArgs.DomainFieldsOf(LineItemPath, ThreeLeaves);
     private const string RepeaterXPath = "/ns0:NavWordReportXmlPart[1]/ns0:Header[1]/ns0:Line";
 
     private static string CopyOfCorpus(string corpusFile)
@@ -35,11 +36,16 @@ public class RepeaterTableTests
         return path;
     }
 
-    private static EditResult InsertThreeColumnTable(string path, RepeaterTableOptions? options = null)
+    /// <summary>The three columns, each with its own width.</summary>
+    private static List<TableColumn> ThreeColumnsWide(params int[] widths) =>
+        [.. ThreeColumns.Select((column, i) => column with { Width = widths[i] })];
+
+    private static EditResult InsertThreeColumnTable(
+        string path, RepeaterTableOptions? options = null, IReadOnlyList<TableColumn>? columns = null)
     {
         using var doc = WordprocessingDocument.Open(path, true);
         var result = LayoutEditor.InsertRepeaterTable(
-            doc, LineItemPath, ThreeColumns, new Location { Type = LocationKind.DocumentEnd },
+            doc, LineItemPath, columns ?? ThreeColumns, new Location { Type = LocationKind.DocumentEnd },
             options ?? new RepeaterTableOptions());
         doc.MainDocumentPart!.Document!.Save();
         return result;
@@ -350,8 +356,8 @@ public class RepeaterTableTests
             using (var doc = WordprocessingDocument.Open(path, true))
             {
                 LayoutEditor.InsertRepeaterTable(
-                    doc, LineItemPath, ThreeColumns, new Location { Type = LocationKind.DocumentEnd },
-                    new RepeaterTableOptions { ColumnWidths = new[] { 1000, 2000, 3000 } });
+                    doc, LineItemPath, ThreeColumnsWide(1000, 2000, 3000), new Location { Type = LocationKind.DocumentEnd },
+                    new RepeaterTableOptions());
                 doc.MainDocumentPart!.Document!.Save();
             }
 
@@ -374,15 +380,31 @@ public class RepeaterTableTests
     }
 
     [Fact]
-    public void BuildRepeaterTable_columnWidths_count_mismatch_throws_ArgumentException()
+    public void BuildRepeaterTable_columns_without_a_width_share_what_the_given_ones_leave()
+    {
+        // Each column carries its own optional width (GitHub issue #133), so a caller can pin the narrow numeric
+        // columns and let the description take the rest - the stock line-table shape - in one call.
+        var schema = SchemaProvider.FromLayout(Corpus.Path(Corpus.SalesInvoice));
+        var nextIdValue = 1;
+
+        var table = SdtFactory.BuildRepeaterTable(
+            schema, LineItemPath, [ThreeColumns[0] with { Width = 1500 }, ThreeColumns[1], ThreeColumns[2] with { Width = 1200 }],
+            new RepeaterTableOptions(), () => nextIdValue++, availableWidthTwips: 10206);
+
+        Assert.Equal(new[] { "1500", "7506", "1200" }, GridWidths(table));
+    }
+
+    [Fact]
+    public void BuildRepeaterTable_widths_that_leave_a_column_nothing_throw_ArgumentException()
     {
         var schema = SchemaProvider.FromLayout(Corpus.Path(Corpus.SalesInvoice));
 
         var ex = Assert.Throws<ArgumentException>(() => SdtFactory.BuildRepeaterTable(
-            schema, LineItemPath, ThreeColumns,
-            new RepeaterTableOptions { ColumnWidths = new[] { 1000, 2000 } }, nextId: () => 1));
+            schema, LineItemPath, [ThreeColumns[0] with { Width = 6000 }, ThreeColumns[1] with { Width = 6000 }, ThreeColumns[2]],
+            new RepeaterTableOptions(), nextId: () => 1, availableWidthTwips: 10206));
 
-        Assert.Contains("ColumnWidths", ex.Message);
+        Assert.Equal("columns", ex.ParamName);
+        Assert.Contains("1 of the 3 columns have no width", ex.Message, StringComparison.Ordinal);
     }
 
     // ---- negative: dataItemPath validation ----
@@ -443,7 +465,7 @@ public class RepeaterTableTests
         // dataset custom XML part), not a leaf column, regardless of whether this layout's own document.xml
         // happens to bind a control to it.
         var ex = Assert.Throws<ArgumentException>(() => SdtFactory.BuildRepeaterTable(
-            schema, LineItemPath, new[] { "ItemNo_Line", "AssemblyLine" }, new RepeaterTableOptions(),
+            schema, LineItemPath, TableArgs.DomainFieldsOf(LineItemPath, "ItemNo_Line", "AssemblyLine"), new RepeaterTableOptions(),
             nextId: () => 1));
 
         Assert.Contains("nested repeating data item", ex.Message);
@@ -455,7 +477,7 @@ public class RepeaterTableTests
         var schema = SchemaProvider.FromLayout(Corpus.Path(Corpus.SalesInvoice));
 
         var ex = Assert.Throws<ArgumentException>(() => SdtFactory.BuildRepeaterTable(
-            schema, LineItemPath, new[] { "ThisColumnDoesNotExistAnywhere" }, new RepeaterTableOptions(),
+            schema, LineItemPath, TableArgs.DomainFieldsOf(LineItemPath, "ThisColumnDoesNotExistAnywhere"), new RepeaterTableOptions(),
             nextId: () => 1));
 
         Assert.Contains("not a leaf column", ex.Message);
@@ -467,7 +489,7 @@ public class RepeaterTableTests
         var schema = SchemaProvider.FromLayout(Corpus.Path(Corpus.SalesInvoice));
 
         var ex = Assert.Throws<ArgumentException>(() => SdtFactory.BuildRepeaterTable(
-            schema, LineItemPath, Array.Empty<string>(), new RepeaterTableOptions(), nextId: () => 1));
+            schema, LineItemPath, Array.Empty<TableColumn>(), new RepeaterTableOptions(), nextId: () => 1));
 
         Assert.Contains("At least one column", ex.Message);
     }
@@ -787,7 +809,7 @@ public class RepeaterTableTests
             var before = File.ReadAllBytes(path);
 
             var response = TableTools.InsertRepeaterTable(
-                path, LineItemPath, string.Join(",", ThreeColumns), "documentEnd", tableStyle: style);
+                path, LineItemPath, TableArgs.FieldsOf(LineItemPath, ThreeLeaves), "documentEnd", tableStyle: style);
 
             Assert.False(response.Ok);
             Assert.Equal("invalid_argument", response.Error!.Code);
@@ -835,7 +857,7 @@ public class RepeaterTableTests
         var path = CopyOfCorpus(Corpus.SalesInvoice);
         try
         {
-            InsertThreeColumnTable(path, new RepeaterTableOptions { ColumnWidths = new[] { 1500, 6000, 1200 } });
+            InsertThreeColumnTable(path, columns: ThreeColumnsWide(1500, 6000, 1200));
 
             using var reopened = WordprocessingDocument.Open(path, false);
             var table = reopened.MainDocumentPart!.Document!.Body!.Elements<Table>().Last();
@@ -890,7 +912,7 @@ public class RepeaterTableTests
         var path = CopyOfCorpus(Corpus.SalesInvoice);
         try
         {
-            InsertThreeColumnTable(path, new RepeaterTableOptions { ColumnWidths = new[] { 1500, 6000, 1200 } });
+            InsertThreeColumnTable(path, columns: ThreeColumnsWide(1500, 6000, 1200));
             var tableIndex = TableIndexOfLastBodyTable(path);
 
             // insert_column and remove_column both KEEP the table's total width (GitHub issue #83 for the
@@ -927,8 +949,9 @@ public class RepeaterTableTests
         {
             var response = TableTools.InsertRepeaterTable(
                 path, LineItemPath,
-                "ItemNo_Line,Description_Line,Quantity_Line,LineAmount_Line,LineDiscountPercent_Line,"
-                + "AmountExcludingVAT_Line,AmountIncludingVAT_Line",
+                TableArgs.FieldsOf(
+                    LineItemPath, "ItemNo_Line", "Description_Line", "Quantity_Line", "LineAmount_Line",
+                    "LineDiscountPercent_Line", "AmountExcludingVAT_Line", "AmountIncludingVAT_Line"),
                 "documentEnd");
             Assert.True(response.Ok, response.Error?.Message);
             var dto = Assert.IsType<EditResultDto>(response.Data);
@@ -963,7 +986,7 @@ public class RepeaterTableTests
         // 10206 does not divide evenly by most counts; flooring keeps the sum at or under the margin
         // (short by fewer twips than there are columns), so the rounding alone can never overflow.
         var schema = SchemaProvider.FromLayout(Corpus.Path(Corpus.SalesInvoice));
-        var columns = Enumerable.Repeat("ItemNo_Line", columnCount).ToList();
+        var columns = Enumerable.Repeat(new TableColumn { Field = $"{LineItemPath}/ItemNo_Line" }, columnCount).ToList();
         var nextIdValue = 1;
 
         var table = SdtFactory.BuildRepeaterTable(
@@ -986,11 +1009,10 @@ public class RepeaterTableTests
         try
         {
             var outer = Assert.IsType<EditResultDto>(TableTools.InsertRepeaterTable(
-                path, LineItemPath, "ItemNo_Line,Description_Line,TransHeaderAmount", "documentEnd",
-                columnWidths: "1500,6000,1200").Data);
+                path, LineItemPath, [new() { Field = $"{LineItemPath}/ItemNo_Line", Width = 1500 }, new() { Field = $"{LineItemPath}/Description_Line", Width = 6000 }, new() { Field = $"{LineItemPath}/TransHeaderAmount", Width = 1200 }], "documentEnd").Data);
 
             var inner = TableTools.InsertRepeaterTable(
-                path, "/Header/Line/ShipmentLine", "PostingDate_ShipmentLine,Quantity_ShipmentLine", "tableCell",
+                path, "/Header/Line/ShipmentLine", TableArgs.FieldsOf("/Header/Line/ShipmentLine", "PostingDate_ShipmentLine", "Quantity_ShipmentLine"), "tableCell",
                 tableIndex: outer.TableIndex, row: outer.DataRowIndex, col: 1);
             Assert.True(inner.Ok, inner.Error?.Message);
             var innerDto = Assert.IsType<EditResultDto>(inner.Data);

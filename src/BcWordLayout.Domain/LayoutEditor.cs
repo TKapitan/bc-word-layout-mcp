@@ -337,7 +337,7 @@ public static class LayoutEditor
     public static EditResult InsertRepeaterTable(
         WordprocessingDocument doc,
         string dataItemPath,
-        IReadOnlyList<string> columns,
+        IReadOnlyList<TableColumn> columns,
         Location location,
         RepeaterTableOptions options)
     {
@@ -365,7 +365,7 @@ public static class LayoutEditor
         var schema = SchemaProvider.FromLayoutForBinding(doc);
         var nextId = MakeIdGenerator(doc);
 
-        // Resolved before the build (Resolve only reads) because an omitted columnWidths is split across
+        // Resolved before the build (Resolve only reads) because a column without a width shares
         // the width of wherever the table lands - the page's content width, or the host cell's.
         var anchor = LocationResolver.Resolve(location, doc);
         var table = SdtFactory.BuildRepeaterTable(
@@ -785,7 +785,7 @@ public static class LayoutEditor
     /// salesperson's <c>repeatingSectionItem</c> with an empty spacer <c>w:tr</c> and a bold subtotal
     /// <c>w:tr</c>, AFTER the nested <c>Cust_Ledger_Entry</c> detail repeater — so the row renders once per
     /// PARENT row (per group), never per detail row. Cell construction is
-    /// <see cref="SdtFactory.BuildStaticRow"/>'s (each <see cref="RepeaterRowCell.Columns"/> entry a FULL
+    /// <see cref="SdtFactory.BuildStaticRow"/>'s (each <see cref="RepeaterRowCell.Fields"/> entry a FULL
     /// dataset path — the corpus subtotal binds a sibling non-repeating <c>Subtotals</c> item's columns);
     /// the spans must cover the parent table's grid exactly. Repeated calls stack rows in authoring order,
     /// exactly like <see cref="InsertRepeaterRow"/> — the corpus order is spacer first, subtotal second.
@@ -940,7 +940,7 @@ public static class LayoutEditor
     /// Shared by <see cref="InsertSubtotalRow"/> and <see cref="TableStructureEditor.InsertStaticRow"/>.
     /// </summary>
     internal static DatasetTree SchemaForRow(WordprocessingDocument doc, IReadOnlyList<RepeaterRowCell> cells) =>
-        cells.Any(c => c.Columns.Count > 0) ? SchemaProvider.FromLayoutForBinding(doc) : SchemaProvider.FromLayout(doc);
+        cells.Any(c => c.Fields.Count > 0) ? SchemaProvider.FromLayoutForBinding(doc) : SchemaProvider.FromLayout(doc);
 
     /// <summary>
     /// Each cell's <c>w:tcW</c> for a row laid out on an existing table's grid: the sum of the grid-column
@@ -969,16 +969,18 @@ public static class LayoutEditor
     }
 
     /// <summary>
-    /// Inserts a NEW plain (unbound) table of <paramref name="rows"/> × <paramref name="columns"/> empty
-    /// single-column cells as a block at <paramref name="location"/> — the missing counterpart to
+    /// Inserts a NEW plain (unbound) table of <paramref name="rowCount"/> rows of empty single-column cells, one per
+    /// entry of <paramref name="columns"/>, as a block at <paramref name="location"/> — the missing counterpart to
     /// <see cref="InsertRepeaterTable"/> for the NON-repeating blocks every real BC layout is built from
     /// (side-by-side address columns, label/value header-info grids, right-anchored totals blocks).
     /// <paramref name="borders"/> and <paramref name="tableStyle"/> mean exactly what they mean on
     /// <see cref="InsertRepeaterTable"/> (both come from <see cref="TableShell"/>): borderless by default — the
     /// corpus shape for those blocks — a rule under row 0 for <see cref="TableBorderLook.HeaderRule"/>, or the
-    /// explicit single-line grid for <see cref="TableBorderLook.Grid"/>. Each cell carries an explicit <c>w:tcW</c> matching its grid column, and an optional per-column
-    /// paragraph justification seeds each cell's alignment (which <see cref="CellTextEditor.SetCellText"/>
-    /// and a <c>tableCell</c>-located <see cref="InsertField"/> both preserve afterwards). The result's
+    /// explicit single-line grid for <see cref="TableBorderLook.Grid"/>. Each cell carries an explicit <c>w:tcW</c>
+    /// matching its grid column (a column without a width shares what the others leave — see
+    /// <see cref="TableShell.ResolveWidths"/>), and a column's alignment seeds each of its cells' paragraph
+    /// justification (which <see cref="CellTextEditor.SetCellText"/> and a <c>tableCell</c>-located
+    /// <see cref="InsertField"/> both preserve afterwards). The result's
     /// <see cref="TableEditResult.TableIndex"/> is the new table's 0-based document-order index — exactly
     /// the coordinate <c>set_cell_text</c> / <c>insert_field(tableCell …)</c> / <c>set_column_widths</c>
     /// address next, in the same part. Unlike <see cref="InsertRepeaterTable"/>, a plain table works in a header or
@@ -987,51 +989,43 @@ public static class LayoutEditor
     /// inline inserts do (<see cref="EnsureTargetPartExists"/>).
     /// </summary>
     /// <exception cref="ArgumentException">
-    /// <paramref name="rows"/>/<paramref name="columns"/> out of range; a width/alignment list whose count
-    /// doesn't equal <paramref name="columns"/>; an unrecognized alignment; or <paramref name="tableStyle"/> naming
-    /// no table style the layout defines.
+    /// <paramref name="rowCount"/> or the number of <paramref name="columns"/> out of range; a column naming a field
+    /// (a plain table binds nothing); given widths that leave nothing for the columns without one; an unrecognized
+    /// alignment; or <paramref name="tableStyle"/> naming no table style the layout defines.
     /// </exception>
     /// <exception cref="NotFoundException">Propagated from <see cref="LocationResolver.Resolve"/>.</exception>
     public static TableEditResult InsertPlainTable(
         WordprocessingDocument doc,
-        int rows,
-        int columns,
+        int rowCount,
+        IReadOnlyList<TableColumn> columns,
         Location location,
-        IReadOnlyList<int>? columnWidths = null,
-        IReadOnlyList<string>? columnAlignments = null,
         TableBorderLook borders = TableBorderLook.None,
         string? tableStyle = null)
     {
         ArgumentNullException.ThrowIfNull(doc);
+        ArgumentNullException.ThrowIfNull(columns);
         ArgumentNullException.ThrowIfNull(location);
 
-        if (rows is < 1 or > 100)
+        if (rowCount is < 1 or > 100)
         {
-            throw new ArgumentException($"rows must be between 1 and 100 (got {rows}).", nameof(rows));
+            throw new ArgumentException($"rowCount must be between 1 and 100 (got {rowCount}).", nameof(rowCount));
         }
 
-        if (columns is < 1 or > 30)
-        {
-            throw new ArgumentException($"columns must be between 1 and 30 (got {columns}).", nameof(columns));
-        }
-
-        if (columnWidths is not null && columnWidths.Count != columns)
+        if (columns.Count is < 1 or > 30)
         {
             throw new ArgumentException(
-                $"columnWidths has {columnWidths.Count} entr{(columnWidths.Count == 1 ? "y" : "ies")} but the "
-                + $"table has {columns} column(s); supply exactly one width per column, or omit columnWidths "
-                + "for an even split of the default content width.",
-                nameof(columnWidths));
+                $"columns must hold between 1 and 30 columns (got {columns.Count}).", nameof(columns));
         }
 
-        if (columnAlignments is not null && columnAlignments.Count != columns)
+        if (columns.Select((column, i) => (column, i)).FirstOrDefault(c => c.column.Field is not null) is ({ } bound, var at))
         {
             throw new ArgumentException(
-                $"columnAlignments has {columnAlignments.Count} entr{(columnAlignments.Count == 1 ? "y" : "ies")} "
-                + $"but the table has {columns} column(s); supply exactly one of left/center/right per column, "
-                + "or omit columnAlignments entirely.",
-                nameof(columnAlignments));
+                $"columns[{at}] names the field '{bound.Field}', but a plain table binds nothing; insert the field "
+                + "into a cell afterwards with insert_field, or build a repeater table with insert_repeater_table.",
+                nameof(columns));
         }
+
+        var justifications = columns.Select((column, i) => TableShell.Justification(column, i, nameof(columns))).ToArray();
 
         if (!string.IsNullOrEmpty(tableStyle))
         {
@@ -1045,21 +1039,16 @@ public static class LayoutEditor
         // from the body sectPr; the corpus-standard 10206 twips when unset) - a plain top-section block spans
         // it in every corpus layout - or the host cell's, for a table placed inside a cell.
         var anchor = LocationResolver.Resolve(location, doc);
-        var availableWidth = ResolveAvailableWidthTwips(doc, anchor);
-        var widths = columnWidths?.ToArray()
-            ?? Enumerable.Repeat(availableWidth / columns, columns).ToArray();
-        var justifications = columnAlignments?
-            .Select(a => (JustificationValues?)CellTextEditor.ParseAlignment(a, nameof(columnAlignments)))
-            .ToArray();
+        var widths = TableShell.ResolveWidths(columns, ResolveAvailableWidthTwips(doc, anchor), nameof(columns));
 
         var grid = new TableGrid(widths.Select(w =>
             (OpenXmlElement)new GridColumn { Width = w.ToString(System.Globalization.CultureInfo.InvariantCulture) }));
 
         var table = new Table(TableShell.Properties(widths, borders, tableStyle), grid);
-        for (var r = 0; r < rows; r++)
+        for (var r = 0; r < rowCount; r++)
         {
             var row = new TableRow();
-            for (var c = 0; c < columns; c++)
+            for (var c = 0; c < columns.Count; c++)
             {
                 // Compact, single-spaced cells — the shape real BC layout cells render with (their
                 // paragraphs override the document's airy defaults explicitly). Without this a blank
@@ -1071,7 +1060,7 @@ public static class LayoutEditor
                         SpacingBetweenLines = new SpacingBetweenLines { After = "0", Line = "240", LineRule = LineSpacingRuleValues.Auto },
                     },
                 };
-                if (justifications?[c] is { } jc)
+                if (justifications[c] is { } jc)
                 {
                     paragraph.ParagraphProperties.Justification = new Justification { Val = jc };
                 }
@@ -1121,10 +1110,10 @@ public static class LayoutEditor
             Part = anchor.PartName,
             TableIndex = tableIndex,
             ColumnIndex = null,
-            RowsAffected = rows,
+            RowsAffected = rowCount,
             ColumnCountBefore = 0,
-            ColumnCountAfter = columns,
-            Summary = $"Inserted a plain {rows}x{columns} table at {DescribeLocation(location, anchor.PartName)}; "
+            ColumnCountAfter = columns.Count,
+            Summary = $"Inserted a plain {rowCount}x{columns.Count} table at {DescribeLocation(location, anchor.PartName)}; "
                 + $"it is table {tableIndex} - address its cells with set_cell_text/insert_field/insert_label "
                 + "(locationType 'tableCell') using that index"
                 + (location.Part == LayoutPart.Body

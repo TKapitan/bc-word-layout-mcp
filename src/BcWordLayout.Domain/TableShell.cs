@@ -53,6 +53,44 @@ internal static class TableShell
     }
 
     /// <summary>
+    /// Each column's width: its own <see cref="TableColumn.Width"/> when given, else an even share of what the given
+    /// ones leave of <paramref name="availableWidthTwips"/>, the width of wherever the table lands. With no width
+    /// given that is an even split of the whole width (GitHub issue #84); with every width given it is the widths as
+    /// given, which may run past the margin — an explicit choice. The share floors, so rounding alone never takes the
+    /// columns past the available width. Refused when the given widths leave nothing for the others.
+    /// </summary>
+    internal static int[] ResolveWidths(IReadOnlyList<TableColumn> columns, int availableWidthTwips, string paramName)
+    {
+        var unsized = columns.Count(c => c.Width is null);
+        if (unsized == 0)
+        {
+            return columns.Select(c => c.Width!.Value).ToArray();
+        }
+
+        var given = columns.Sum(c => c.Width ?? 0);
+        var share = (availableWidthTwips - given) / unsized;
+        if (share < 1)
+        {
+            throw new ArgumentException(
+                $"{unsized} of the {columns.Count} columns have no width, but the widths given already take {given} of "
+                + $"the {availableWidthTwips} twips available here, which leaves them nothing. Give every column a "
+                + "width, or narrow the ones given.",
+                paramName);
+        }
+
+        return columns.Select(c => c.Width ?? share).ToArray();
+    }
+
+    /// <summary>
+    /// The paragraph justification of column <paramref name="index"/>, or null to keep the default; an unknown
+    /// alignment is refused naming the column (<c>columns[2].alignment</c>).
+    /// </summary>
+    internal static JustificationValues? Justification(TableColumn column, int index, string paramName) =>
+        column.Alignment is { } alignment
+            ? CellTextEditor.ParseAlignment(alignment, paramName, $"{paramName}[{index}].alignment")
+            : null;
+
+    /// <summary>
     /// <see cref="TableBorderLook.HeaderRule"/>'s one rule: a ½-pt bottom edge on each of <paramref name="cells"/>
     /// (the first row's), drawn through <see cref="TableStructureEditor.ApplyCellBorders"/> so it is
     /// byte-identical to the rule <c>set_cell_format</c> draws for a bottom edge.

@@ -48,7 +48,7 @@ public class StoreItemIdFallbackTests
             var boundBefore = info.Controls.Count(c => c.StoreItemId == CommissionStoreItemId);
             var table = info.Tables[0];
             var row = TableTools.InsertTableRow(
-                path, table.TableIndex, $"{table.ColumnCount}:/Salesperson_Purchaser/Salesperson_Purchaser_Code");
+                path, table.TableIndex, [new() { Fields = ["/Salesperson_Purchaser/Salesperson_Purchaser_Code"], Span = table.ColumnCount }]);
             Assert.True(row.Ok, row.Error?.Message);
             Assert.Equal(
                 boundBefore + 1,
@@ -158,7 +158,7 @@ public class StoreItemIdFallbackTests
             {
                 EditTools.InsertField(path, "/Header/CompanyName", "documentEnd"),
                 EditTools.InsertPicture(path, "/Header/CompanyName", "documentEnd"),
-                TableTools.InsertRepeaterTable(path, "/Header/Line", "ItemNo", "documentEnd"),
+                TableTools.InsertRepeaterTable(path, "/Header/Line", TableArgs.FieldsOf("/Header/Line", "ItemNo"), "documentEnd"),
             };
 
             Assert.All(responses, r =>

@@ -36,8 +36,8 @@ public class StaticTableRowTests
         new RepeaterRowCell { Span = 1 },
         new RepeaterRowCell { Span = 1 },
         new RepeaterRowCell { Span = 1 },
-        new RepeaterRowCell { Span = 3, Columns = [CaptionPath] },
-        new RepeaterRowCell { Span = 1, Columns = [AmountPath], Alignment = "right" },
+        new RepeaterRowCell { Span = 3, Fields = [CaptionPath] },
+        new RepeaterRowCell { Span = 1, Fields = [AmountPath], Alignment = "right" },
     ];
 
     private static string CopyOfCorpus(string corpusFile)
@@ -267,7 +267,7 @@ public class StaticTableRowTests
             using var doc = WordprocessingDocument.Open(path, true);
             var ex = Assert.Throws<ArgumentException>(() => TableStructureEditor.InsertStaticRow(
                 doc, LayoutPart.Body, null, QuoteLinesTable, atRow: null,
-                [new RepeaterRowCell { Span = 8, Columns = ["/Header/Totals/NoSuchColumn"] }]));
+                [new RepeaterRowCell { Span = 8, Fields = ["/Header/Totals/NoSuchColumn"] }]));
             Assert.Contains("does not resolve", ex.Message, StringComparison.Ordinal);
         }
         finally
@@ -292,8 +292,7 @@ public class StaticTableRowTests
             var response = TableTools.InsertTableRow(
                 path,
                 QuoteLinesTable,
-                cells: $"-,-,-,-,3:{CaptionPath},{AmountPath}",
-                alignments: "-,-,-,-,-,right",
+                cells: [new(), new(), new(), new(), new() { Fields = [CaptionPath], Span = 3 }, new() { Fields = [AmountPath], Alignment = "right" }],
                 format: new TextFormatArgument { Bold = true });
 
             Assert.True(response.Ok, response.Error?.Message);
@@ -320,10 +319,12 @@ public class StaticTableRowTests
     }
 
     [Fact]
-    public void InsertTableRow_tool_rejects_a_malformed_span_prefix_with_invalid_argument()
+    public void InsertTableRow_tool_rejects_a_null_cell_with_invalid_argument()
     {
+        // The cells used to be a mini-grammar whose malformed span prefix ('x:oops') was refused; each cell is now an
+        // object (GitHub issue #133), and the shape the binder still lets through is a null entry.
         var response = TableTools.InsertTableRow(
-            Corpus.Path(Corpus.StandardSalesQuote), QuoteLinesTable, cells: "x:oops");
+            Corpus.Path(Corpus.StandardSalesQuote), QuoteLinesTable, cells: [new() { Span = 7 }, null!]);
 
         Assert.False(response.Ok);
         Assert.Equal("invalid_argument", response.Error!.Code);

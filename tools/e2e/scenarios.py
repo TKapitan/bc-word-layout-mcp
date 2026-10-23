@@ -855,8 +855,11 @@ def s10(ctx: Ctx):
 def s11(ctx: Ctx):
     tables_before = len(ctx.info()["tables"])
     ctx.edit("insert_repeater_table", dataItem="/Header/Line",
-             columns="ItemNo_Line,Description_Line,Quantity_Line,LineAmount_Line",
-             locationType="documentEnd", columnWidths="1500,4500,1500,2706")
+             columns=[{"field": "/Header/Line/ItemNo_Line", "width": 1500},
+                      {"field": "/Header/Line/Description_Line", "width": 4500},
+                      {"field": "/Header/Line/Quantity_Line", "width": 1500},
+                      {"field": "/Header/Line/LineAmount_Line", "width": 2706}],
+             locationType="documentEnd")
     info = ctx.info()
     ctx.expect(len(info["tables"]) == tables_before + 1, "one new table appeared")
     new_table = info["tables"][tables_before - 4]  # body tables come before header/footer parts
@@ -876,7 +879,8 @@ def s12(ctx: Ctx):
     ctx.edit("insert_label", label="/Header/YourReference__Lbl", locationType="documentEnd")
     ctx.edit("insert_field", field="/Header/YourReference", locationType="documentEnd")
     ctx.edit("insert_repeater_table", dataItem="/Header/Line",
-             columns="ItemNo_Line,Description_Line,Quantity_Line,UnitPrice,LineAmount_Line",
+             columns=[{"field": f"/Header/Line/{name}"}
+                      for name in ("ItemNo_Line", "Description_Line", "Quantity_Line", "UnitPrice", "LineAmount_Line")],
              locationType="documentEnd")
     validation = ctx.validate()
     ctx.expect(validation["errorCount"] == 0, "authored-from-scratch layout validates with zero errors")
@@ -1023,10 +1027,12 @@ def s18(ctx: Ctx):
     ctx.expect(before["columnCount"] == 8, "quote lines table has the corpus-verified 8 columns")
     rows_before = before["rowCount"]
 
-    ctx.edit("insert_table_row", tableIndex=2, cells="8:-")  # the stock spacer row
+    ctx.edit("insert_table_row", tableIndex=2, cells=[{"span": 8}])  # the stock spacer row
     result = ctx.edit("insert_table_row", tableIndex=2,
-                      cells="-,-,-,-,3:/Header/Totals/TotalExcludingVATText,/Header/Totals/TotalSubTotal",
-                      alignments="-,-,-,-,-,right", format={"bold": True})["data"]
+                      cells=[{"span": 4},
+                             {"fields": ["/Header/Totals/TotalExcludingVATText"], "span": 3},
+                             {"fields": ["/Header/Totals/TotalSubTotal"], "alignment": "right"}],
+                      format={"bold": True})["data"]
     ctx.expect("renders exactly once" in result["summary"],
                "summary pins the static (non-repeating) semantics")
 
@@ -1047,23 +1053,31 @@ def s18(ctx: Ctx):
                "grand-total row (issue #28).")
 def s19(ctx: Ctx):
     table = ctx.edit("insert_repeater_table", dataItem="/Header/Line",
-                     columns="ItemNo_Line,Description_Line,Quantity_Line,LineAmount_Line",
-                     locationType="documentEnd", columnAlignments="left,left,right,right")["data"]
+                     columns=[{"field": "/Header/Line/ItemNo_Line", "alignment": "left"},
+                              {"field": "/Header/Line/Description_Line", "alignment": "left"},
+                              {"field": "/Header/Line/Quantity_Line", "alignment": "right"},
+                              {"field": "/Header/Line/LineAmount_Line", "alignment": "right"}],
+                     locationType="documentEnd")["data"]
 
     ctx.edit("insert_repeater_row", parentControlId=table["controlId"],
-             dataItem="/Header/Line/AssemblyLine", cells="-,2:Description_AssemblyLine,-")
+             dataItem="/Header/Line/AssemblyLine",
+             cells=[{}, {"fields": ["/Header/Line/AssemblyLine/Description_AssemblyLine"], "span": 2}, {}])
 
     # The corpus (SalespersonCommission) group order: spacer row first, bold subtotal row second.
-    ctx.edit("insert_subtotal_row", parentControlId=table["controlId"], cells="4:-")
+    ctx.edit("insert_subtotal_row", parentControlId=table["controlId"], cells=[{"span": 4}])
     subtotal = ctx.edit("insert_subtotal_row", parentControlId=table["controlId"],
-                        cells="2:-,/Header/Line/AmountExcludingVAT_Line_Lbl,/Header/Line/AmountExcludingVAT_Line",
-                        alignments="-,right,right", format={"bold": True})["data"]
+                        cells=[{"span": 2},
+                               {"fields": ["/Header/Line/AmountExcludingVAT_Line_Lbl"], "alignment": "right"},
+                               {"fields": ["/Header/Line/AmountExcludingVAT_Line"], "alignment": "right"}],
+                        format={"bold": True})["data"]
     ctx.expect(subtotal["controlId"] == 0, "a static row carries no controlId of its own")
     ctx.expect("once per group" in subtotal["summary"], "summary pins the per-group semantics")
 
     grand = ctx.edit("insert_table_row", tableIndex=table["tableIndex"],
-                     cells="2:-,/Header/Totals/TotalIncludingVATText,/Header/Totals/TotalAmountIncludingVAT",
-                     alignments="-,right,right", format={"bold": True})["data"]
+                     cells=[{"span": 2},
+                            {"fields": ["/Header/Totals/TotalIncludingVATText"], "alignment": "right"},
+                            {"fields": ["/Header/Totals/TotalAmountIncludingVAT"], "alignment": "right"}],
+                     format={"bold": True})["data"]
     ctx.expect("renders exactly once" in grand["summary"], "the grand total is table-static, not per-group")
 
     after = ctx.info()["tables"][table["tableIndex"]]

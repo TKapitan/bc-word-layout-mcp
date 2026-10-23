@@ -179,7 +179,7 @@ Once the package is bound and validates, change its look with typed calls, not m
 
 1. `validate_layout level=full` — 0 errors; every binding resolves.
 2. `preview_layout`, then `render_preview_pages` with `outputDir` so the consultant can open the pages.
-   Use `rows` ≥ 20 once, to see the line table break across pages with its header repeated.
+   Use `sampleRows` ≥ 20 once, to see the line table break across pages with its header repeated.
 3. Compare page 1 side by side with the design. Expected differences only: values, dropped zebra rows,
    anything the map changed.
 

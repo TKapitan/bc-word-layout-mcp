@@ -154,17 +154,36 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   first page will not show on page 1. A test now fails if any tool parameter is described as never to
   be passed.
 
-- **BREAKING: list arguments are JSON arrays** (GitHub issue #133). Every list was a comma-separated
-  string: the schema could not say what an entry may be, an empty entry was silently dropped, and a
-  value could never contain a comma. A list is now a JSON array of typed entries, and tools/list
-  states each entry's allowed values or range. A list sent as a JSON-encoded string (`"[1500, 6206]"`)
-  is read as the array it holds, as `format` already is; a comma-separated string is refused with a
-  hint that asks for an array. A wrong entry is named by its position (`widths[2]`).
+- **BREAKING: list arguments are JSON arrays, with one object per column or cell** (GitHub issue
+  #133). Every list was a comma-separated string: the schema could not say what an entry may be, an
+  empty entry was silently dropped, and a value could never contain a comma. Columns and cells were
+  worse: `columns`, `columnWidths` and `columnAlignments` described the same columns as three lists
+  kept in step by hand, and a cell was a mini-grammar (`-`, `a+b`, `N:`). Now:
+  - a list is a JSON array of typed entries, and tools/list states each entry's allowed values or
+    range;
+  - a column or cell is one object holding everything about it, and a member you omit takes its
+    default;
+  - every field is a **full dataset path**, as `list_dataset_fields` reports it, on every tool.
+    `insert_repeater_table` and `insert_repeater_row` took leaf names until now, and a bare name is
+    refused with the full path it stands for;
+  - a column without a `width` shares what the other columns leave of the available width;
+  - `insert_table`'s `rows` is `rowCount`, and `preview_layout`'s `rows` is `sampleRows`. No argument
+    name means different things on different tools any more.
+
+  A list sent as a JSON-encoded string (`"[1500, 6206]"`) is read as the array it holds, as `format`
+  already is. A comma-separated string is refused with a hint that asks for an array. A wrong entry
+  is named by its path (`widths[2]`, `columns[1].width`), and so is an unknown member
+  (`columns[1].Width`, "did you mean 'width'?").
 
   | Tool | Before | After |
   | --- | --- | --- |
   | `set_column_widths` | `"widths": "1500,6206,2500"` | `"widths": [1500, 6206, 2500]` |
   | `set_cell_format` | `"edges": "top,bottom"` | `"edges": ["top", "bottom"]` |
+  | `insert_table` | `"rows": 2, "columns": 2, "columnWidths": "7206,3000", "columnAlignments": "left,right"` | `"rowCount": 2, "columns": [{"width": 7206}, {"width": 3000, "alignment": "right"}]` |
+  | `insert_repeater_table` | `"columns": "ItemNo_Line,Quantity_Line", "columnWidths": "1500,1200", "columnAlignments": "left,right"` | `"columns": [{"field": "/Header/Line/ItemNo_Line", "width": 1500}, {"field": "/Header/Line/Quantity_Line", "width": 1200, "alignment": "right"}]` |
+  | `insert_repeater_row` | `"cells": "-,3:Description_AssemblyLine", "alignments": "-,left"` | `"cells": [{}, {"fields": ["/Header/Line/AssemblyLine/Description_AssemblyLine"], "span": 3, "alignment": "left"}]` |
+  | `insert_table_row`, `insert_subtotal_row` | `"cells": "4:-,3:/Header/Totals/TotalText,/Header/Totals/TotalAmount", "alignments": "-,-,right"` | `"cells": [{"span": 4}, {"fields": ["/Header/Totals/TotalText"], "span": 3}, {"fields": ["/Header/Totals/TotalAmount"], "alignment": "right"}]` |
+  | `preview_layout` | `"rows": 20` | `"sampleRows": 20` |
 
 - **`remove_control keepText=true` on a block-level repeater now unwraps it** instead of refusing
   (GitHub issue #31): section, group and item go at once and the content stays in place, printing

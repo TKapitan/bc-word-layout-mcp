@@ -210,20 +210,52 @@ public sealed class TableEditResult
 }
 
 /// <summary>
-/// One cell of a nested detail row (<see cref="BcWordLayout.Domain.LayoutEditor.InsertRepeaterRow"/>):
-/// how many grid columns of the PARENT table it spans, which of the child data item's leaf columns it
-/// carries (label-shaped names become label controls, chained inline in one paragraph — the
+/// One cell of a row laid on an existing table's grid — a nested detail row
+/// (<see cref="BcWordLayout.Domain.LayoutEditor.InsertRepeaterRow"/>), a per-group row
+/// (<see cref="BcWordLayout.Domain.LayoutEditor.InsertSubtotalRow"/>) or a static row
+/// (<see cref="BcWordLayout.Domain.TableStructureEditor.InsertStaticRow"/>): how many grid columns it spans, which
+/// fields it carries (label-shaped paths become label controls, chained inline in one paragraph — the
 /// corpus-verified shape; empty for a spacer cell), and an optional paragraph alignment.
 /// </summary>
 public sealed record RepeaterRowCell
 {
-    /// <summary>Grid columns of the parent table this cell spans (≥1); all cells must sum to the parent's grid count.</summary>
+    /// <summary>Grid columns of the table this cell spans (≥1); all cells must sum to the table's grid count.</summary>
     public int Span { get; init; } = 1;
 
-    /// <summary>Leaf column names of the child data item rendered inline in this cell, in order; empty = spacer cell.</summary>
-    public IReadOnlyList<string> Columns { get; init; } = [];
+    /// <summary>
+    /// FULL dataset paths rendered inline in this cell, in order (GitHub issue #133 — leaf names are no longer
+    /// taken anywhere); empty = spacer cell. A detail row's fields must be columns of its own data item.
+    /// </summary>
+    public IReadOnlyList<string> Fields { get; init; } = [];
 
     /// <summary><c>left</c>/<c>center</c>/<c>right</c>; null keeps the default.</summary>
+    public string? Alignment { get; init; }
+}
+
+/// <summary>
+/// One column of a new table (GitHub issue #133): what <see cref="BcWordLayout.Domain.LayoutEditor.InsertRepeaterTable"/>
+/// and <see cref="BcWordLayout.Domain.LayoutEditor.InsertPlainTable"/> take per column instead of parallel lists of
+/// names, widths and alignments that had to be kept in step by hand.
+/// </summary>
+public sealed record TableColumn
+{
+    /// <summary>
+    /// For a repeater table: the FULL dataset path of a leaf column of its data item, e.g.
+    /// <c>/Header/Line/ItemNo_Line</c>. A plain table's columns bind nothing and leave it null.
+    /// </summary>
+    public string? Field { get; init; }
+
+    /// <summary>
+    /// Width in twips; null for an even share of the width the other columns leave (see
+    /// <see cref="BcWordLayout.Domain.TableShell.ResolveWidths"/>).
+    /// </summary>
+    public int? Width { get; init; }
+
+    /// <summary>
+    /// <c>left</c>/<c>center</c>/<c>right</c> (case-insensitive) for every cell of the column — a repeater table's
+    /// header cell and data cell alike, the way real BC line tables right-align a numeric column as a whole; null
+    /// keeps the default (left).
+    /// </summary>
     public string? Alignment { get; init; }
 }
 
@@ -359,19 +391,4 @@ public sealed class RepeaterTableOptions
     /// <c>"TableGrid"</c>); refused when the layout does not define it (see <see cref="BcWordLayout.Domain.TableShell"/>).
     /// </summary>
     public string? TableStyle { get; init; }
-
-    /// <summary>
-    /// Optional explicit column widths in twips (1/20 pt), one per column, applied to both <c>w:tblGrid</c>
-    /// and each column's cell width. Must have exactly one entry per column when supplied. When omitted,
-    /// every column gets the same even default width.
-    /// </summary>
-    public IReadOnlyList<int>? ColumnWidths { get; init; }
-
-    /// <summary>
-    /// Optional per-column paragraph alignments (<c>left</c>/<c>center</c>/<c>right</c>, case-insensitive),
-    /// one per column, applied to BOTH the header cell and the data cell of each column — real BC line
-    /// tables right-align their quantity/price/amount columns. Must have exactly one entry per column when
-    /// supplied; when omitted, cells keep the default (left).
-    /// </summary>
-    public IReadOnlyList<string>? ColumnAlignments { get; init; }
 }

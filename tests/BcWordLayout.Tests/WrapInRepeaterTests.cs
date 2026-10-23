@@ -129,7 +129,7 @@ public class WrapInRepeaterTests
         {
             using (var doc = WordprocessingDocument.Open(path, true))
             {
-                LayoutEditor.InsertPlainTable(doc, 1, 1, new Location { Type = LocationKind.DocumentEnd });
+                LayoutEditor.InsertPlainTable(doc, 1, TableArgs.DomainColumns(1), new Location { Type = LocationKind.DocumentEnd });
                 var tableIndex = BodyOf(doc).Descendants<Table>().Count() - 1;
                 var field = LayoutEditor.InsertField(doc, WorkDescriptionLine,
                     new Location { Type = LocationKind.TableCell, TableIndex = tableIndex, Row = 0, Col = 0 }).ControlId;
@@ -267,7 +267,7 @@ public class WrapInRepeaterTests
         {
             using var doc = WordprocessingDocument.Open(path, true);
             var field = Field(doc, WorkDescriptionLine);
-            var lines = LayoutEditor.InsertRepeaterTable(doc, "/Header/Line", ["ItemNo_Line"],
+            var lines = LayoutEditor.InsertRepeaterTable(doc, "/Header/Line", TableArgs.DomainFieldsOf("/Header/Line", "ItemNo_Line"),
                 new Location { Type = LocationKind.DocumentEnd }, new RepeaterTableOptions()).ControlId;
 
             var foreign = Assert.Throws<ArgumentException>(

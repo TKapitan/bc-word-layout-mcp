@@ -256,7 +256,7 @@ public static class LifecycleTools
                      + "repeater/data item by an internal safeguard (default cap 100): a value above the "
                      + "cap never generates or merges more than the cap's worth of rows for any single "
                      + "repeating section, reported via a row-cap warning rather than silently ignored.")]
-        int rows = 3,
+        int sampleRows = 3,
         [Description("Seed for the deterministic sample-data generator. Default 12345.")] int seed = 12345,
         [Description("PDF converter to use: 'auto' (default; prefers Word, falls back to LibreOffice), "
                      + "'word', or 'libreoffice'.")] string converter = "auto",
@@ -294,12 +294,12 @@ public static class LifecycleTools
             // empty body plus unresolved-binding warnings caused only by the row count, which reads as a broken
             // layout rather than a bad argument (GitHub issue #98). Nothing in the merge intends a zero-row
             // preview, so it is refused rather than documented as one.
-            if (rows < 1)
+            if (sampleRows < 1)
             {
                 throw new ArgumentException(
-                    $"rows must be 1 or more (got {rows}): it is the number of sample rows generated per "
-                    + "repeating section.",
-                    nameof(rows));
+                    $"sampleRows must be 1 or more (got {sampleRows}): it is the number of sample rows generated "
+                    + "per repeating section.",
+                    nameof(sampleRows));
             }
 
             if (!File.Exists(layoutPath))
@@ -378,7 +378,7 @@ public static class LifecycleTools
 
                 var mergeResult = MergeEngine.Merge(layoutPath, mergedDocxPath, new MergeOptions
                 {
-                    Rows = rows,
+                    Rows = sampleRows,
                     Seed = seed,
                     DataOverridesPath = dataOverridesPath,
                     // Sever live bindings so the rendered preview shows the merged sample data and every generated
@@ -434,7 +434,7 @@ public static class LifecycleTools
 
                 return ToolResponse.Success(dto);
             }
-        }, layoutPath, tool: "preview_layout"); // rows means something else on insert_table - see ToolGuards.ToolSpecificInvalidArgumentHint
+        }, layoutPath);
     }
 
     // ---- preview_layout helpers ----

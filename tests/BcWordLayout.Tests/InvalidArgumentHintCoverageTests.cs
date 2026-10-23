@@ -100,7 +100,7 @@ public class InvalidArgumentHintCoverageTests
         try
         {
             var table = Assert.IsType<TableEditResultDto>(
-                TableTools.InsertTable(path, rows: 1, columns: 1, locationType: "documentEnd").Data);
+                TableTools.InsertTable(path, rowCount: 1, columns: TableArgs.Columns(1), locationType: "documentEnd").Data);
             Assert.True(EditTools.InsertField(
                 path, "/Header/CustomerAddress1", "tableCell", tableIndex: table.TableIndex, row: 0, col: 0).Ok);
 
@@ -198,7 +198,7 @@ public class InvalidArgumentHintCoverageTests
         try
         {
             var response = TableTools.InsertRepeaterTable(
-                path, "/Header/Line/ItemNo_Line", "ItemNo_Line", "documentEnd");
+                path, "/Header/Line/ItemNo_Line", TableArgs.FieldsOf("/Header/Line/ItemNo_Line", "ItemNo_Line"), "documentEnd");
             AssertActionableFailure(response, "invalid_argument", "must be a repeating, non-system DATA ITEM");
         }
         finally
@@ -207,19 +207,24 @@ public class InvalidArgumentHintCoverageTests
         }
     }
 
-    // ---- "columns" / "column" — TableTools' own empty-columns pre-check (ParamName "columns") and
-    // SdtFactory.ValidateColumnOfItem's per-entry check (ParamName "column") — same combined arm/hint. ----
+    // ---- "columns", field cases — TableArguments' empty-array check and SdtFactory.LeafColumnOf's per-column
+    // check, both ParamName "columns" ----
 
     [Theory]
-    [InlineData("   ")]
-    [InlineData("ThisColumnDoesNotExistAnywhere")]
-    public void InsertRepeaterTable_bad_columns_hint_names_leaf_columns_of_the_dataItem(string columns)
+    [InlineData(null, "columns must hold at least one entry")]
+    [InlineData("ItemNo_Line", "is a column name, not a dataset path; pass the full path '/Header/Line/ItemNo_Line'")]
+    [InlineData("/Header/CustomerAddress1", "is not a column of data item '/Header/Line'")]
+    [InlineData("/Header/Line/ThisColumnDoesNotExistAnywhere", "is not a leaf column of data item '/Header/Line'")]
+    [InlineData("/Header/Line/AssemblyLine", "resolves to a nested repeating data item")]
+    public void InsertRepeaterTable_bad_columns_hint_names_full_paths_of_the_dataItems_leaf_columns(string? field, string message)
     {
         var path = CopyOfCorpus(Corpus.SalesInvoice);
         try
         {
-            var response = TableTools.InsertRepeaterTable(path, "/Header/Line", columns, "documentEnd");
-            AssertActionableFailure(response, "invalid_argument", "belonging to the given dataItem");
+            var response = TableTools.InsertRepeaterTable(
+                path, "/Header/Line", field is null ? [] : [new() { Field = field }], "documentEnd");
+            AssertActionableFailure(response, "invalid_argument", "the FULL dataset path of a leaf column of dataItem");
+            Assert.Contains(message, response.Error!.Message, StringComparison.Ordinal);
         }
         finally
         {
@@ -227,20 +232,19 @@ public class InvalidArgumentHintCoverageTests
         }
     }
 
-    // ---- "columnwidths" / "options" — TableTools.ParseColumnWidths' bad-integer-format check (ParamName
-    // "columnWidths") and SdtFactory.BuildRepeaterTable's count-mismatch check (ParamName "options") — same
-    // combined arm/hint. ----
+    // ---- "columns", width cases — TableArguments' range check and TableShell.ResolveWidths (the per-column
+    // objects of GitHub issue #133 replaced the count-mismatch and bad-integer checks of the comma lists) ----
 
     [Fact]
-    public void InsertRepeaterTable_columnWidths_bad_integer_format_hint_names_columnWidths_shape()
+    public void InsertRepeaterTable_out_of_range_width_hint_names_the_columns_shape()
     {
         var path = CopyOfCorpus(Corpus.SalesInvoice);
         try
         {
             var response = TableTools.InsertRepeaterTable(
-                path, "/Header/Line", "ItemNo_Line,Description_Line,TransHeaderAmount", "documentEnd",
-                columnWidths: "abc,2000,3000");
-            AssertActionableFailure(response, "invalid_argument", "omit it entirely for an even default width");
+                path, "/Header/Line", [new() { Field = "/Header/Line/ItemNo_Line", Width = 0 }], "documentEnd");
+            AssertActionableFailure(response, "invalid_argument", "A width is in twips, 1 to");
+            Assert.Contains("columns[0].width (0)", response.Error!.Message, StringComparison.Ordinal);
         }
         finally
         {
@@ -249,15 +253,14 @@ public class InvalidArgumentHintCoverageTests
     }
 
     [Fact]
-    public void InsertRepeaterTable_columnWidths_count_mismatch_hint_names_columnWidths_shape()
+    public void InsertTable_widths_that_leave_a_column_nothing_hint_names_the_columns_shape()
     {
         var path = CopyOfCorpus(Corpus.SalesInvoice);
         try
         {
-            var response = TableTools.InsertRepeaterTable(
-                path, "/Header/Line", "ItemNo_Line,Description_Line,TransHeaderAmount", "documentEnd",
-                columnWidths: "1000,2000");
-            AssertActionableFailure(response, "invalid_argument", "omit it entirely for an even default width");
+            var response = TableTools.InsertTable(
+                path, rowCount: 1, columns: [new() { Width = 31680 }, new()], locationType: "documentEnd");
+            AssertActionableFailure(response, "invalid_argument", "the given widths must leave some");
         }
         finally
         {
@@ -282,19 +285,19 @@ public class InvalidArgumentHintCoverageTests
         }
     }
 
-    // ---- "cells" — TableTools.ParseRepeaterRowCells' span range, and the domain's span-sum check, shared by
+    // ---- "cells" — TableArguments' span range, and the domain's span-sum check, shared by
     // insert_table_row/insert_repeater_row/insert_subtotal_row ----
 
     [Theory]
-    [InlineData("-1:-,4:-")]
-    [InlineData("2:-")]
-    public void InsertTableRow_bad_cells_hint_names_the_cells_dsl(string cells)
+    [InlineData(new[] { -1, 4 })]
+    [InlineData(new[] { 2 })]
+    public void InsertTableRow_bad_cells_hint_names_the_cells_shape(int[] spans)
     {
         var path = SyntheticLayout.Create(SyntheticLayout.SimpleTable(rows: 2, cols: 3));
         try
         {
-            var response = TableTools.InsertTableRow(path, tableIndex: 0, cells: cells);
-            AssertActionableFailure(response, "invalid_argument", "cells is a comma-separated list of cell specs");
+            var response = TableTools.InsertTableRow(path, tableIndex: 0, cells: [.. spans.Select(s => new RowCellArgument { Span = s })]);
+            AssertActionableFailure(response, "invalid_argument", "cells is an array with one object per cell");
         }
         finally
         {
@@ -491,8 +494,8 @@ public class InvalidArgumentHintCoverageTests
         try
         {
             var response = tool == "insert_table"
-                ? TableTools.InsertTable(path, rows: 1, columns: 2, locationType: "documentEnd", borders: "bc")
-                : TableTools.InsertRepeaterTable(path, "/Header/Line", "ItemNo_Line", "documentEnd", borders: "fancy");
+                ? TableTools.InsertTable(path, rowCount: 1, columns: TableArgs.Columns(2), locationType: "documentEnd", borders: "bc")
+                : TableTools.InsertRepeaterTable(path, "/Header/Line", TableArgs.FieldsOf("/Header/Line", "ItemNo_Line"), "documentEnd", borders: "fancy");
             AssertActionableFailure(response, "invalid_argument", "'headerRule'");
         }
         finally
@@ -512,8 +515,8 @@ public class InvalidArgumentHintCoverageTests
         try
         {
             var response = tool == "insert_table"
-                ? TableTools.InsertTable(path, rows: 1, columns: 2, locationType: "documentEnd", tableStyle: "NoSuchStyle")
-                : TableTools.InsertRepeaterTable(path, "/Header/Line", "ItemNo_Line", "documentEnd", tableStyle: "NoSuchStyle");
+                ? TableTools.InsertTable(path, rowCount: 1, columns: TableArgs.Columns(2), locationType: "documentEnd", tableStyle: "NoSuchStyle")
+                : TableTools.InsertRepeaterTable(path, "/Header/Line", TableArgs.FieldsOf("/Header/Line", "ItemNo_Line"), "documentEnd", tableStyle: "NoSuchStyle");
             AssertActionableFailure(response, "invalid_argument", "blank layouts define 'TableGrid'");
         }
         finally

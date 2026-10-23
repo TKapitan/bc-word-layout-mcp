@@ -33,8 +33,7 @@ public class PlainTableTests
         var path = CopyOfCorpus(Corpus.SalesInvoice);
         try
         {
-            var response = TableTools.InsertTable(path, rows: 2, columns: 3, locationType: "documentEnd",
-                columnWidths: "3000,4000,3206", columnAlignments: "left,center,right");
+            var response = TableTools.InsertTable(path, rowCount: 2, columns: [new() { Width = 3000, Alignment = "left" }, new() { Width = 4000, Alignment = "center" }, new() { Width = 3206, Alignment = "right" }], locationType: "documentEnd");
             Assert.True(response.Ok, response.Error?.Message);
             var dto = Assert.IsType<TableEditResultDto>(response.Data);
             Assert.Equal("insert_table", dto.Operation);
@@ -79,7 +78,7 @@ public class PlainTableTests
         var path = CopyOfCorpus(Corpus.SalesInvoice);
         try
         {
-            var response = TableTools.InsertTable(path, rows: 1, columns: 2, locationType: "documentEnd",
+            var response = TableTools.InsertTable(path, rowCount: 1, columns: TableArgs.Columns(2), locationType: "documentEnd",
                 borders: "grid");
             Assert.True(response.Ok, response.Error?.Message);
             var dto = Assert.IsType<TableEditResultDto>(response.Data);
@@ -109,9 +108,9 @@ public class PlainTableTests
         try
         {
             var ruled = Assert.IsType<TableEditResultDto>(TableTools.InsertTable(
-                path, rows: 3, columns: 2, locationType: "documentEnd", borders: "headerRule").Data);
+                path, rowCount: 3, columns: TableArgs.Columns(2), locationType: "documentEnd", borders: "headerRule").Data);
             var drawnLater = Assert.IsType<TableEditResultDto>(TableTools.InsertTable(
-                path, rows: 3, columns: 2, locationType: "documentEnd").Data);
+                path, rowCount: 3, columns: TableArgs.Columns(2), locationType: "documentEnd").Data);
             Assert.True(TableTools.SetCellFormat(path, drawnLater.TableIndex, row: 0, edges: ["bottom"]).Ok);
 
             using var reopened = WordprocessingDocument.Open(path, false);
@@ -145,9 +144,9 @@ public class PlainTableTests
         try
         {
             var dto = Assert.IsType<TableEditResultDto>(TableTools.InsertTable(
-                path, rows: 1, columns: 2, locationType: "documentEnd", tableStyle: "TableGrid").Data);
+                path, rowCount: 1, columns: TableArgs.Columns(2), locationType: "documentEnd", tableStyle: "TableGrid").Data);
 
-            var refused = TableTools.InsertTable(path, rows: 1, columns: 2, locationType: "documentEnd", tableStyle: "NoSuchStyle");
+            var refused = TableTools.InsertTable(path, rowCount: 1, columns: TableArgs.Columns(2), locationType: "documentEnd", tableStyle: "NoSuchStyle");
             Assert.Equal("invalid_argument", refused.Error?.Code);
             Assert.Contains("'TableGrid'", refused.Error!.Message, StringComparison.Ordinal);
 
@@ -165,19 +164,19 @@ public class PlainTableTests
         }
     }
 
-    [Theory]
-    [InlineData("left,right", 3, "columnAlignments")]     // count mismatch (3 columns, 2 alignments)
-    [InlineData("left,middle,right", 3, "columnAlignments")] // unknown alignment name
-    public void Tool_insert_table_rejects_bad_alignment_input(string alignments, int columns, string expectedParam)
+    [Fact]
+    public void Tool_insert_table_rejects_an_unknown_alignment_naming_its_column()
     {
+        // Each column carries its own alignment (GitHub issue #133), so a count mismatch cannot happen any more;
+        // an unknown value is refused naming the column it belongs to.
         var path = CopyOfCorpus(Corpus.SalesInvoice);
         try
         {
-            var response = TableTools.InsertTable(path, rows: 1, columns: columns,
-                locationType: "documentEnd", columnAlignments: alignments);
+            var response = TableTools.InsertTable(path, rowCount: 1,
+                columns: [new() { Alignment = "left" }, new() { Alignment = "middle" }, new()], locationType: "documentEnd");
             Assert.False(response.Ok);
             Assert.Equal("invalid_argument", response.Error!.Code);
-            Assert.Contains(expectedParam, response.Error.Message);
+            Assert.Contains("Unknown alignment 'middle' for columns[1].alignment", response.Error.Message, StringComparison.Ordinal);
         }
         finally
         {
@@ -195,7 +194,7 @@ public class PlainTableTests
         var path = CopyOfCorpus(Corpus.StandardPurchaseOrder);
         try
         {
-            var response = TableTools.InsertTable(path, rows: 1, columns: 2, locationType: "documentEnd", layoutPart: "header");
+            var response = TableTools.InsertTable(path, rowCount: 1, columns: TableArgs.Columns(2), locationType: "documentEnd", layoutPart: "header");
             Assert.True(response.Ok, response.Error?.Message);
             var dto = Assert.IsType<TableEditResultDto>(response.Data);
             Assert.Equal("header2.xml", dto.Part);
@@ -233,7 +232,7 @@ public class PlainTableTests
             LayoutBuilder.Create(Corpus.Path(Corpus.SalesInvoice), path);
 
             var dto = Assert.IsType<TableEditResultDto>(TableTools.InsertTable(
-                path, rows: 1, columns: 3, locationType: "documentEnd", layoutPart: "footer").Data);
+                path, rowCount: 1, columns: TableArgs.Columns(3), locationType: "documentEnd", layoutPart: "footer").Data);
             Assert.Equal(0, dto.TableIndex);
 
             using var reopened = WordprocessingDocument.Open(path, false);
@@ -258,10 +257,10 @@ public class PlainTableTests
         try
         {
             var outer = Assert.IsType<TableEditResultDto>(TableTools.InsertTable(
-                path, rows: 1, columns: 2, locationType: "documentEnd", columnWidths: "6000,4206").Data);
+                path, rowCount: 1, columns: [new() { Width = 6000 }, new() { Width = 4206 }], locationType: "documentEnd").Data);
 
             var inner = Assert.IsType<TableEditResultDto>(TableTools.InsertTable(
-                path, rows: 1, columns: 2, locationType: "tableCell", tableIndex: outer.TableIndex, row: 0, col: 0).Data);
+                path, rowCount: 1, columns: TableArgs.Columns(2), locationType: "tableCell", tableIndex: outer.TableIndex, row: 0, col: 0).Data);
 
             using var reopened = WordprocessingDocument.Open(path, false);
             var innerTable = TableGridNavigator.Tables(reopened.MainDocumentPart!.Document!.Body!)[inner.TableIndex];
@@ -282,7 +281,7 @@ public class PlainTableTests
         var path = CopyOfCorpus(Corpus.SalesInvoice);
         try
         {
-            var tableResponse = TableTools.InsertTable(path, rows: 1, columns: 2, locationType: "documentEnd");
+            var tableResponse = TableTools.InsertTable(path, rowCount: 1, columns: TableArgs.Columns(2), locationType: "documentEnd");
             var dto = Assert.IsType<TableEditResultDto>(tableResponse.Data);
 
             var response = EditTools.InsertLabel(
@@ -316,10 +315,10 @@ public class PlainTableTests
         var path = CopyOfCorpus(Corpus.SalesInvoice);
         try
         {
-            Assert.True(TableTools.InsertTable(path, rows: 1, columns: 2, locationType: "documentEnd").Ok);
-            Assert.True(TableTools.InsertTable(path, rows: 1, columns: 3, locationType: "documentEnd").Ok);
+            Assert.True(TableTools.InsertTable(path, rowCount: 1, columns: TableArgs.Columns(2), locationType: "documentEnd").Ok);
+            Assert.True(TableTools.InsertTable(path, rowCount: 1, columns: TableArgs.Columns(3), locationType: "documentEnd").Ok);
             Assert.True(TableTools.InsertRepeaterTable(
-                path, "/Header/Line", "ItemNo_Line,Description_Line", "documentEnd").Ok);
+                path, "/Header/Line", TableArgs.FieldsOf("/Header/Line", "ItemNo_Line", "Description_Line"), "documentEnd").Ok);
 
             using var reopened = WordprocessingDocument.Open(path, false);
             var body = reopened.MainDocumentPart!.Document!.Body!;
@@ -341,7 +340,7 @@ public class PlainTableTests
         var path = CopyOfCorpus(Corpus.SalesInvoice);
         try
         {
-            var tableResponse = TableTools.InsertTable(path, rows: 1, columns: 2, locationType: "documentEnd");
+            var tableResponse = TableTools.InsertTable(path, rowCount: 1, columns: TableArgs.Columns(2), locationType: "documentEnd");
             var dto = Assert.IsType<TableEditResultDto>(tableResponse.Data);
 
             var fieldResponse = EditTools.InsertField(
@@ -371,7 +370,7 @@ public class PlainTableTests
         try
         {
             var response = TableTools.InsertTable(
-                path, rows: 2, columns: 3, locationType: "documentEnd", columnWidths: "3000,4000,3206");
+                path, rowCount: 2, columns: [new() { Width = 3000 }, new() { Width = 4000 }, new() { Width = 3206 }], locationType: "documentEnd");
             Assert.True(response.Ok, response.Error?.Message);
             var dto = Assert.IsType<TableEditResultDto>(response.Data);
 
@@ -407,7 +406,7 @@ public class PlainTableTests
         try
         {
             var response = TableTools.InsertTable(
-                path, rows: 1, columns: 2, locationType: "documentEnd", borders: "grid");
+                path, rowCount: 1, columns: TableArgs.Columns(2), locationType: "documentEnd", borders: "grid");
             var dto = Assert.IsType<TableEditResultDto>(response.Data);
 
             using var reopened = WordprocessingDocument.Open(path, false);

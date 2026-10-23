@@ -116,7 +116,7 @@ public class BoundControlAnchorTests
 
             var before = File.ReadAllBytes(path);
             AssertRefusedUntouched(EditTools.InsertPageNumber(path, "tableCell", tableIndex: 1, row: 1, col: 1), path, before);
-            AssertRefusedUntouched(TableTools.InsertTable(path, 1, 1, "tableCell", tableIndex: 1, row: 1, col: 1), path, before);
+            AssertRefusedUntouched(TableTools.InsertTable(path, 1, TableArgs.Columns(1), "tableCell", tableIndex: 1, row: 1, col: 1), path, before);
             AssertRefusedUntouched(EditTools.InsertText(path, "x", "tableCell", tableIndex: 1, row: 1, col: 1), path, before);
         }
         finally
@@ -139,7 +139,7 @@ public class BoundControlAnchorTests
             AssertRefusedUntouched(
                 EditTools.InsertPicture(path, "/Header/CompanyPicture", "afterControl", controlId: QuoteValidToDateId), path, before);
             AssertRefusedUntouched(
-                TableTools.InsertTable(path, 1, 1, "afterControl", controlId: QuoteValidToDateId), path, before);
+                TableTools.InsertTable(path, 1, TableArgs.Columns(1), "afterControl", controlId: QuoteValidToDateId), path, before);
         }
         finally
         {

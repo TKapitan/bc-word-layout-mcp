@@ -31,7 +31,7 @@ public class CellFormatTests
     /// <summary>Authors a fresh 2x3 plain table to draw rules on, returning its addressable table index.</summary>
     private static int NewPlainTable(string path, int rows = 2, int columns = 3)
     {
-        var response = TableTools.InsertTable(path, rows, columns, locationType: "documentEnd");
+        var response = TableTools.InsertTable(path, rows, TableArgs.Columns(columns), locationType: "documentEnd");
         Assert.True(response.Ok, response.Error?.Message);
         return Assert.IsType<TableEditResultDto>(response.Data).TableIndex;
     }
@@ -118,7 +118,7 @@ public class CellFormatTests
         var path = CopyOfCorpus(Corpus.SalesInvoice);
         try
         {
-            var inserted = TableTools.InsertTable(path, rows: 1, columns: 2, locationType: "documentEnd", borders: "grid");
+            var inserted = TableTools.InsertTable(path, rowCount: 1, columns: TableArgs.Columns(2), locationType: "documentEnd", borders: "grid");
             var tableIndex = Assert.IsType<TableEditResultDto>(inserted.Data).TableIndex;
 
             var response = TableTools.SetCellFormat(path, tableIndex, row: 0, edges: ["left", "right"], borderStyle: "none");

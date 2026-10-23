@@ -222,32 +222,33 @@ public static class SdtFactory
     /// slash is optional).
     /// </param>
     /// <param name="columns">
-    /// Leaf column names of <paramref name="dataItemPath"/> (not full paths — just the leaf name, e.g.
-    /// <c>ItemNo_Line</c>), one per table column, in order. At least one is required.
+    /// One per table column, in order: each a <see cref="TableColumn.Field"/> that is the FULL dataset path of a leaf
+    /// column of <paramref name="dataItemPath"/> (e.g. <c>/Header/Line/ItemNo_Line</c>, as list_dataset_fields
+    /// reports it — see <see cref="LeafColumnOf"/>), plus an optional width and alignment. At least one is required.
     /// </param>
-    /// <param name="options">Header/style/column-width options — see <see cref="RepeaterTableOptions"/>.</param>
+    /// <param name="options">Header/style/border options — see <see cref="RepeaterTableOptions"/>.</param>
     /// <param name="nextId">
     /// Invoked once per generated sdt's <c>w:id</c> (every header label, every data field, plus the
     /// repeatingSectionItem and repeatingSection wrappers themselves); callers own uniqueness (see
     /// <see cref="LayoutEditor.InsertRepeaterTable"/>, which guarantees uniqueness across the whole doc).
     /// </param>
     /// <param name="availableWidthTwips">
-    /// The width an omitted <see cref="RepeaterTableOptions.ColumnWidths"/> is split evenly across — the
-    /// destination's content width, which <see cref="LayoutEditor.InsertRepeaterTable"/> resolves (the
-    /// page's, or the host cell's for a table placed inside a cell). Null means the corpus-standard A4
-    /// content width, <see cref="LayoutEditor.CorpusContentWidthTwips"/>. Ignored when explicit widths are given.
+    /// The width the columns without a <see cref="TableColumn.Width"/> share (see <see cref="TableShell.ResolveWidths"/>)
+    /// — the destination's content width, which <see cref="LayoutEditor.InsertRepeaterTable"/> resolves (the page's,
+    /// or the host cell's for a table placed inside a cell). Null means the corpus-standard A4 content width,
+    /// <see cref="LayoutEditor.CorpusContentWidthTwips"/>.
     /// </param>
     /// <exception cref="ArgumentException">
     /// <paramref name="dataItemPath"/> does not resolve, resolves to a leaf column instead of a data item,
-    /// or resolves to a system data item; <paramref name="columns"/> is empty, contains an entry that is
-    /// not a leaf column of that data item, or (indirectly, via <see cref="BuildField"/>) is label-shaped;
-    /// <paramref name="options"/>.ColumnWidths is supplied with a count that does not match
-    /// <paramref name="columns"/>; or <paramref name="schema"/>'s report has no storeItemID.
+    /// or resolves to a system data item; <paramref name="columns"/> is empty, has a field that is not the full path
+    /// of a leaf column of that data item, or (indirectly, via <see cref="BuildField"/>) a label-shaped one; the
+    /// given widths leave nothing for the columns without one; an alignment is unknown; or
+    /// <paramref name="schema"/>'s report has no storeItemID.
     /// </exception>
     public static Table BuildRepeaterTable(
         DatasetTree schema,
         string dataItemPath,
-        IReadOnlyList<string> columns,
+        IReadOnlyList<TableColumn> columns,
         RepeaterTableOptions options,
         Func<int> nextId,
         int? availableWidthTwips = null)
@@ -262,15 +263,6 @@ public static class SdtFactory
             throw new ArgumentException("At least one column is required.", nameof(columns));
         }
 
-        if (options.ColumnWidths is not null && options.ColumnWidths.Count != columns.Count)
-        {
-            throw new ArgumentException(
-                $"options.{nameof(RepeaterTableOptions.ColumnWidths)} has {options.ColumnWidths.Count} "
-                + $"entries but there are {columns.Count} columns; supply exactly one width per column, or "
-                + $"omit {nameof(RepeaterTableOptions.ColumnWidths)} for an even default.",
-                nameof(options));
-        }
-
         var report = schema.Report;
         if (string.IsNullOrEmpty(report.StoreItemId))
         {
@@ -282,40 +274,27 @@ public static class SdtFactory
         }
 
         var dataItem = ResolveRepeaterDataItem(schema, dataItemPath);
-        foreach (var column in columns)
-        {
-            ValidateColumnOfItem(dataItem, dataItemPath, column);
-        }
-
-        var widths = ResolveColumnWidths(
-            options.ColumnWidths, columns.Count, availableWidthTwips ?? LayoutEditor.CorpusContentWidthTwips);
-
-        if (options.ColumnAlignments is not null && options.ColumnAlignments.Count != columns.Count)
-        {
-            throw new ArgumentException(
-                $"options.{nameof(RepeaterTableOptions.ColumnAlignments)} has {options.ColumnAlignments.Count} "
-                + $"entries but there are {columns.Count} columns; supply exactly one of left/center/right per "
-                + $"column, or omit {nameof(RepeaterTableOptions.ColumnAlignments)} entirely.",
-                nameof(options));
-        }
+        var leaves = columns
+            .Select((column, i) => LeafColumnOf(dataItem, column.Field, $"columns[{i}].field", nameof(columns)))
+            .ToList();
+        var widths = TableShell.ResolveWidths(columns, availableWidthTwips ?? LayoutEditor.CorpusContentWidthTwips, nameof(columns));
+        var justifications = columns.Select((column, i) => TableShell.Justification(column, i, nameof(columns))).ToList();
 
         var headerCells = new List<TableCell>(columns.Count);
         var dataCells = new List<TableCell>(columns.Count);
         for (var i = 0; i < columns.Count; i++)
         {
-            var column = columns[i];
             var width = widths[i];
 
-            headerCells.Add(BuildHeaderCell(schema, dataItem, column, options, nextId, width));
+            headerCells.Add(BuildHeaderCell(schema, dataItem, leaves[i], options, nextId, width));
 
-            var field = BuildField(schema, $"{dataItem.Path}/{column}", id: nextId());
+            var field = BuildField(schema, $"{dataItem.Path}/{leaves[i]}", id: nextId());
             dataCells.Add(WrapCell(new Paragraph(field), width));
 
             // Real BC line tables right-align their numeric columns; the alignment applies to the column
             // as a whole - the header cell AND the data cell.
-            if (options.ColumnAlignments?[i] is { } alignment)
+            if (justifications[i] is { } jc)
             {
-                var jc = CellTextEditor.ParseAlignment(alignment, nameof(options));
                 foreach (var paragraph in new[] { headerCells[i], dataCells[i] }
                              .Select(cell => cell.Descendants<Paragraph>().First()))
                 {
@@ -351,15 +330,16 @@ public static class SdtFactory
     /// <c>w:tr</c>, aligned to the SAME table grid via per-cell <c>gridSpan</c>s (corpus-verified: serial
     /// nos, lot nos, and assembly-component lines all take this shape, nesting several levels deep).
     /// Each <see cref="RepeaterRowCell"/> becomes one <c>w:tc</c> spanning <see cref="RepeaterRowCell.Span"/>
-    /// grid columns and carrying its child-item columns as inline controls chained in one paragraph
-    /// (label-shaped names become label controls; the corpus chains them with no separator run). The row is
-    /// wrapped in the same <c>repeatingSection</c>/<c>repeatingSectionItem</c> pair
-    /// <see cref="BuildRepeaterTable"/> emits, bound to <paramref name="dataItemPath"/>.
+    /// grid columns and carrying its fields — full dataset paths of the child item's leaf columns (see
+    /// <see cref="LeafColumnOf"/>) — as inline controls chained in one paragraph (label-shaped ones become label
+    /// controls; the corpus chains them with no separator run). The row is wrapped in the same
+    /// <c>repeatingSection</c>/<c>repeatingSectionItem</c> pair <see cref="BuildRepeaterTable"/> emits, bound to
+    /// <paramref name="dataItemPath"/>.
     /// </summary>
     /// <param name="cellWidths">Explicit <c>w:tcW</c> per cell (the sum of the parent grid columns it covers), one per cell.</param>
     /// <exception cref="ArgumentException">
-    /// <paramref name="dataItemPath"/> does not resolve to a repeating, non-system data item; a cell names
-    /// a column that is not a leaf column of that item; a span is &lt; 1; or an alignment is unknown.
+    /// <paramref name="dataItemPath"/> does not resolve to a repeating, non-system data item; a cell's field is
+    /// not the full path of a leaf column of that item; a span is &lt; 1; or an alignment is unknown.
     /// </exception>
     public static SdtRow BuildDetailRepeaterRow(
         DatasetTree schema,
@@ -380,11 +360,8 @@ public static class SdtFactory
 
         var dataItem = ResolveRepeaterDataItem(schema, dataItemPath);
 
-        var row = BuildRowFromCells(schema, cells, cellWidths, nextId, column =>
-        {
-            ValidateColumnOfItem(dataItem, dataItemPath, column);
-            return $"{dataItem.Path}/{column}";
-        });
+        var row = BuildRowFromCells(schema, cells, cellWidths, nextId, (field, what) =>
+            $"{dataItem.Path}/{LeafColumnOf(dataItem, field, what, nameof(cells))}");
 
         return BuildRepeaterRow(schema, dataItem, row, nextId);
     }
@@ -396,12 +373,11 @@ public static class SdtFactory
     /// <c>gridSpan</c>-merged content cells, bound totals fields) rather than a separate table —
     /// corpus-verified in <c>StandardSalesQuote.docx</c> (1304), <c>StandardPurchaseOrder.docx</c> (1322)
     /// and <c>StandardSalesInvoiceVatSpec.docx</c> (1306), and the same static-rows-in-a-table shape carries
-    /// <c>SalespersonCommission.docx</c>'s (115) grand-totals row. Unlike
-    /// <see cref="BuildDetailRepeaterRow"/>, each <see cref="RepeaterRowCell.Columns"/> entry here is a
-    /// FULL dataset path (e.g. <c>/Header/Totals/TotalAmountIncludingVAT</c> — typically a leaf of a
-    /// NON-repeating data item), not a leaf name of some parent item — a totals row binds whatever the
-    /// dataset provides, not the repeater's own columns. Label-shaped paths become label controls;
-    /// placement is the caller's job (see <see cref="TableStructureEditor.InsertStaticRow"/>).
+    /// <c>SalespersonCommission.docx</c>'s (115) grand-totals row. Each <see cref="RepeaterRowCell.Fields"/> entry
+    /// is a FULL dataset path (e.g. <c>/Header/Totals/TotalAmountIncludingVAT</c> — typically a leaf of a
+    /// NON-repeating data item); unlike <see cref="BuildDetailRepeaterRow"/>'s it may name any data item — a totals
+    /// row binds whatever the dataset provides, not the repeater's own columns. Label-shaped paths become label
+    /// controls; placement is the caller's job (see <see cref="TableStructureEditor.InsertStaticRow"/>).
     /// </summary>
     /// <param name="cellWidths">Explicit <c>w:tcW</c> per cell (the sum of the grid columns it covers), one per cell.</param>
     /// <exception cref="ArgumentException">
@@ -425,24 +401,24 @@ public static class SdtFactory
             throw new ArgumentException("At least one cell is required.", nameof(cells));
         }
 
-        return BuildRowFromCells(schema, cells, cellWidths, nextId, path => path);
+        return BuildRowFromCells(schema, cells, cellWidths, nextId, (field, _) => field);
     }
 
     /// <summary>
     /// The one row-from-cell-specs builder <see cref="BuildDetailRepeaterRow"/> and
     /// <see cref="BuildStaticRow"/> share: one <c>w:tc</c> per <see cref="RepeaterRowCell"/> (explicit
     /// <c>w:tcW</c>, <c>gridSpan</c> when spanning, compact single-spaced paragraph, optional
-    /// justification), each cell's entries resolved to full dataset paths by
-    /// <paramref name="resolveEntryToPath"/> and chained inline in one paragraph — label-shaped paths (per
-    /// the active <see cref="LabelConvention"/>) as label controls, the rest as fields, with no separator
-    /// between them (the corpus shape).
+    /// justification), each cell's fields checked by <paramref name="resolveField"/> — given the field and its
+    /// position (<c>cells[1].fields[0]</c>) for the message — and chained inline in one paragraph: label-shaped
+    /// paths (per the active <see cref="LabelConvention"/>) as label controls, the rest as fields, with no
+    /// separator between them (the corpus shape).
     /// </summary>
     private static TableRow BuildRowFromCells(
         DatasetTree schema,
         IReadOnlyList<RepeaterRowCell> cells,
         IReadOnlyList<int> cellWidths,
         Func<int> nextId,
-        Func<string, string> resolveEntryToPath)
+        Func<string, string, string> resolveField)
     {
         var convention = LabelConvention.Current;
 
@@ -452,7 +428,7 @@ public static class SdtFactory
             var cell = cells[i];
             if (cell.Span < 1)
             {
-                throw new ArgumentException($"cells[{i}].Span must be >= 1 (got {cell.Span}).", nameof(cells));
+                throw new ArgumentException($"cells[{i}].span must be >= 1 (got {cell.Span}).", nameof(cells));
             }
 
             var paragraph = new Paragraph
@@ -465,12 +441,12 @@ public static class SdtFactory
             if (cell.Alignment is { } alignment)
             {
                 paragraph.ParagraphProperties.Justification =
-                    new Justification { Val = CellTextEditor.ParseAlignment(alignment, nameof(cells)) };
+                    new Justification { Val = CellTextEditor.ParseAlignment(alignment, nameof(cells), $"cells[{i}].alignment") };
             }
 
-            foreach (var entry in cell.Columns)
+            for (var f = 0; f < cell.Fields.Count; f++)
             {
-                var path = resolveEntryToPath(entry);
+                var path = resolveField(cell.Fields[f], $"cells[{i}].fields[{f}]");
                 var segments = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
                 paragraph.AppendChild<OpenXmlElement>(convention.IsLabelPath(segments)
                     ? BuildLabel(schema, path, id: nextId())
@@ -754,48 +730,60 @@ public static class SdtFactory
     }
 
     /// <summary>
-    /// Requires <paramref name="column"/> to be a leaf column directly under <paramref name="dataItem"/>
-    /// (the label-shaped check itself is left to <see cref="BuildField"/>, which every data cell already
-    /// goes through — see <see cref="BuildRepeaterTable"/>).
+    /// The leaf column name <paramref name="field"/> stands for, when it is the FULL dataset path of a leaf column
+    /// directly under <paramref name="dataItem"/> — the one way every tool names a field (GitHub issue #133), exactly
+    /// as list_dataset_fields reports it. A leading slash is optional. A bare column name of the item is refused with
+    /// the full path it stands for, so a call written for the old leaf-name form fails with its own fix in the
+    /// message. The label-shaped check itself is left to <see cref="BuildField"/>/<see cref="BuildLabel"/>.
+    /// <paramref name="what"/> names the entry in the messages (<c>columns[2].field</c>).
     /// </summary>
-    private static void ValidateColumnOfItem(DataItem dataItem, string dataItemPath, string column)
+    internal static string LeafColumnOf(DataItem dataItem, string? field, string what, string paramName)
     {
-        if (string.IsNullOrWhiteSpace(column))
-        {
-            throw new ArgumentException("Column name must not be empty.", nameof(column));
-        }
-
-        if (dataItem.FindChildColumn(column) is not null)
-        {
-            return;
-        }
-
-        if (dataItem.FindChildItem(column) is not null)
+        if (string.IsNullOrWhiteSpace(field))
         {
             throw new ArgumentException(
-                $"Column '{column}' resolves to a nested repeating data item under '{dataItemPath}', not a "
-                + "leaf column; repeater table columns must be leaf columns of the bound data item.",
-                nameof(column));
+                $"{what} is empty; pass the full dataset path of a leaf column of '{dataItem.Path}', as "
+                + "list_dataset_fields reports it.",
+                paramName);
+        }
+
+        var segments = field.Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var itemSegments = dataItem.Path.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (segments.Length == 1 && dataItem.FindChildColumn(segments[0]) is not null)
+        {
+            throw new ArgumentException(
+                $"{what} '{field}' is a column name, not a dataset path; pass the full path "
+                + $"'{dataItem.Path}/{segments[0]}', as list_dataset_fields reports it.",
+                paramName);
+        }
+
+        if (segments.Length != itemSegments.Length + 1
+            || !segments.Take(itemSegments.Length).SequenceEqual(itemSegments, StringComparer.Ordinal))
+        {
+            throw new ArgumentException(
+                $"{what} '{field}' is not a column of data item '{dataItem.Path}': each field here must be the full "
+                + $"path of a leaf column directly under it, e.g. '{dataItem.Path}/<column>' (see list_dataset_fields).",
+                paramName);
+        }
+
+        var leaf = segments[^1];
+        if (dataItem.FindChildColumn(leaf) is not null)
+        {
+            return leaf;
+        }
+
+        if (dataItem.FindChildItem(leaf) is not null)
+        {
+            throw new ArgumentException(
+                $"{what} '{field}' resolves to a nested repeating data item under '{dataItem.Path}', not a leaf "
+                + "column; a table cell binds leaf columns (nest a detail row with insert_repeater_row instead).",
+                paramName);
         }
 
         throw new ArgumentException(
-            $"Column '{column}' is not a leaf column of data item '{dataItemPath}'.",
-            nameof(column));
+            $"{what} '{field}' is not a leaf column of data item '{dataItem.Path}' (see list_dataset_fields).",
+            paramName);
     }
-
-    // ---- BuildRepeaterTable: column widths ----
-
-    /// <summary>
-    /// The caller's explicit widths, else an even split of <paramref name="availableWidthTwips"/> — the
-    /// rule <c>insert_table</c> applies. A fixed per-column default (it was 2000 twips) cannot be right:
-    /// the grid is pinned with <c>w:tblLayout="fixed"</c>, so the default is binding, and six columns of
-    /// 2000 already overran the corpus-standard 10206-twip content width (GitHub issue #84). The split
-    /// floors, so the columns sum to at most the available width — short by fewer twips than there are
-    /// columns, invisible on the page — and rounding can never push the table past the margin.
-    /// </summary>
-    private static IReadOnlyList<int> ResolveColumnWidths(
-        IReadOnlyList<int>? explicitWidths, int columnCount, int availableWidthTwips) =>
-        explicitWidths ?? Enumerable.Repeat(availableWidthTwips / columnCount, columnCount).ToList();
 
     // ---- BuildRepeaterTable: cells (the table's tblPr is TableShell's, shared with insert_table) ----
 

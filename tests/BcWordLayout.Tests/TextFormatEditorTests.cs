@@ -46,7 +46,7 @@ public class TextFormatEditorTests
     /// <summary>A fresh plain table at the end of the body, returning its index.</summary>
     private static int NewPlainTable(string path, int rows = 2, int columns = 3)
     {
-        var response = TableTools.InsertTable(path, rows, columns, locationType: "documentEnd");
+        var response = TableTools.InsertTable(path, rows, TableArgs.Columns(columns), locationType: "documentEnd");
         Assert.True(response.Ok, response.Error?.Message);
         return Assert.IsType<TableEditResultDto>(response.Data).TableIndex;
     }

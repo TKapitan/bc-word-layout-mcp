@@ -224,7 +224,7 @@ public class LayoutBuilderTests
                 LayoutEditor.InsertRepeaterTable(
                     doc,
                     "/Header/Line",
-                    ["ItemNo_Line", "Description_Line"],
+                    TableArgs.DomainFieldsOf("/Header/Line", "ItemNo_Line", "Description_Line"),
                     new Location { Type = LocationKind.DocumentEnd },
                     new RepeaterTableOptions());
                 doc.MainDocumentPart!.Document!.Save();
@@ -431,7 +431,7 @@ public class LayoutBuilderTests
                 tableResult = LayoutEditor.InsertRepeaterTable(
                     doc,
                     "/Header/Line",
-                    new[] { "ItemNo_Line", "Description_Line", "TransHeaderAmount" },
+                    TableArgs.DomainFieldsOf("/Header/Line", "ItemNo_Line", "Description_Line", "TransHeaderAmount"),
                     new Location { Type = LocationKind.DocumentEnd },
                     new RepeaterTableOptions());
                 doc.MainDocumentPart!.Document!.Save();

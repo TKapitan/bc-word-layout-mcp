@@ -158,10 +158,10 @@ public class AmbiguousIdentityTests
             // An all-spacer row binds nothing, so which dataset part is meant cannot matter to it.
             var info = Assert.IsType<LayoutInfoDto>(ReadTools.GetLayoutInfo(path).Data);
             var table = info.Tables[0];
-            var spacer = TableTools.InsertTableRow(path, table.TableIndex, $"{table.ColumnCount}:-");
+            var spacer = TableTools.InsertTableRow(path, table.TableIndex, [new() { Span = table.ColumnCount }]);
             Assert.True(spacer.Ok, spacer.Error?.Message);
 
-            var bound = TableTools.InsertTableRow(path, table.TableIndex, $"{table.ColumnCount}:/Job/No_Job");
+            var bound = TableTools.InsertTableRow(path, table.TableIndex, [new() { Fields = ["/Job/No_Job"], Span = table.ColumnCount }]);
             Assert.Equal("invalid_layout", bound.Error!.Code);
         }
         finally
@@ -448,7 +448,7 @@ public class AmbiguousIdentityTests
         try
         {
             // Refused before the row is even laid out, so the cell specs never get looked at.
-            var response = TableTools.InsertSubtotalRow(path, repeater.SdtId.Value, "-");
+            var response = TableTools.InsertSubtotalRow(path, repeater.SdtId.Value, [new()]);
 
             Assert.Equal("invalid_layout", response.Error!.Code);
             Assert.Contains($"Control id {repeater.SdtId.Value} is carried by 2 content controls", response.Error.Message);

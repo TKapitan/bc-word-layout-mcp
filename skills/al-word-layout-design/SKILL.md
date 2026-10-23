@@ -54,11 +54,11 @@ the table index the insert response returns. The whole recipe below rendered cor
 |---|---|---|---|
 | 1 | Title | (from `create_layout headingText`) | All-caps report/document name, bold heading paragraph |
 | 2 | Logo | `insert_picture` | `/…/CompanyPicture`, 35×18 mm. A Word save squares it to 18×18, so if the layout will be edited in Word, do that first |
-| 3 | Address block | `insert_table` 6×2, `columnWidths "4600,4600"`, then 12× `insert_field` (`tableCell`) | Borderless; company addresses down col 0, counterparty (customer/vendor) down col 1, one bound field per cell, filled row-major |
-| 4 | Info grid | `insert_table` 3×2, `columnWidths "2800,3000"`, then per row `insert_label` col 0 + `insert_field` col 1 | Caption **beside** value — see §4 for the caption-**above** stock alternative |
+| 3 | Address block | `insert_table` `rowCount=6`, `columns=[{"width": 4600}, {"width": 4600}]`, then 12× `insert_field` (`tableCell`) | Borderless; company addresses down col 0, counterparty (customer/vendor) down col 1, one bound field per cell, filled row-major |
+| 4 | Info grid | `insert_table` `rowCount=3`, `columns=[{"width": 2800}, {"width": 3000}]`, then per row `insert_label` col 0 + `insert_field` col 1 | Caption **beside** value — see §4 for the caption-**above** stock alternative |
 | 5 | Section heading *(optional)* | `insert_text` | `format={"bold": true, "fontSizePoints": 16}` heading (e.g. `"ORDER LINES"`), plus a default-size note line [verified: P06] |
-| 6 | Line items | `insert_repeater_table`, `headerFromLabels=true`, `columnWidths`, `columnAlignments` | Numeric columns right, text left, description widest; `tableStyle="TableGrid"` for a full grid **or** no style + a header rule for the open look (§4) |
-| 7 | Totals | Stock shape: `insert_table_row` on the line table (spacer row `"8:-"`-style, then the bound bold row), `set_cell_format` for the rule — see §4. Simpler BC-verified alternative: `insert_table` 1×2, `columnWidths "6200,2400"`, `columnAlignments "right,right"`, 2 fills, `set_cell_format` | Totals text/label left, **bold** amount right, ½ pt rule on top (`edges=["top"], borderSize=4`) |
+| 6 | Line items | `insert_repeater_table`, `headerFromLabels=true`, `columns` with a `width` and `alignment` per column | Numeric columns right, text left, description widest (give it no `width` and it takes what the others leave); `tableStyle="TableGrid"` for a full grid **or** no style + a header rule for the open look (§4) |
+| 7 | Totals | Stock shape: `insert_table_row` on the line table (a spacer row such as `cells=[{"span": 8}]`, then the bound bold row), `set_cell_format` for the rule — see §4. Simpler BC-verified alternative: `insert_table` `rowCount=1`, `columns=[{"width": 6200, "alignment": "right"}, {"width": 2400, "alignment": "right"}]`, 2 fills, `set_cell_format` | Totals text/label left, **bold** amount right, ½ pt rule on top (`edges=["top"], borderSize=4`) |
 
 Checkpoint rhythm: the verified builds ran one `validate_layout level=full` + one `preview_layout`
 at the very end and passed 0/0 — sufficient at this scale, though per-block `preview_layout` +
@@ -73,10 +73,10 @@ at the very end and passed 0/0 — sufficient at this scale, though per-block `p
    header/footer parts render with data on every page in BC [verified: P07].
 3. **Main table**: `insert_repeater_table` over the top-level data item; humanized static headers
    are fine when no label columns exist.
-4. **Nested detail rows**: `insert_repeater_row` on the parent repeater's `controlId`; start the
-   `cells` spec with `"-"` so the first column stays an empty indent spacer and the detail data
-   sits under parent columns 2+; right-align amount cells via `alignments`. Holds the parent grid
-   without drift across pages in BC [verified: P07].
+4. **Nested detail rows**: `insert_repeater_row` on the parent repeater's `controlId`; start
+   `cells` with an empty cell (`{}`) so the first column stays an empty indent spacer and the
+   detail data sits under parent columns 2+; right-align amount cells with their `alignment`.
+   Holds the parent grid without drift across pages in BC [verified: P07].
 5. **Totals**: the same 1×2 idiom as §2 — the caption may be an `insert_label` when it lives in a
    `Labels` data item [verified: P07].
 
@@ -86,7 +86,7 @@ printed filter expressions) in the running header part. That grouped shape is bu
 [stock: 115 — its exact item structure]: the repeater's own line row IS the group header
 (salesperson code/name — `insert_repeater_table`), the nested detail rows are
 `insert_repeater_row`, and the trailing per-group rows are `insert_subtotal_row` — first an
-all-spacer row (`cells="9:-"` on a 9-column grid), then the bold subtotal row binding the
+all-spacer row (`cells=[{"span": 9}]` on a 9-column grid), then the bold subtotal row binding the
 dataset's per-group totals (in 115, a sibling non-repeating `Subtotals` item), amounts
 right-aligned. Grand totals close the table as a static `insert_table_row` (or the separate
 totals table, which is the BC-verified simpler shape [verified: P07]).
@@ -145,16 +145,16 @@ totals table, which is the BC-verified simpler shape [verified: P07]).
 ### Totals block
 - **The stock shape — trailing rows INSIDE the line table — is buildable** [stock: 1304, 1322,
   1306]: `insert_table_row` on the line table (omit `atRow` to append), cells laid on the same
-  grid — leading spacer cells (`-`), a spanned caption cell bound to the totals TEXT field, the
+  grid — a leading spacer cell, a spanned caption cell bound to the totals TEXT field, the
   amount cell right-aligned, `format={"bold": true}`; then `set_cell_format` on the new row for the rule.
   Example on an 8-column stock lines table:
-  `cells="-,-,-,-,3:/Header/Totals/TotalIncludingVATText,/Header/Totals/TotalAmountIncludingVAT"`,
-  `alignments="-,-,-,-,-,right"`. A spacer row before it (`cells="8:-"`) is the stock spacing.
+  `cells=[{"span": 4}, {"fields": ["/Header/Totals/TotalIncludingVATText"], "span": 3}, {"fields": ["/Header/Totals/TotalAmountIncludingVAT"], "alignment": "right"}]`.
+  A spacer row before it (`cells=[{"span": 8}]`) is the stock spacing.
 - A totals *ladder* (excl. VAT / VAT / incl. VAT [stock: 1322]) is repeated `insert_table_row`
   calls: amounts share the right column, the grand-total row gets the bold + rule treatment.
 - The **separate** borderless 1×2 totals table directly after the line table remains BC-verified
   [verified: P01, P06, P07] and is the simpler recipe when stock fidelity is not the goal —
-  `columnWidths "6200,2400"`, `columnAlignments "right,right"`, totals TEXT field (or label) in
+  `columns=[{"width": 6200, "alignment": "right"}, {"width": 2400, "alignment": "right"}]`, totals TEXT field (or label) in
   col 0, amount field with `format={"bold": true}` in col 1, then `set_cell_format` `edges=["top"], borderSize=4` on
   row 0.
 

@@ -93,7 +93,7 @@ public class EditAutoValidationTests
         try
         {
             var response = TableTools.InsertRepeaterTable(
-                path, "/Header/Line", "ItemNo_Line,Description_Line,TransHeaderAmount", "documentEnd");
+                path, "/Header/Line", TableArgs.FieldsOf("/Header/Line", "ItemNo_Line", "Description_Line", "TransHeaderAmount"), "documentEnd");
 
             Assert.True(response.Ok);
             var dto = Assert.IsType<EditResultDto>(response.Data);

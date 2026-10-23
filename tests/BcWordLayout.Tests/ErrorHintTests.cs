@@ -323,7 +323,7 @@ public class ErrorHintTests
         try
         {
             var response = TableTools.InsertRepeaterTable(
-                path, "/Header/ThisDataItemDoesNotExistAnywhere", "ItemNo_Line", "documentEnd");
+                path, "/Header/ThisDataItemDoesNotExistAnywhere", TableArgs.FieldsOf("/Header/ThisDataItemDoesNotExistAnywhere", "ItemNo_Line"), "documentEnd");
             AssertActionableFailure(response, "invalid_argument", "list_dataset_fields");
         }
         finally
@@ -339,7 +339,7 @@ public class ErrorHintTests
         try
         {
             var response = TableTools.InsertRepeaterTable(
-                path, "/Header/Line", "ThisColumnDoesNotExistAnywhere", "documentEnd");
+                path, "/Header/Line", TableArgs.FieldsOf("/Header/Line", "ThisColumnDoesNotExistAnywhere"), "documentEnd");
             AssertActionableFailure(response, "invalid_argument", "leaf column");
         }
         finally
@@ -354,7 +354,7 @@ public class ErrorHintTests
         var path = CopyOfCorpus(Corpus.SalesInvoice);
         try
         {
-            var response = TableTools.InsertRepeaterTable(path, "/Header/Line", "   ", "documentEnd");
+            var response = TableTools.InsertRepeaterTable(path, "/Header/Line", [], "documentEnd");
             AssertActionableFailure(response, "invalid_argument", "leaf column");
         }
         finally
@@ -364,15 +364,14 @@ public class ErrorHintTests
     }
 
     [Fact]
-    public void InsertRepeaterTable_columnWidths_mismatch_hint_names_columnWidths()
+    public void InsertRepeaterTable_widths_that_leave_a_column_nothing_hint_names_the_columns_shape()
     {
         var path = CopyOfCorpus(Corpus.SalesInvoice);
         try
         {
             var response = TableTools.InsertRepeaterTable(
-                path, "/Header/Line", "ItemNo_Line,Description_Line,TransHeaderAmount", "documentEnd",
-                columnWidths: "1000,2000");
-            AssertActionableFailure(response, "invalid_argument", "columnwidths");
+                path, "/Header/Line", [new() { Field = "/Header/Line/ItemNo_Line", Width = 20000 }, new() { Field = "/Header/Line/Description_Line", Width = 20000 }, new() { Field = "/Header/Line/TransHeaderAmount" }], "documentEnd");
+            AssertActionableFailure(response, "invalid_argument", "the given widths must leave some");
         }
         finally
         {
