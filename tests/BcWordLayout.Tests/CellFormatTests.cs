@@ -111,7 +111,7 @@ public class CellFormatTests
     }
 
     [Fact]
-    public void Tool_set_cell_format_style_none_clears_an_edge_with_an_explicit_nil()
+    public void Tool_set_cell_format_borderStyle_none_clears_an_edge_with_an_explicit_nil()
     {
         // An explicit nil, not a deleted element: in a table that declares its own w:tblBorders, a deleted
         // edge simply inherits the grid line back.

@@ -112,9 +112,9 @@ already says it. Leave impact off while it is genuinely unknown (e.g.
 ### Roadmap
 
 `roadmap` marks parked ideas with no design or schedule yet (e.g.
-[#15](https://github.com/TKapitan/bc-word-layout-mcp/issues/15),
-[#16](https://github.com/TKapitan/bc-word-layout-mcp/issues/16)) — the pool revisited when picking
-post-release work, ordered by expected community value.
+[#28](https://github.com/TKapitan/bc-word-layout-mcp/issues/28)–[#31](https://github.com/TKapitan/bc-word-layout-mcp/issues/31),
+all picked up and shipped since) — the pool revisited when picking post-release work, ordered by
+expected community value.
 
 ### Triage rules
 
