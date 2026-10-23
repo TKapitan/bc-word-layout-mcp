@@ -180,10 +180,10 @@ public class GridCoordinateReportingTests
     [Theory]
     [InlineData(6, 7)] // VAT %, spanning grid 7-8 in the data row
     [InlineData(7, 9)] // Line Amount
-    public void Set_cell_borders_reports_the_grid_column_of_the_cell_it_drew_on(int physicalCol, int gridColumn)
+    public void Set_cell_format_reports_the_grid_column_of_the_cell_it_draws_on(int physicalCol, int gridColumn)
     {
-        // TableEditResultDto.ColumnIndex is documented as a GRID column; set_cell_format echoed the physical
-        // col back instead.
+        // TableEditResultDto.ColumnIndex is documented as a GRID column; set_cell_borders, as the tool was
+        // named then, echoed the physical col back instead (GitHub issue #81).
         var path = CopyOfCorpus(Corpus.SalesInvoiceVatSpec);
         try
         {

@@ -217,7 +217,6 @@ totals table, which is the BC-verified simpler shape [verified: P07]).
 | Stock idiom | Why no tool | Route |
 |---|---|---|
 | Page-position-CONDITIONAL content (`IF PAGE = NUMPAGES`) | Blocked on add-in-compatible OOXML evidence (#11); plain `PAGE`/`NUMPAGES` itself IS buildable — `insert_page_number` (§4 Chrome) | `templatePath` shell carrying the construct, or hand-edit + `validate_layout` |
-| Colour header bands / accent colours [stock: 1306] | No shading tool (#15) | Branded `templatePath` or hand-edit + validate |
 | Hide-if-empty add-in controls | Row/table variants captured [stock: 115, SubcontractorDispatchList] but BC's "empty" rule unverified (#123); *Hide Field if Zero* never captured (#8) | Reserve the rows/cells; stock layouts render empty lines too |
 
 ## 6. Design-time mock caveats
