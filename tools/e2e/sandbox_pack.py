@@ -232,7 +232,7 @@ def p01(b: Build):
            locationType="tableCell", tableIndex=tot_idx, row=0, col=0)
     b.edit("insert_field", field=Build.pick(all_paths, "/Header/Totals/TotalAmountIncludingVAT"),
            locationType="tableCell", tableIndex=tot_idx, row=0, col=1, format={"bold": True})
-    b.edit("set_cell_format", tableIndex=tot_idx, row=0, edges="top", borderSize=4)
+    b.edit("set_cell_format", tableIndex=tot_idx, row=0, edges=["top"], borderSize=4)
     b.note("right-anchored totals block with a 1/2pt rule above it (set_cell_format)")
 
 
@@ -279,7 +279,7 @@ def p02(b: Build):
     widths[1] = int(widths[1] * 1.25)
     drift = sum(widths) - total
     widths[-1] -= drift
-    b.edit("set_column_widths", tableIndex=idx, widths=",".join(str(w) for w in widths))
+    b.edit("set_column_widths", tableIndex=idx, widths=list(widths))
     b.note(f"set_column_widths: description column widened 25%, taken off the last column, grid total unchanged ({total} twips)")
 
     # Re-label the new column's header from a bound label to static text. Every header cell here is a
@@ -290,7 +290,7 @@ def p02(b: Build):
     b.note("remove_control + set_cell_text: the new column's header swapped from a bound label to "
            "static 'UoM' text (so the render shows a bound header and a static one side by side)")
 
-    b.edit("set_cell_format", tableIndex=idx, row=0, edges="bottom", borderSize=4)
+    b.edit("set_cell_format", tableIndex=idx, row=0, edges=["bottom"], borderSize=4)
     b.note("set_cell_format: 1/2pt rule under the header row")
 
 
@@ -465,7 +465,7 @@ def p05(b: Build):
     table = next(t for t in info["tables"] if t["tableIndex"] == idx and t["part"] == "document.xml")
     widths = list(table["gridColumnWidths"])
     widths[1] += total - sum(widths)
-    b.edit("set_column_widths", tableIndex=idx, widths=",".join(str(w) for w in widths))
+    b.edit("set_column_widths", tableIndex=idx, widths=list(widths))
     b.note(f"set_column_widths: the freed width folded into the description column, grid total back "
            f"to {total} twips")
 
@@ -476,7 +476,7 @@ def p05(b: Build):
     b.note("remove_control + merge_cells: the second header cell's label removed, then the first two "
            "header cells merged into one spanning cell")
 
-    b.edit("set_cell_format", tableIndex=idx, row=0, edges="bottom", borderSize=4)
+    b.edit("set_cell_format", tableIndex=idx, row=0, edges=["bottom"], borderSize=4)
     b.note("set_cell_format: 1/2pt rule under the header row")
 
 
@@ -568,7 +568,7 @@ def p06(b: Build):
            locationType="tableCell", tableIndex=tot_idx, row=0, col=0)
     b.edit("insert_field", field=Build.pick(all_paths, "/Purchase_Header/Totals/TotalAmountInclVAT"),
            locationType="tableCell", tableIndex=tot_idx, row=0, col=1, format={"bold": True})
-    b.edit("set_cell_format", tableIndex=tot_idx, row=0, edges="top", borderSize=4)
+    b.edit("set_cell_format", tableIndex=tot_idx, row=0, edges=["top"], borderSize=4)
     b.note("right-anchored totals block with a 1/2pt rule above it (set_cell_format)")
 
 
@@ -651,7 +651,7 @@ def p07(b: Build):
            locationType="tableCell", tableIndex=tot_idx, row=0, col=0)
     b.edit("insert_field", field=Build.pick(all_paths, "/Totals/Totals_SalesCommission"),
            locationType="tableCell", tableIndex=tot_idx, row=0, col=1, format={"bold": True})
-    b.edit("set_cell_format", tableIndex=tot_idx, row=0, edges="top", borderSize=4)
+    b.edit("set_cell_format", tableIndex=tot_idx, row=0, edges=["top"], borderSize=4)
     b.note("right-anchored totals block: TotalsCaption LABEL + total sales commission FIELD, "
            "1/2pt rule above")
 

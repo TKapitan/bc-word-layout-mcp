@@ -265,16 +265,16 @@ public class InvalidArgumentHintCoverageTests
         }
     }
 
-    // ---- "widths" — TableTools.ParseIntListOrThrow, called only from set_column_widths ----
+    // ---- "widths" — TableTools.CheckWidthsOrThrow, called only from set_column_widths ----
 
     [Fact]
-    public void SetColumnWidths_bad_integer_format_hint_names_set_column_widths_shape()
+    public void SetColumnWidths_out_of_range_width_hint_names_set_column_widths_shape()
     {
         var path = SyntheticLayout.Create(SyntheticLayout.SimpleTable(rows: 2, cols: 3));
         try
         {
-            var response = TableTools.SetColumnWidths(path, tableIndex: 0, widths: "1000,abc,2000");
-            AssertActionableFailure(response, "invalid_argument", "set_column_widths' widths must be a non-empty");
+            var response = TableTools.SetColumnWidths(path, tableIndex: 0, widths: [1000, 0, 2000]);
+            AssertActionableFailure(response, "invalid_argument", "set_column_widths' widths is an array of integers");
         }
         finally
         {
@@ -530,7 +530,7 @@ public class InvalidArgumentHintCoverageTests
         var path = SyntheticLayout.Create(SyntheticLayout.SimpleTable(rows: 2, cols: 3));
         try
         {
-            var response = TableTools.SetCellFormat(path, tableIndex: 0, row: 0, edges: "sideways");
+            var response = TableTools.SetCellFormat(path, tableIndex: 0, row: 0, edges: ["sideways"]);
             AssertActionableFailure(response, "invalid_argument", "'bottom'");
         }
         finally
@@ -545,7 +545,7 @@ public class InvalidArgumentHintCoverageTests
         var path = SyntheticLayout.Create(SyntheticLayout.SimpleTable(rows: 2, cols: 3));
         try
         {
-            var response = TableTools.SetCellFormat(path, tableIndex: 0, row: 0, edges: "top", borderSize: 0);
+            var response = TableTools.SetCellFormat(path, tableIndex: 0, row: 0, edges: ["top"], borderSize: 0);
             AssertActionableFailure(response, "invalid_argument", "eighths of a point");
         }
         finally
@@ -848,7 +848,7 @@ public class InvalidArgumentHintCoverageTests
         var path = SyntheticLayout.Create(body);
         try
         {
-            var response = TableTools.SetColumnWidths(path, tableIndex: 0, widths: "2000,2000");
+            var response = TableTools.SetColumnWidths(path, tableIndex: 0, widths: [2000, 2000]);
             AssertActionableFailure(response, "invalid_argument", "Check the argument named in the message above");
         }
         finally

@@ -904,7 +904,7 @@ public class RepeaterTableTests
             Assert.True(afterRemove.Ok, afterRemove.Error?.Message);
             AssertDeclaredTotalMatchesGrid(path, tableIndex, expectedTotal: 8700);
 
-            var afterResize = TableTools.SetColumnWidths(path, tableIndex, "2000,2000,2000");
+            var afterResize = TableTools.SetColumnWidths(path, tableIndex, [2000, 2000, 2000]);
             Assert.True(afterResize.Ok, afterResize.Error?.Message);
             AssertDeclaredTotalMatchesGrid(path, tableIndex, expectedTotal: 6000);
         }

@@ -58,7 +58,7 @@ the table index the insert response returns. The whole recipe below rendered cor
 | 4 | Info grid | `insert_table` 3×2, `columnWidths "2800,3000"`, then per row `insert_label` col 0 + `insert_field` col 1 | Caption **beside** value — see §4 for the caption-**above** stock alternative |
 | 5 | Section heading *(optional)* | `insert_text` | `format={"bold": true, "fontSizePoints": 16}` heading (e.g. `"ORDER LINES"`), plus a default-size note line [verified: P06] |
 | 6 | Line items | `insert_repeater_table`, `headerFromLabels=true`, `columnWidths`, `columnAlignments` | Numeric columns right, text left, description widest; `tableStyle="TableGrid"` for a full grid **or** no style + a header rule for the open look (§4) |
-| 7 | Totals | Stock shape: `insert_table_row` on the line table (spacer row `"8:-"`-style, then the bound bold row), `set_cell_format` for the rule — see §4. Simpler BC-verified alternative: `insert_table` 1×2, `columnWidths "6200,2400"`, `columnAlignments "right,right"`, 2 fills, `set_cell_format` | Totals text/label left, **bold** amount right, ½ pt rule on top (`edges="top", borderSize=4`) |
+| 7 | Totals | Stock shape: `insert_table_row` on the line table (spacer row `"8:-"`-style, then the bound bold row), `set_cell_format` for the rule — see §4. Simpler BC-verified alternative: `insert_table` 1×2, `columnWidths "6200,2400"`, `columnAlignments "right,right"`, 2 fills, `set_cell_format` | Totals text/label left, **bold** amount right, ½ pt rule on top (`edges=["top"], borderSize=4`) |
 
 Checkpoint rhythm: the verified builds ran one `validate_layout level=full` + one `preview_layout`
 at the very end and passed 0/0 — sufficient at this scale, though per-block `preview_layout` +
@@ -132,7 +132,7 @@ totals table, which is the BC-verified simpler shape [verified: P07]).
   - **Open** [stock: 1304, 1322]: no table style, single ½ pt rule under the header row — exactly
     what `insert_repeater_table` draws by default (`borders="headerRule"`); add nothing. (A plain
     `insert_table` takes the same `borders="headerRule"`; on an existing table the rule is
-    `set_cell_format` `row=0, edges="bottom", borderSize=4`.)
+    `set_cell_format` `row=0, edges=["bottom"], borderSize=4`.)
   - **Full grid** [verified: P06]: `tableStyle="TableGrid"` — the style reference alone draws the
     ½ pt grid (BC honours `w:tblStyle` against the scaffolded styles part); don't also paint
     per-cell borders. (`borders="grid"` paints the same grid as explicit table borders instead;
@@ -155,7 +155,7 @@ totals table, which is the BC-verified simpler shape [verified: P07]).
 - The **separate** borderless 1×2 totals table directly after the line table remains BC-verified
   [verified: P01, P06, P07] and is the simpler recipe when stock fidelity is not the goal —
   `columnWidths "6200,2400"`, `columnAlignments "right,right"`, totals TEXT field (or label) in
-  col 0, amount field with `format={"bold": true}` in col 1, then `set_cell_format` `edges="top", borderSize=4` on
+  col 0, amount field with `format={"bold": true}` in col 1, then `set_cell_format` `edges=["top"], borderSize=4` on
   row 0.
 
 ### Chrome: title, logo, date, page numbers

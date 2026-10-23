@@ -112,7 +112,7 @@ public class PlainTableTests
                 path, rows: 3, columns: 2, locationType: "documentEnd", borders: "headerRule").Data);
             var drawnLater = Assert.IsType<TableEditResultDto>(TableTools.InsertTable(
                 path, rows: 3, columns: 2, locationType: "documentEnd").Data);
-            Assert.True(TableTools.SetCellFormat(path, drawnLater.TableIndex, row: 0, edges: "bottom").Ok);
+            Assert.True(TableTools.SetCellFormat(path, drawnLater.TableIndex, row: 0, edges: ["bottom"]).Ok);
 
             using var reopened = WordprocessingDocument.Open(path, false);
             var tables = TableGridNavigator.Tables(reopened.MainDocumentPart!.Document!.Body!);

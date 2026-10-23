@@ -106,7 +106,7 @@ public sealed class McpHostPipelineTests(McpHostPipeline pipeline) : IClassFixtu
     [InlineData("insert_field", """ "field":"/Header/CustomerAddress1","locationType":"tableCell","tableIndex":"abc" """, "tableIndex", "an integer or null", "the string \"abc\"")]
     [InlineData("remove_control", """ "controlId":1,"keepText":"true" """, "keepText", "a boolean (true or false)", "the string \"true\"")]
     [InlineData("insert_table", """ "rows":1.5,"columns":2,"locationType":"documentEnd" """, "rows", "an integer", "the number 1.5")]
-    [InlineData("set_cell_format", """ "tableIndex":0,"row":0,"edges":"top","borderSize":"thick" """, "borderSize", "an integer or null", "the string \"thick\"")]
+    [InlineData("set_cell_format", """ "tableIndex":0,"row":0,"edges":["top"],"borderSize":"thick" """, "borderSize", "an integer or null", "the string \"thick\"")]
     [InlineData("remove_control", """ "controlId":[1] """, "controlId", "an integer", "an array")]
     public async Task A_wrong_typed_argument_is_invalid_argument_naming_the_parameter_and_its_type(
         string tool, string otherArguments, string parameter, string expected, string sent)
@@ -136,7 +136,7 @@ public sealed class McpHostPipelineTests(McpHostPipeline pipeline) : IClassFixtu
     [Theory]
     [InlineData("insert_repeater_table", """ "dataItem":"/Header/Line","columns":"ItemNo_Line","locationType":"documentEnd","borders":null """)]
     [InlineData("insert_table", """ "rows":1,"columns":2,"locationType":"documentEnd","borders":null """)]
-    [InlineData("set_cell_format", """ "tableIndex":0,"row":0,"edges":"top","borderStyle":null """)]
+    [InlineData("set_cell_format", """ "tableIndex":0,"row":0,"edges":["top"],"borderStyle":null """)]
     [InlineData("validate_layout", """ "level":null """)]
     public async Task An_explicit_null_for_an_optional_enum_like_string_is_its_documented_default(
         string tool, string otherArguments)
@@ -170,14 +170,15 @@ public sealed class McpHostPipelineTests(McpHostPipeline pipeline) : IClassFixtu
     }
 
     /// <summary>
-    /// Sends an explicit JSON null for EVERY string parameter of EVERY tool, one at a time, with the other
-    /// required arguments set to plausible values: none may come back as <c>internal_error</c> (the "bug in the
-    /// tool" code). New tools and parameters are covered automatically; a new REQUIRED parameter name needs a
-    /// baseline value below, and the test says so. <c>preview_layout</c> is always pointed at a missing layout
-    /// and the converter seam at a fake that records any use, so the sweep can never start a conversion.
+    /// Sends an explicit JSON null for EVERY parameter of EVERY tool that can bind one — strings, and the object and
+    /// array arguments (GitHub issue #133) — one at a time, with the other required arguments set to plausible
+    /// values: none may come back as <c>internal_error</c> (the "bug in the tool" code). New tools and parameters
+    /// are covered automatically; a new REQUIRED parameter name needs a baseline value below, and the test says
+    /// so. <c>preview_layout</c> is always pointed at a missing layout and the converter seam at a fake that
+    /// records any use, so the sweep can never start a conversion.
     /// </summary>
     [Fact]
-    public async Task No_string_parameter_of_any_tool_turns_an_explicit_null_into_internal_error()
+    public async Task No_parameter_of_any_tool_turns_an_explicit_null_into_internal_error()
     {
         var converterUses = 0;
         LifecycleTools.SelectConverter = _ =>
@@ -191,7 +192,7 @@ public sealed class McpHostPipelineTests(McpHostPipeline pipeline) : IClassFixtu
         {
             foreach (var (tool, method) in ToolMethods())
             {
-                foreach (var nulled in method.GetParameters().Where(p => p.ParameterType == typeof(string)))
+                foreach (var nulled in method.GetParameters().Where(p => !p.ParameterType.IsValueType))
                 {
                     var arguments = new Dictionary<string, object?> { [nulled.Name!] = null };
                     foreach (var p in method.GetParameters().Where(p => !p.HasDefaultValue && p.Name != nulled.Name))
@@ -227,6 +228,11 @@ public sealed class McpHostPipelineTests(McpHostPipeline pipeline) : IClassFixtu
             };
         }
 
+        if (parameter.ParameterType == typeof(IReadOnlyList<int>))
+        {
+            return new[] { 1000 };
+        }
+
         Assert.True(parameter.ParameterType == typeof(string), $"{tool}.{parameter.Name}: no baseline for type {parameter.ParameterType}.");
         return parameter.Name switch
         {
@@ -243,8 +249,6 @@ public sealed class McpHostPipelineTests(McpHostPipeline pipeline) : IClassFixtu
             "mode" => "plainText",
             "text" => "x",
             "cells" => "-",
-            "widths" => "1000",
-            "edges" => "top",
             "target" => "row",
             _ => throw new InvalidOperationException(
                 $"{tool}.{parameter.Name} is a required string parameter with no baseline value in this sweep; add one."),
@@ -285,7 +289,7 @@ public sealed class McpHostPipelineTests(McpHostPipeline pipeline) : IClassFixtu
     [Theory]
     [InlineData("insert_text", """ "text":"x","locationType":"documentEnd","layoutpart":"footer" """, "layoutpart", "layoutPart")]
     [InlineData("insert_column", """ "tableIndex":0,"mode":"plainText","atcolumn":0 """, "atcolumn", "atColumn")]
-    [InlineData("set_cell_format", """ "tableIndex":0,"row":0,"edges":"top","column":1 """, "column", "col")]
+    [InlineData("set_cell_format", """ "tableIndex":0,"row":0,"edges":["top"],"column":1 """, "column", "col")]
     [InlineData("insert_field", """ "field":"/Header/CustomerAddress1","locationType":"tableCell","tableIndex":0,"row":0,"col":0,"tabelIndex":1 """, "tabelIndex", "tableIndex")]
     public async Task An_unknown_argument_name_is_refused_naming_the_closest_real_parameter_and_nothing_is_written(
         string tool, string otherArguments, string sent, string meant)
@@ -413,6 +417,70 @@ public sealed class McpHostPipelineTests(McpHostPipeline pipeline) : IClassFixtu
         result.AssertFailure("invalid_argument", "Argument 'format' of insert_text", "must be a JSON object", $"sent {sent}");
     }
 
+    // ---- array arguments (GitHub issue #133) ----
+
+    [Fact]
+    public async Task A_list_sent_as_a_json_string_is_read_as_the_array_it_holds()
+    {
+        // The same tolerance as for format: the string is unambiguous JSON, so it is read rather than refused.
+        var path = CopyOfCorpus(Corpus.SalesInvoice);
+
+        var result = await pipeline.CallAsync(
+            "set_column_widths", $$"""{"layoutPath":{{J(path)}},"tableIndex":0,"widths":"[1500, 8706]"}""");
+
+        Assert.True(result.Ok, result.RawText);
+    }
+
+    [Fact]
+    public async Task A_comma_separated_list_is_invalid_argument_asking_for_a_json_array()
+    {
+        // The pre-2.0 form. It is not read as a list: a comma could never be part of a value, and empty entries
+        // were silently dropped.
+        var result = await pipeline.CallAsync(
+            "set_column_widths", $$"""{"layoutPath":{{J(MissingFile())}},"tableIndex":0,"widths":"1500,8706"}""");
+
+        result.AssertFailure(
+            "invalid_argument", "Argument 'widths' of set_column_widths", "must be a JSON array of integers", "sent the string \"1500,8706\"");
+        Assert.Contains("a list is a JSON array ([1500, 6000]), not a comma-separated string", result.Hint, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("set_column_widths", """ "tableIndex":0,"widths":[1500,"wide"] """, "Item 'widths[1]'", "an integer", "the string \"wide\"")]
+    [InlineData("set_column_widths", """ "tableIndex":0,"widths":[1500,null] """, "Item 'widths[1]'", "an integer", "null")]
+    [InlineData("set_cell_format", """ "tableIndex":0,"row":0,"edges":["top",5] """, "Item 'edges[1]'", "a string", "the number 5")]
+    [InlineData("set_cell_format", """ "tableIndex":0,"row":0,"edges":"top" """, "Argument 'edges'", "a JSON array of strings or null", "the string \"top\"")]
+    public async Task A_wrong_typed_list_or_item_is_invalid_argument_naming_exactly_that_item(
+        string tool, string otherArguments, string what, string expected, string sent)
+    {
+        var result = await pipeline.CallAsync(tool, $$"""{"layoutPath":{{J(MissingFile())}},{{otherArguments}}}""");
+
+        Assert.True(result.IsError);
+        result.AssertFailure("invalid_argument", $"{what} of {tool}", $"must be {expected},", $"sent {sent}");
+    }
+
+    [Fact]
+    public async Task The_input_schema_puts_a_lists_allowed_values_and_range_on_its_items()
+    {
+        // The SDK writes [AllowedValues]/[Range] on a LIST parameter onto the array node, where no value can satisfy
+        // them; ToolInputSchemas moves them onto items, so tools/list says what each entry may be.
+        var tools = await pipeline.Client.ListToolsAsync();
+        JsonElement Parameter(string tool, string name) =>
+            tools.Single(t => t.Name == tool).ProtocolTool.InputSchema.GetProperty("properties").GetProperty(name);
+
+        var edges = Parameter("set_cell_format", "edges");
+        Assert.False(edges.TryGetProperty("enum", out _));
+        Assert.Equal(
+            new[] { "top", "bottom", "left", "right", "all" },
+            edges.GetProperty("items").GetProperty("enum").EnumerateArray().Select(e => e.GetString()));
+        Assert.Equal(1, edges.GetProperty("minItems").GetInt32());
+
+        var widths = Parameter("set_column_widths", "widths");
+        Assert.False(widths.TryGetProperty("minimum", out _));
+        Assert.Equal(1, widths.GetProperty("items").GetProperty("minimum").GetInt32());
+        Assert.Equal(TableTools.MaxColumnWidthTwips, widths.GetProperty("items").GetProperty("maximum").GetInt32());
+        Assert.Equal("integer", widths.GetProperty("items").GetProperty("type").GetString());
+    }
+
     // ---- relative paths (GitHub issue #90) ----
 
     [Fact]
@@ -503,9 +571,9 @@ public sealed class McpHostPipelineTests(McpHostPipeline pipeline) : IClassFixtu
     // ---- numeric ranges (GitHub issue #98) ----
 
     [Theory]
-    [InlineData("set_column_widths", """ "tableIndex":0,"widths":"-500,5103" """, "widths entry '-500'", "set_column_widths' widths")]
-    [InlineData("set_column_widths", """ "tableIndex":0,"widths":"0,0" """, "widths entry '0'", "set_column_widths' widths")]
-    [InlineData("set_column_widths", """ "tableIndex":0,"widths":"40000,100" """, "widths entry '40000'", "set_column_widths' widths")]
+    [InlineData("set_column_widths", """ "tableIndex":0,"widths":[-500,5103] """, "widths[0] (-500)", "set_column_widths' widths")]
+    [InlineData("set_column_widths", """ "tableIndex":0,"widths":[5103,0] """, "widths[1] (0)", "set_column_widths' widths")]
+    [InlineData("set_column_widths", """ "tableIndex":0,"widths":[40000,100] """, "widths[0] (40000)", "set_column_widths' widths")]
     [InlineData("insert_table", """ "rows":1,"columns":2,"locationType":"documentEnd","columnWidths":"-100,200" """, "columnWidths entry '-100'", "columnWidths, if supplied")]
     [InlineData("insert_table", """ "rows":1,"columns":2,"locationType":"documentEnd","columnWidths":"0,200" """, "columnWidths entry '0'", "columnWidths, if supplied")]
     [InlineData("insert_repeater_table", """ "dataItem":"/Header/Line","columns":"ItemNo_Line","locationType":"documentEnd","columnWidths":"-5" """, "columnWidths entry '-5'", "columnWidths, if supplied")]
@@ -530,7 +598,7 @@ public sealed class McpHostPipelineTests(McpHostPipeline pipeline) : IClassFixtu
     public async Task Column_widths_at_both_bounds_are_accepted()
     {
         var result = await pipeline.CallAsync(
-            "set_column_widths", $$"""{"layoutPath":{{J(CopyOfCorpus(Corpus.SalesInvoice))}},"tableIndex":0,"widths":"1,{{TableTools.MaxColumnWidthTwips}}"}""");
+            "set_column_widths", $$"""{"layoutPath":{{J(CopyOfCorpus(Corpus.SalesInvoice))}},"tableIndex":0,"widths":[1,{{TableTools.MaxColumnWidthTwips}}]}""");
 
         Assert.True(result.Ok, result.RawText);
     }

@@ -663,7 +663,7 @@ def s02(ctx: Ctx):
     # widths back and take it all out of the (widest) description column instead.
     widths = before["gridColumnWidths"] + [1000]
     widths[1] -= 1000
-    ctx.edit("set_column_widths", tableIndex=3, widths=",".join(map(str, widths)))
+    ctx.edit("set_column_widths", tableIndex=3, widths=list(widths))
     after = ctx.info()["tables"][3]
     ctx.expect(after["columnCount"] == 8, "8 columns after the append")
     ctx.expect(after["gridColumnWidths"] == widths, "the re-fit widths are exactly the ones set")
@@ -725,7 +725,7 @@ def s05(ctx: Ctx):
     widths = before["gridColumnWidths"] + [900, 1100]
     widths[1] -= 2000
     ctx.expect(widths[1] > 500, "description column still has usable width after the refit")
-    ctx.edit("set_column_widths", tableIndex=3, widths=",".join(map(str, widths)))
+    ctx.edit("set_column_widths", tableIndex=3, widths=list(widths))
     after = ctx.info()["tables"][3]
     ctx.expect(after["columnCount"] == 9, "9 columns after both appends")
     ctx.expect(ctx.grid_total(after) == total_before, "table re-fitted to its original width")
@@ -756,7 +756,7 @@ def s06(ctx: Ctx):
     # Re-fit: the remaining columns back at their post-removal widths, the new one out of the description.
     widths = removed["gridColumnWidths"] + [1200]
     widths[1] -= 1200
-    ctx.edit("set_column_widths", tableIndex=3, widths=",".join(map(str, widths)))
+    ctx.edit("set_column_widths", tableIndex=3, widths=list(widths))
     info = ctx.info()
     after = info["tables"][3]
     ctx.expect(after["columnCount"] == 7, "7 columns: one removed, one added")
@@ -1037,7 +1037,7 @@ def s18(ctx: Ctx):
                "the grand-total amount cell is bound in the table's last row")
 
     # The rule above the totals block - the remaining half of the stock look.
-    ctx.edit("set_cell_format", tableIndex=2, row=after["rowCount"] - 1, edges="top")
+    ctx.edit("set_cell_format", tableIndex=2, row=after["rowCount"] - 1, edges=["top"])
 
 
 @scenario("s19-subinv-grouped-lines-with-subtotals",
@@ -1069,7 +1069,7 @@ def s19(ctx: Ctx):
     after = ctx.info()["tables"][table["tableIndex"]]
     # Every w:tr is its own row (issue #80): header, line, detail, spacer, subtotal, grand total.
     ctx.expect(after["rowCount"] == 6, f"all six rows are listed (got {after['rowCount']})")
-    ctx.edit("set_cell_format", tableIndex=table["tableIndex"], row=after["rowCount"] - 1, edges="top")
+    ctx.edit("set_cell_format", tableIndex=table["tableIndex"], row=after["rowCount"] - 1, edges=["top"])
     off_grid = ctx.rows_off_grid(table["tableIndex"])
     ctx.expect(not off_grid, f"every w:tr of the authored table covers its grid (off-grid: {off_grid})")
 

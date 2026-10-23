@@ -187,7 +187,7 @@ public class GridCoordinateReportingTests
         var path = CopyOfCorpus(Corpus.SalesInvoiceVatSpec);
         try
         {
-            var response = TableTools.SetCellFormat(path, LinesTable, row: 1, edges: "bottom", col: physicalCol);
+            var response = TableTools.SetCellFormat(path, LinesTable, row: 1, edges: ["bottom"], col: physicalCol);
             Assert.True(response.Ok, response.Error?.Message);
 
             var dto = Assert.IsType<TableEditResultDto>(response.Data);

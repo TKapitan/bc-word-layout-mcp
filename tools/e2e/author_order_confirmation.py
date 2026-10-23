@@ -107,8 +107,8 @@ for row, caption, amount, emphasize in totals:
          tableIndex=TOTALS_TABLE, row=row, col=2, format={"bold": emphasize})
 # The rules a real BC totals block carries: one above the block, one above and below the grand total.
 for col in (1, 2):
-    edit("set_cell_format", tableIndex=TOTALS_TABLE, row=0, col=col, edges="top")
-    edit("set_cell_format", tableIndex=TOTALS_TABLE, row=2, col=col, edges="top,bottom")
+    edit("set_cell_format", tableIndex=TOTALS_TABLE, row=0, col=col, edges=["top"])
+    edit("set_cell_format", tableIndex=TOTALS_TABLE, row=2, col=col, edges=["top", "bottom"])
 print("totals + rules")
 if THROUGH < 8: sys.exit(0)
 
@@ -147,7 +147,7 @@ edit("insert_column", tableIndex=LINES_TABLE, mode="field",
      headerLabelPath="/Header/Line/ItemReferenceNo_Line_Lbl",
      atColumn=2, width=1200)
 edit("set_column_widths", tableIndex=LINES_TABLE,
-     widths="1100,2400,1200,800,800,1300,900,1706")  # re-fit to the 10206 content width
+     widths=[1100, 2400, 1200, 800, 800, 1300, 900, 1706])  # re-fit to the 10206 content width
 print("interior Item Reference column")
 if THROUGH < 10: sys.exit(0)
 

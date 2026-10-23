@@ -154,6 +154,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   first page will not show on page 1. A test now fails if any tool parameter is described as never to
   be passed.
 
+- **BREAKING: list arguments are JSON arrays** (GitHub issue #133). Every list was a comma-separated
+  string: the schema could not say what an entry may be, an empty entry was silently dropped, and a
+  value could never contain a comma. A list is now a JSON array of typed entries, and tools/list
+  states each entry's allowed values or range. A list sent as a JSON-encoded string (`"[1500, 6206]"`)
+  is read as the array it holds, as `format` already is; a comma-separated string is refused with a
+  hint that asks for an array. A wrong entry is named by its position (`widths[2]`).
+
+  | Tool | Before | After |
+  | --- | --- | --- |
+  | `set_column_widths` | `"widths": "1500,6206,2500"` | `"widths": [1500, 6206, 2500]` |
+  | `set_cell_format` | `"edges": "top,bottom"` | `"edges": ["top", "bottom"]` |
+
 - **`remove_control keepText=true` on a block-level repeater now unwraps it** instead of refusing
   (GitHub issue #31): section, group and item go at once and the content stays in place, printing
   once. It is the undo of `wrap_in_repeater`, and works on the stock statement and work-description

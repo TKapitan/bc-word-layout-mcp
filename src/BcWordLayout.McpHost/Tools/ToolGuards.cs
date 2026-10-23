@@ -1399,10 +1399,10 @@ internal static class ToolGuards
             + "exactly - omit it entirely for an even default width per column instead.",
 
         "widths" =>
-            "set_column_widths' widths must be a non-empty comma-separated list of integers (twips, each 1 to "
-            + $"{TableTools.MaxColumnWidthTwips}), exactly one per GRID column - the count must equal the table's "
-            + "columnCount from get_layout_info (a cell's own columns are positions "
-            + "gridColumn..gridColumn+gridSpan-1 in that list).",
+            "set_column_widths' widths is an array of integers - twips, each 1 to "
+            + $"{TableTools.MaxColumnWidthTwips} - with exactly one per GRID column, e.g. [1500, 6206, 2500]: the count "
+            + "must equal the table's columnCount from get_layout_info (a cell's own columns are positions "
+            + "gridColumn..gridColumn+gridSpan-1 in that array).",
 
         "cells" =>
             "cells is a comma-separated list of cell specs, one per cell of the new row: '-' is an empty spacer, "
@@ -1477,10 +1477,10 @@ internal static class ToolGuards
             + "set_cell_format instead.",
 
         "edges" =>
-            "set_cell_format changes rules (edges), a fill, or both - pass at least one. edges is a "
-            + "comma-separated list of 'top', 'bottom', 'left', 'right' (or 'all') naming at least one edge - "
-            + "e.g. edges='top' for the rule above a totals row; borderStyle/borderSize only apply with it. Edges "
-            + "you do not name keep whatever they already had.",
+            "set_cell_format changes rules (edges), a fill, or both - pass at least one. edges is an array of "
+            + "'top', 'bottom', 'left', 'right' (or 'all') naming at least one edge - e.g. [\"top\"] for the rule "
+            + "above a totals row; borderStyle/borderSize only apply with it. Edges you do not name keep whatever "
+            + "they already had.",
 
         "borderstyle" or "bordersize" =>
             "set_cell_format's borderStyle must be 'single' (draw a line) or 'none' (explicitly clear the named "

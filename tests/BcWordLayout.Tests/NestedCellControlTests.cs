@@ -110,7 +110,7 @@ public class NestedCellControlTests
         var path = CopyOfCorpus(Corpus.SalespersonCommission);
         try
         {
-            var response = TableTools.SetCellFormat(path, TableIndex, Row, edges: "top");
+            var response = TableTools.SetCellFormat(path, TableIndex, Row, edges: ["top"]);
             Assert.True(response.Ok, response.Error?.Message);
             Assert.Contains("all 9 cell(s)", Assert.IsType<TableEditResultDto>(response.Data).Summary);
 
@@ -133,7 +133,7 @@ public class NestedCellControlTests
         try
         {
             var widths = new[] { 1100, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000 };
-            var response = TableTools.SetColumnWidths(path, TableIndex, string.Join(",", widths));
+            var response = TableTools.SetColumnWidths(path, TableIndex, widths);
             Assert.True(response.Ok, response.Error?.Message);
 
             using var reopened = WordprocessingDocument.Open(path, false);

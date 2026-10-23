@@ -247,7 +247,7 @@ public class NestedRepeaterRowTests
         try
         {
             var widths = Enumerable.Range(0, 10).Select(i => 1000 + (i * 10)).ToArray();
-            var response = TableTools.SetColumnWidths(path, tableIndex: 0, string.Join(",", widths));
+            var response = TableTools.SetColumnWidths(path, tableIndex: 0, widths);
             Assert.True(response.Ok, response.Error?.Message);
             Assert.Contains("resized 9 row(s)", Assert.IsType<TableEditResultDto>(response.Data).Summary);
 
@@ -280,7 +280,7 @@ public class NestedRepeaterRowTests
         try
         {
             var widths = Enumerable.Range(0, 10).Select(i => 900 + (i * 10)).ToArray();
-            Assert.True(TableTools.SetColumnWidths(path, tableIndex: 0, string.Join(",", widths)).Ok);
+            Assert.True(TableTools.SetColumnWidths(path, tableIndex: 0, widths).Ok);
 
             using var doc = WordprocessingDocument.Open(path, false);
             var wrapper = doc.MainDocumentPart!.Document!.Body!.Descendants<SdtCell>()
@@ -391,7 +391,7 @@ public class NestedRepeaterRowTests
         {
             // Row 6 is the /Item item's subtotal row; its cell 2 is a plain, empty cell.
             Assert.True(EditTools.SetCellText(path, tableIndex: 0, row: 6, col: 2, text: "Subtotal").Ok);
-            Assert.True(TableTools.SetCellFormat(path, tableIndex: 0, row: 6, edges: "top").Ok);
+            Assert.True(TableTools.SetCellFormat(path, tableIndex: 0, row: 6, edges: ["top"]).Ok);
             Assert.True(TableTools.MergeCells(path, tableIndex: 0, row: 6, fromColumn: 2, toColumn: 3).Ok);
 
             using var doc = WordprocessingDocument.Open(path, false);

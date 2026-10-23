@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.ComponentModel.DataAnnotations;
 using System.Globalization;
 using BcWordLayout.Domain;
 using BcWordLayout.Domain.Models;
@@ -391,8 +392,8 @@ public static class TableTools
 
     [McpServerTool(Name = "set_column_widths")]
     [Description("Set the column widths of a table, addressed by its 0-based table index (the SAME index "
-                 + "get_layout_info reports in its tables[] section). widths is a comma-separated list of "
-                 + "twips (1/20 pt), ONE PER GRID COLUMN - the count must equal the table's columnCount from "
+                 + "get_layout_info reports in its tables[] section). widths is an array of twips (1/20 pt), "
+                 + "ONE PER GRID COLUMN - the count must equal the table's columnCount from "
                  + "get_layout_info, and a cell's own columns are list positions gridColumn..gridColumn+"
                  + "gridSpan-1 (get_layout_info's tables[].rows[].cells[] report both; colIndex is the "
                  + "physical position in the row, not a grid column). Each grid column's w:gridCol width is "
@@ -409,8 +410,11 @@ public static class TableTools
     public static ToolResponse SetColumnWidths(
         [Description("Absolute path to the .docx layout file.")] string layoutPath,
         [Description("0-based table index in document order (see get_layout_info's tables[]).")] int tableIndex,
-        [Description("Comma-separated column widths in twips (each 1-31680), exactly one per GRID column (must match the "
-                     + "table's columnCount).")] string widths,
+        [Description("The column widths in twips, each 1 to 31680, exactly one per GRID column - the count must "
+                     + "match the table's columnCount - e.g. [1500, 6206, 2500].")]
+        [MinLength(1)]
+        [Range(1, MaxColumnWidthTwips)]
+        IReadOnlyList<int> widths,
         [Description("Which OOXML part the table is in: 'body' (default), 'header', or 'footer'.")] string layoutPart = "body",
         [Description("Only used when layoutPart is 'header'/'footer': a specific part file name (e.g. "
                      + "'header2.xml'); omit to target the DEFAULT header/footer part (see get_layout_info's "
@@ -419,8 +423,7 @@ public static class TableTools
         return GuardTableEdit(layoutPath, doc =>
         {
             var part = ParseLayoutPartOrThrow(layoutPart);
-            var widthList = ParseIntListOrThrow(widths, nameof(widths));
-            return TableStructureEditor.SetColumnWidths(doc, part, partName, tableIndex, widthList);
+            return TableStructureEditor.SetColumnWidths(doc, part, partName, tableIndex, CheckWidthsOrThrow(widths, nameof(widths)));
         });
     }
 
@@ -618,7 +621,7 @@ public static class TableTools
                  + "index and row index (the SAME indices get_layout_info reports); omit col to apply to EVERY "
                  + "cell in the row (the usual case), or pass a 0-based PHYSICAL cell index (the cell's "
                  + "colIndex) to target one cell - the result's columnIndex is then that cell's GRID column. "
-                 + "edges is a comma-separated list of 'top','bottom','left','right' (or 'all'); "
+                 + "edges is an array of 'top', 'bottom', 'left', 'right' (or 'all'); "
                  + "borderStyle='single' (default) draws a line, 'none' clears those edges explicitly (they "
                  + "stay clear even in a table that declares its own border grid). Edges you do NOT name are "
                  + "left exactly as they were. fill is six hex digits RRGGBB (e.g. 'E8E8E8', the stock light "
@@ -632,8 +635,11 @@ public static class TableTools
         [Description("0-based row index within the table.")] int row,
         [Description("Optional 0-based PHYSICAL cell index within the row; omit to apply to every cell in "
                      + "the row (the usual case - a rule spans the whole row).")] int? col = null,
-        [Description("The rules to draw or clear: comma-separated 'top','bottom','left','right', or 'all'. "
-                     + "Omit to leave the rules alone.")] string? edges = null,
+        [Description("The rules to draw or clear: 'top', 'bottom', 'left', 'right' or 'all', e.g. [\"top\"] for "
+                     + "the rule above a totals row. Omit to leave the rules alone.")]
+        [MinLength(1)]
+        [AllowedValues("top", "bottom", "left", "right", "all")]
+        IReadOnlyList<string>? edges = null,
         [Description("For edges: 'single' (the default) draws a line of borderSize; 'none' explicitly clears "
                      + "the named edges.")] string? borderStyle = null,
         [Description("For edges: rule thickness in EIGHTHS of a point (2-96); default 4 = 1/2 pt, the only "
@@ -685,23 +691,19 @@ public static class TableTools
     }
 
     /// <summary>
-    /// Parses a required comma-separated list of column widths in twips (<c>set_column_widths</c>' widths),
-    /// rejecting an empty list, a non-integer entry, and an entry outside 1..<see cref="MaxColumnWidthTwips"/>.
+    /// Checks a required array of column widths in twips (<c>set_column_widths</c>' widths): refuses a missing or
+    /// empty one, and an entry outside 1..<see cref="MaxColumnWidthTwips"/>, naming the entry by its position.
+    /// The binder has already refused anything that is not an integer.
     /// </summary>
-    private static List<int> ParseIntListOrThrow(string value, string paramName)
+    private static List<int> CheckWidthsOrThrow(IReadOnlyList<int>? widths, string paramName)
     {
-        var parts = (value ?? string.Empty).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        if (parts.Length == 0)
+        if (widths is null || widths.Count == 0)
         {
             throw new ArgumentException(
-                $"{paramName} must be a non-empty comma-separated list of integers (twips).", paramName);
+                $"{paramName} must list one width in twips per grid column, e.g. [1500, 6206, 2500].", paramName);
         }
 
-        return parts
-            .Select(p => int.TryParse(p, NumberStyles.Integer, CultureInfo.InvariantCulture, out var n)
-                ? CheckColumnWidth(n, $"{paramName} entry '{p}'", paramName)
-                : throw new ArgumentException($"{paramName} entry '{p}' is not a valid integer.", paramName))
-            .ToList();
+        return widths.Select((w, i) => CheckColumnWidth(w, $"{paramName}[{i}] ({w})", paramName)).ToList();
     }
 
     /// <summary>
@@ -761,7 +763,7 @@ public static class TableTools
     /// wrong — an unknown edge name or style, and a style or size without edges, which would otherwise be
     /// silently ignored. A null style or size is its documented default (<c>single</c>, ½ pt).
     /// </summary>
-    private static CellBorderOptions? ParseCellBorderOptionsOrThrow(string? edges, string? borderStyle, int? borderSize)
+    private static CellBorderOptions? ParseCellBorderOptionsOrThrow(IReadOnlyList<string?>? edges, string? borderStyle, int? borderSize)
     {
         if (edges is null)
         {
@@ -790,9 +792,9 @@ public static class TableTools
             Remove = remove,
             SizeEighthPoints = borderSize ?? CellBorderOptions.DefaultSizeEighthPoints,
         };
-        foreach (var edge in SplitCommaList(edges))
+        for (var i = 0; i < edges.Count; i++)
         {
-            options = edge.ToLowerInvariant() switch
+            options = edges[i]?.Trim().ToLowerInvariant() switch
             {
                 "top" => options with { Top = true },
                 "bottom" => options with { Bottom = true },
@@ -800,8 +802,8 @@ public static class TableTools
                 "right" => options with { Right = true },
                 "all" => options with { Top = true, Bottom = true, Left = true, Right = true },
                 _ => throw new ArgumentException(
-                    $"Unknown edge '{edge}'. Use a comma-separated list of 'top', 'bottom', 'left', 'right', "
-                    + "or 'all'.", nameof(edges)),
+                    $"Unknown edge {(edges[i] is null ? "null" : $"'{edges[i]}'")} at edges[{i}]. Each edge is 'top', "
+                    + "'bottom', 'left', 'right' or 'all', e.g. [\"top\", \"bottom\"].", nameof(edges)),
             };
         }
 
