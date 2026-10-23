@@ -30,7 +30,7 @@ Pick the archetype before calling any tool:
 |---|---|---|
 | **Trading document** | Quote, order, invoice, credit memo, shipment — one document per record, addressed to a counterparty | Title/logo chrome → address block → document-info grid → line-items table → totals (§2) |
 | **List / analysis report** | Commission, register, aging, activity lists — rows grouped under entities, running chrome | Header/footer parts with report chrome → grouped repeater table with nested detail rows → totals (§3) |
-| **Per-entity statement** | One sub-document per customer/vendor with a page break between them | Author ONE entity's body bound under the top-level item (e.g. `/Customer/...`), then `wrap_in_repeater` with `wholeBody=true`, `pageBreakBefore=true`: the stock shape [stock: 1316], `w:group` included. BC already prints the body once per top-level record without it; the wrap gives every record its own page in one document. The tool-written shape has no BC sandbox render yet, so when it must be right first time, export the stock layout and edit it. |
+| **Per-entity statement** | One sub-document per customer/vendor with a page break between them | Author ONE entity's body bound under the top-level item (e.g. `/Customer/...`), then `wrap_in_repeater` with `wholeBody=true`, `pageBreakBefore=true`: the stock shape [stock: 1316], `w:group` included. BC already prints the body once per top-level record without it; the wrap gives every record its own page in one document. The tool-written shape has no BC sandbox render yet (sandbox pack item P12 asks for one), so when it must be right first time, export the stock layout and edit it. |
 
 Settle before building (ask only what the request leaves open): which parties' addresses (two is
 the default; add ship-to when it differs [stock: 1322 buy-from + ship-to + company]), which
@@ -137,9 +137,9 @@ totals table, which is the BC-verified simpler shape [verified: P07]).
   - **Full grid** [verified: P06]: `tableStyle="TableGrid"` — the style reference alone draws the
     ½ pt grid (BC honours `w:tblStyle` against the scaffolded styles part); don't also paint
     per-cell borders. (`borders="grid"` paints the same grid as explicit table borders instead;
-    that shape is not BC-verified, so prefer the style.)
+    that shape is not BC-verified — sandbox pack item P14 asks — so prefer the style.)
   - Stock 1306 additionally rules under *every* data row — a bottom border on the repeater's data
-    (template) row should repeat per line, but that exact shape is **not BC-verified**; its solid
+    (template) row should repeat per line, but that exact shape is **not BC-verified** (P14 asks); its solid
     colour header band is `set_cell_format`'s `fill` on the header row.
 - ½ pt (`borderSize=4`) is the only rule weight observed anywhere in the corpus — use it unless asked.
 

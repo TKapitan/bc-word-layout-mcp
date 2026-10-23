@@ -54,7 +54,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `pageBreakBefore=true` starts every record on a new page, as the statement does. The fields
   inside need no change. It refuses a range in a header or footer, a range holding a section break,
   a repeater in the range over data outside the item, and a range with nothing bound under the item.
-  The tool-written shapes have no BC sandbox render yet.
+  The tool-written shapes have no BC sandbox render yet; sandbox pack items P12 and P14 ask for one.
 
 - **New `validate_layout` check `character-style-resolves` (warning)** (GitHub issue #15), the
   run-level twin of `table-style-resolves`. A `w:rStyle` naming a style the layout does not define,

@@ -842,8 +842,84 @@ def p11(b: Build):
     b.note(f"hand-edited (no tool emits it): IF PAGE = NUMPAGES paragraph appended to {', '.join(parts)}")
 
 
-# P13 is a capability check again, of the formatting tools issue #15 added. (P12 is reserved for a
-# tool-written block repeater from wrap_in_repeater.)
+# ---------------------------------------------------------------- what 2.0 writes (round 3)
+#
+# P12-P14 are capability checks again: each renders shapes the 2.0 tools write that no sandbox round has
+# seen - a tool-written block repeater (P12, and the nested-item one in P14), the formatting tools (P13)
+# and the reworked table tools (P14).
+
+@item(
+    id="p12", title="Statement repeated per customer by wrap_in_repeater",
+    report="1316 - Standard Statement", base=None, schema="StandardStatement.docx",
+    purpose="Issue #31 added wrap_in_repeater: it wraps body content in a block-level repeater, over a "
+            "top-level item in the shape the stock statement carries (section > w:group > item; without the "
+            "group BC prints an empty document). This statement is built from scratch for ONE customer - "
+            "addresses, a statement-info grid, the detailed ledger entries - and then the whole body is "
+            "wrapped over /Customer with a page break before every customer. No tool-written block repeater "
+            "has been rendered by BC yet.",
+    asks=[
+        "Does BC accept the upload and print the statements - not an empty document?",
+        "A statement for two or more customers: does every customer start on a new page, with its OWN "
+        "addresses, dates and entries?",
+        "Is there a blank page before the first customer? (The page break sits before every customer, the "
+        "first included; Word's mock shows none.)",
+        "The entries table lists the detailed entries of the customer's FIRST currency only (this layout "
+        "has no currency loop): do they match that customer's entries in BC?",
+    ],
+    bc_steps=[
+        "Search (Tell Me) for 'Statement' (report 1316). Pick two or three Cronus customers with posted "
+        "entries (e.g. 10000..30000) and a date range that covers them.",
+        "Report Layouts > New layout for report 1316, upload this .docx, then run the statement for those "
+        "customers with it, printed to ONE PDF.",
+    ],
+)
+def p12(b: Build):
+    integer = "/Customer/Integer"
+    addr = b.edit("insert_table", rowCount=5, columns=widths_and_alignments([4600, 4600]),
+                  locationType="documentEnd")["data"]
+    for row in range(5):
+        b.edit("insert_field", field=f"{integer}/CompanyAddr{row + 1}", locationType="tableCell",
+               tableIndex=addr["tableIndex"], row=row, col=0)
+        b.edit("insert_field", field=f"{integer}/CustAddr{row + 1}", locationType="tableCell",
+               tableIndex=addr["tableIndex"], row=row, col=1)
+    b.note("2x5 address table: CompanyAddr1-5 beside CustAddr1-5, all under /Customer/Integer")
+
+    info = b.edit("insert_table", rowCount=3, columns=widths_and_alignments([2800, 3000]),
+                  locationType="documentEnd")["data"]
+    for row, (caption, value) in enumerate([("StartDateCaption", "StartDate"), ("EndDateCaption", "EndDate"),
+                                            ("No1_CustCaption", "No1_Cust")]):
+        b.edit("insert_field", field=f"{integer}/{caption}", locationType="tableCell",
+               tableIndex=info["tableIndex"], row=row, col=0, format={"bold": True})
+        b.edit("insert_field", field=f"{integer}/{value}", locationType="tableCell",
+               tableIndex=info["tableIndex"], row=row, col=1)
+    b.note("3x2 info grid: start date, end date, customer no., each caption a bound *Caption column")
+
+    entries = f"{integer}/CurrencyLoop/CustLedgEntryHdr/DtldCustLedgEntries"
+    columns = [("PostDate_DtldCustLedgEntries", 1300, None, "PostDate_DtldCustLedgEntriesCaption"),
+               ("DocNo_DtldCustLedgEntries", 1600, None, "DocNo_DtldCustLedgEntriesCaption"),
+               ("Description", None, None, "Desc_CustLedgEntry2Caption"),
+               ("DueDate_DtldCustLedgEntries", 1300, None, "DueDate_CustLedgEntry2Caption"),
+               ("Amt_DtldCustLedgEntries", 1500, "right", "OriginalAmt_CustLedgEntry2Caption"),
+               ("RemainAmt_DtldCustLedgEntries", 1500, "right", "RemainAmtCustLedgEntry2Caption")]
+    lines = b.edit("insert_repeater_table", dataItem=entries, locationType="documentEnd",
+                   columns=[{k: v for k, v in (("field", f"{entries}/{name}"), ("width", width),
+                                                ("alignment", alignment)) if v is not None}
+                            for name, width, alignment, _ in columns])["data"]
+    # The report's captions are *Caption columns of /Customer/Integer, not *_Lbl siblings of the entry
+    # columns, so headerFromLabels finds none: bind them into the header row by hand.
+    for col, (_, _, _, caption) in enumerate(columns):
+        b.edit("clear_cell_text", tableIndex=lines["tableIndex"], row=0, col=col)
+        b.edit("insert_field", field=f"{integer}/{caption}", locationType="tableCell",
+               tableIndex=lines["tableIndex"], row=0, col=col, format={"bold": True})
+    b.note(f"repeater table over {entries}: posting date, document no., description (no width: it takes "
+           "what the others leave), due date, amount, remaining amount; header cells bound to the report's "
+           "*Caption columns")
+
+    wrapped = b.edit("wrap_in_repeater", dataItem="/Customer", wholeBody=True, pageBreakBefore=True)["data"]
+    b.note(f"wrap_in_repeater over /Customer, wholeBody=true, pageBreakBefore=true: block repeater "
+           f"{wrapped['controlId']} with its w:group around the whole body")
+
+
 MISSING_FONT = "BCWL Missing Font"
 
 
@@ -920,6 +996,105 @@ def p13(b: Build):
     b.edit("insert_text", text="P13 only THIS WORD is red", locationType="documentEnd")
     b.edit("set_text_format", target="text", searchText="THIS WORD", format={"color": "C00000"})
     b.note("set_text_format text 'THIS WORD': colour C00000 on the matched words only (run split)")
+
+
+@item(
+    id="p14", title="Quote with the 2.0 table options",
+    report="1304 - Standard Sales Quote", base=None, schema="StandardSalesQuote.docx",
+    purpose="2.0 reworked the table tools (issues #131-#133): plain tables work in headers and footers, "
+            "both table tools take one borders option (none / headerRule / grid), and a column without a "
+            "width shares what the others leave. This quote is built from scratch with them: the logo beside "
+            "the title and number in a header table, the company details in a footer table under a rule, a "
+            "caption-over-value info grid with a header rule, a lines table with a rule under every line, a "
+            "gridded totals block, and the work description repeated per line by wrap_in_repeater (issue "
+            "#31, the nested-item shape).",
+    asks=[
+        "HEADER AND FOOTER TABLES: on every page, is the logo beside 'Sales Quote <number>' at the top, and "
+        "are the three company-address lines at the bottom, under a thin rule?",
+        "INFO GRID: bold 8 pt captions over their values, with a thin rule under the caption row only "
+        "(borders='headerRule' on a plain table)?",
+        "LINES: does EVERY line carry a thin rule under it (the rule is on the repeated row), and the "
+        "header row its own? Is the description the widest column (it has no width of its own)?",
+        "TOTALS: is the totals block gridded on every edge and between its cells (borders='grid' writes "
+        "explicit table borders, which no sandbox round has rendered)?",
+        "WORK DESCRIPTION: with a work description of two or more lines, does each line print as its own "
+        "paragraph, in order, below the totals?",
+    ],
+    bc_steps=[
+        "Use the SAME sales quote as P01/P05/P13, and give it a Work Description of two or three lines "
+        "first (the field on the quote card).",
+        "Report Layouts > New layout for report 1304, upload this .docx, then Print the quote with it.",
+    ],
+)
+def p14(b: Build):
+    all_paths = Build.paths(b.dataset())
+
+    header = b.edit("insert_table", rowCount=1, columns=widths_and_alignments([3600, None], [None, "right"]),
+                    locationType="documentEnd", layoutPart="header")["data"]
+    in_header = {"locationType": "tableCell", "tableIndex": header["tableIndex"], "row": 0, "layoutPart": "header"}
+    b.edit("insert_picture", picture=Build.pick(all_paths, "/Header/CompanyPicture"), col=0,
+           widthMm=35, heightMm=18, **in_header)
+    title = b.edit("insert_label", label=Build.pick(all_paths, "/Header/DocumentTitle_Lbl"), col=1,
+                   format={"bold": True, "fontSizePoints": 14}, **in_header)["data"]
+    b.edit("insert_field", field=Build.pick(all_paths, "/Header/DocumentNo"), locationType="afterControl",
+           controlId=title["controlId"], layoutPart="header")
+    b.edit("insert_text", text=" ", locationType="afterControl", controlId=title["controlId"],
+           layoutPart="header")
+    b.note(f"HEADER table ({header['part']}, borderless, 3600 + the rest): logo picture control beside the "
+           "DocumentTitle_Lbl label, a space and DocumentNo, right-aligned, bold 14 pt")
+
+    footer = b.edit("insert_table", rowCount=1, columns=widths_and_alignments([None, None, None]),
+                    locationType="documentEnd", layoutPart="footer")["data"]
+    for col in range(3):
+        b.edit("insert_field", field=f"/Header/CompanyAddress{col + 1}", locationType="tableCell",
+               tableIndex=footer["tableIndex"], row=0, col=col, layoutPart="footer", format={"fontSizePoints": 8})
+    b.edit("set_cell_format", tableIndex=footer["tableIndex"], row=0, edges=["top"], layoutPart="footer")
+    b.note(f"FOOTER table ({footer['part']}, three even columns): CompanyAddress1-3 at 8 pt, a 1/2 pt "
+           "rule above (set_cell_format top)")
+
+    info = b.edit("insert_table", rowCount=2, columns=widths_and_alignments([2600, 2600, 2600]),
+                  locationType="documentEnd", borders="headerRule")["data"]
+    pairs = [
+        (Build.pick(all_paths, "/Header/DocumentDate_Lbl"), Build.pick(all_paths, "/Header/DocumentDate")),
+        (Build.pick(all_paths, "/Header/QuoteValidToDate_Lbl"), Build.pick(all_paths, "/Header/QuoteValidToDate")),
+        (Build.pick(all_paths, "/Header/SelltoCustomerNo_Lbl", "/Header/BilltoCustomerNo_Lbl"),
+         Build.pick(all_paths, "/Header/SelltoCustomerNo", "/Header/BilltoCustumerNo")),
+    ]
+    for col, (label, field) in enumerate(pairs):
+        b.edit("insert_label", label=label, locationType="tableCell", tableIndex=info["tableIndex"], row=0,
+               col=col, format={"bold": True, "fontSizePoints": 8})
+        b.edit("insert_field", field=field, locationType="tableCell", tableIndex=info["tableIndex"], row=1,
+               col=col)
+    b.note("2x3 info grid, borders='headerRule': bold 8 pt captions over document date, valid-to date and "
+           "customer no.")
+
+    lines = b.edit("insert_repeater_table", dataItem="/Header/Line", locationType="documentEnd",
+                   headerFromLabels=True,
+                   columns=[{"field": "/Header/Line/ItemNo_Line", "width": 1500},
+                            {"field": "/Header/Line/Description_Line"},
+                            {"field": "/Header/Line/Quantity_Line", "width": 1100, "alignment": "right"},
+                            {"field": "/Header/Line/UnitPrice", "width": 1400, "alignment": "right"},
+                            {"field": "/Header/Line/LineAmount_Line", "width": 1600, "alignment": "right"}])["data"]
+    b.edit("set_cell_format", tableIndex=lines["tableIndex"], row=lines["dataRowIndex"], edges=["bottom"])
+    b.note("lines table over /Header/Line (borders default 'headerRule'; the description has no width), "
+           "plus set_cell_format bottom on the repeating data row: a rule under every line")
+
+    totals = b.edit("insert_table", rowCount=2, columns=widths_and_alignments([6200, 2400], ["right", "right"]),
+                    locationType="documentEnd", borders="grid")["data"]
+    in_totals = {"locationType": "tableCell", "tableIndex": totals["tableIndex"]}
+    b.edit("insert_field", field="/Header/Totals/TotalExcludingVATText", row=0, col=0, **in_totals)
+    b.edit("insert_field", field="/Header/Totals/TotalNetAmount", row=0, col=1, **in_totals)
+    b.edit("insert_field", field="/Header/Totals/TotalIncludingVATText", row=1, col=0, **in_totals)
+    b.edit("insert_field", field="/Header/Totals/TotalAmountIncludingVAT", row=1, col=1, format={"bold": True},
+           **in_totals)
+    b.note("2x2 totals block, borders='grid': net and gross totals, the gross amount bold")
+
+    line = b.edit("insert_field", field="/Header/WorkDescriptionLines/WorkDescriptionLine",
+                  locationType="documentEnd")["data"]
+    wrapped = b.edit("wrap_in_repeater", dataItem="/Header/WorkDescriptionLines",
+                     firstControlId=line["controlId"])["data"]
+    b.note(f"work-description line field in its own paragraph, wrapped by wrap_in_repeater over "
+           f"/Header/WorkDescriptionLines (block repeater {wrapped['controlId']}, no group: a nested item)")
 
 
 # ---------------------------------------------------------------- runner
@@ -1067,8 +1242,10 @@ verification debt (GitHub issue #14).
 **Round 3 adds four research probes, P08-P11.** They don't check a capability: each settles an open
 issue that is blocked on what BC does - #102 (P08), #123 (P09, P10) and #11 (P11). For these, a
 REJECTED upload or a missing row is an answer, not a failure: write down exactly what happened.
-**P13** is a capability check again: the formatting tools #15 added, including direct italic, which no
-stock layout carries.
+**P12-P14** are capability checks again, of what 2.0 writes: a statement repeated per customer by
+`wrap_in_repeater` (P12), the formatting tools #15 added, including direct italic, which no stock layout
+carries (P13), and the reworked table tools - tables in the header and footer, the three `borders`
+looks, a rule under every line - with the work description repeated per line (P14).
 
 ## The layouts
 

@@ -47,17 +47,30 @@ harness below (Deliverable 2) repeats it in every artifact it writes.
 
 ## The sandbox pack (the prepared version of the manual procedure)
 
-`python tools/e2e/sandbox_pack.py` builds twelve layouts into `preview-output/sandbox-pack/` (gitignored)
+`python tools/e2e/sandbox_pack.py` builds fourteen layouts into `preview-output/sandbox-pack/` (gitignored)
 for uploading to a real BC sandbox: three authored entirely by the tools (P01, P06, P07 — every one a
 `create_layout` blank build, so all three carry the scaffolded default typography whose BC-side
 verification rides this pack), four exercising a distinct editing capability against stock
-base-app layouts (P02–P05), and four research probes (P08–P11) that answer open questions blocked on BC
+base-app layouts (P02–P05), four research probes (P08–P11) that answer open questions blocked on BC
 behaviour rather than check a capability — storeItemIDs naming no part
 ([#102](https://github.com/TKapitan/bc-word-layout-mcp/issues/102)), the add-in's hide-if-empty semantics
 ([#123](https://github.com/TKapitan/bc-word-layout-mcp/issues/123)) and last-page-only footer content
-([#11](https://github.com/TKapitan/bc-word-layout-mcp/issues/11)), plus P13, a capability check of the formatting tools
-([#15](https://github.com/TKapitan/bc-word-layout-mcp/issues/15)): direct italic (a shape no stock layout carries), colour,
-underline, a character style, a font that exists nowhere, a cell fill, and restyled stock content. Each item folder carries the `.docx` to upload, this
+([#11](https://github.com/TKapitan/bc-word-layout-mcp/issues/11)) — and three capability checks of what
+2.0 writes:
+
+- **P12**, a statement repeated per customer by `wrap_in_repeater`
+  ([#31](https://github.com/TKapitan/bc-word-layout-mcp/issues/31)) — the first tool-written block
+  repeater, `w:group` included, that BC renders;
+- **P13**, the formatting tools ([#15](https://github.com/TKapitan/bc-word-layout-mcp/issues/15)):
+  direct italic (a shape no stock layout carries), colour, underline, a character style, a font that
+  exists nowhere, a cell fill, and restyled stock content;
+- **P14**, the reworked table tools
+  ([#131](https://github.com/TKapitan/bc-word-layout-mcp/issues/131)–[#133](https://github.com/TKapitan/bc-word-layout-mcp/issues/133)):
+  tables in a header and a footer, `borders="headerRule"` on a plain table and `"grid"` on a totals
+  block, a rule under every repeated line, a column that takes what the others leave, and the work
+  description repeated per line (the nested-item block repeater).
+
+Each item folder carries the `.docx` to upload, this
 tool's own mock render of it, a README naming the questions that item's BC render answers, and the full
 tool-call/validation record; the pack root carries `INSTRUCTIONS.md` (BC-side procedure) and
 `COMPARISON.md` (a per-item sheet keyed to the dimensions table above).
