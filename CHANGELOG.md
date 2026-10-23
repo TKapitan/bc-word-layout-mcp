@@ -205,7 +205,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **The server reports its product version as `serverInfo.version`** (GitHub issue #112). The MCP
   handshake answered with the four-part assembly version (`1.1.0.0`), which an RC shares with the
   release it becomes, so neither a client nor the release smoke test could tell the builds apart.
-  It now reports the informational version without its `+commit` suffix (`1.1.0`, `1.2.0-rc.1`);
+  It now reports the informational version without its `+commit` suffix (`1.1.0`, `2.0.0-rc.1`);
   `serverInfo.name` is unchanged (`BcWordLayout.McpHost`). `tools/release/verify_server.py` checks
   it with the new `--expect-version`.
 
@@ -277,7 +277,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   no finding. `refresh_xml_part` now writes a bare mapping it re-points as an `xmlns:ns0='…'`
   declaration; before, it stayed bare and Word still reported the control as unmapped.
 
-- **`insert_repeater_table` without `columnWidths` no longer runs off the page** (GitHub issue
+- **`insert_repeater_table` without column widths no longer runs off the page** (GitHub issue
   #84). Every column got a fixed 2000 twips, and now that the grid is pinned, tables of six or more
   columns ran past the margin. The columns now split the document's content width evenly, as
   `insert_table` does; a table placed inside a cell splits that cell's width instead.
@@ -376,8 +376,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - **Missing required argument:** still `invalid_argument`; the message now names just the
     missing parameters, and the hint lists every required one.
   - **Explicit `null` for an enum-like string:** crashed the tool body (`internal_error`, "Object
-    reference not set to an instance of an object."). An optional one (`layoutPart`, `look`,
-    `style`, `converter`, `level`) now takes its documented default, as if omitted; a required one
+    reference not set to an instance of an object."). An optional one (`layoutPart`, `borders`,
+    `borderStyle`, `converter`, `level`) now takes its documented default, as if omitted; a required one
     (`locationType`, `mode`) is `invalid_argument`.
   - **No more `invalid_request`:** the one path that emitted this undocumented code (a binding
     failure the SDK swallowed into its own text) now reports `invalid_argument`.
@@ -400,20 +400,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     must now be fully qualified, or the call is `invalid_argument` naming it.
 
 - **Numeric arguments are range-checked where they are parsed** (GitHub issue #98).
-  - **Column widths** (`set_column_widths`' `widths`, `insert_table`'s and
-    `insert_repeater_table`'s `columnWidths`, `insert_column`'s `width`) must be 1–31680 twips
+  - **Column widths** (`set_column_widths`' `widths`, a column's `width` on `insert_table` and
+    `insert_repeater_table`, `insert_column`'s `width`) must be 1–31680 twips
     (22 in, Word's maximum page width). A negative width failed as `edit_would_corrupt`, whose
     hint blames the tool; a zero width was written as `w:gridCol w:w="0"`.
-  - **Cell spans** in the `cells` syntax (`insert_table_row`, `insert_repeater_row`,
-    `insert_subtotal_row`) must be 1–63, Word's maximum table column count. `"3:-,-1:-"` crashed
-    with "Index was out of range"; the refusal now has a hint explaining the `cells` syntax.
-  - **`preview_layout`'s `rows`** below 1 is `invalid_argument`. It used to return `ok:true` with
+  - **Cell spans** (`insert_table_row`, `insert_repeater_row`, `insert_subtotal_row`) must be
+    1–63, Word's maximum table column count. A span of -1 crashed with "Index was out of range";
+    it is now `invalid_argument` naming the cell (`cells[1].span`).
+  - **`preview_layout`'s `sampleRows`** below 1 is `invalid_argument`. It used to return `ok:true` with
     an empty body, plus warnings caused only by the row count.
   - **`render_preview_pages`' `firstPage` and `maxPages`** below 1 are `invalid_argument`. Before,
     page 1 rendered while the response echoed `firstPage: 0`.
-  - **Hints for parameter names that mean different things on different tools** now depend on the
-    tool as well as the name. `insert_table`'s `columns` (a count) no longer gets the hint for
-    `insert_repeater_table`'s list of column names, and its `rows` no longer gets the generic hint.
 
 - **Cells wrapped in two cell-level content controls are visible to the table tools** (GitHub
   issue #85). The Business Central Word add-in's "Hide Table Row If Empty" and "Hide Table If
@@ -602,9 +599,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     source that glues two words.
   - `merge_cells`/`split_cells` said an omitted `partName` means the first part. It means the
     DEFAULT part, as for every other table tool; the 1.1.0 entry claimed that wording was gone.
-  - `insert_table`'s `withBorders` claimed to draw the grid `insert_repeater_table` draws by
-    default; that grid is `look='grid'` only. Its default width is the layout's own content width
-    (page width minus margins), not always the A4 10206 twips.
+  - `insert_table`'s border option claimed to draw the grid `insert_repeater_table` draws by
+    default, which that tool draws only when asked (both now take one `borders` option, see
+    *Changed*). Its default width is the layout's own content width (page width minus margins), not
+    always the A4 10206 twips.
   - The refusal of a repeater table in a header/footer, its hint and the
     `repeater-in-header-footer` finding called that "deferred (GitHub issue #10)"; #10 is closed.
     They now say it is not supported, because nothing shows that BC renders a repeating section
@@ -650,14 +648,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - **Nulls are omitted, not sent:** a success has no `error` key, a failure no `data` key, and an
     unset optional field (an unreferenced part's `role`, a failed conversion's `pdfPath`) is
     absent.
-  - **Missing parameters:** `insert_repeater_table`'s `look`, `insert_field`/`insert_label`'s
-    `bold`/`fontSizePoints`, and `set_cell_text`'s `bold`/`alignment`/`fontSizePoints`. The design
-    skill's "Open" table look added the header rule `look="bc"` already draws.
+  - **Missing parameters:** the skill's rows for `insert_repeater_table`, `insert_field`/`insert_label`
+    and `set_cell_text` left out arguments the tools took (their look and formatting options, since
+    replaced by `borders` and `format`, see *Changed*). The design skill's "Open" table look added a
+    header rule the repeater table already draws.
   - **Error codes:** `rasterize_failed` (`render_preview_pages`, also for a `firstPage` past the end)
     was missing from the skill's list.
-  - **Mutating tools:** there are 20, not "eighteen" (README listed 15), and every one of them runs
-    the grid-consistency guard, not only the table edits. `create_layout`'s own check of the layout
-    it built reports a failure as `internal_error`, as a server bug.
+  - **Mutating tools:** the skill said "eighteen" and the README listed 15, both short of the real
+    count, and every one of them runs the grid-consistency guard, not only the table edits.
+    `create_layout`'s own check of the layout it built reports a failure as `internal_error`, as a
+    server bug.
 
 - **`insert_picture` now says that a non-square frame does not survive a Word save** (GitHub
   issue #53). Opening and saving a layout in Word squares every data-bound picture's frame to its
@@ -667,10 +667,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   insert the picture last.
 
 - **Stale counts, versions and references are corrected across the docs and package metadata**
-  (GitHub issue #113). The NuGet package description says 26 tools (it said 23), and the Copilot
-  marketplace entry names both skills. The docs now agree on the validated BC versions (28.0 and
-  28.3) and on the validation pack (two rounds, five then seven items), count 19 e2e journeys, and
-  drop a test count that never matched a release. Questions and issues since settled (#1, #2,
+  (GitHub issue #113). The NuGet package description gives the real tool count (it said 23), and the
+  Copilot marketplace entry names every skill. The docs now agree on the validated BC versions (28.0
+  and 28.3), on the validation pack and on the number of e2e journeys, and drop a test count that
+  never matched a release. Questions and issues since settled (#1, #2,
   #10) are no longer described as open, and the design doc, the fidelity checklist, the
   contributing guide and the worked example point at the right sections, parameters and folders.
 

@@ -83,7 +83,7 @@ public enum NotFoundTarget
 /// WHY <see cref="TargetKind"/> INSTEAD OF JUST THIS TYPE. <c>ToolGuards.Guard</c> tailors its <c>not_found</c>
 /// hint to WHICH kind of thing was not found (a bad control id gets "ids are per-document, not sequential or
 /// guessable"; an out-of-range table coordinate gets "call get_layout_info... before retrying tableCell";
-/// etc.) — the pre-B11 code picked that hint by pattern-matching substrings of <c>ex.Message</c>
+/// etc.) — an earlier design picked that hint by pattern-matching substrings of <c>ex.Message</c>
 /// (<c>message.Contains("No control with id", ...)</c>), which silently degrades to the generic fallback
 /// hint the moment a Domain throw site's wording is reworded for clarity, with no compile or test signal
 /// that the specific hint stopped firing. <see cref="TargetKind"/> replaces that string coupling with an

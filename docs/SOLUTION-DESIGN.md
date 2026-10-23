@@ -29,8 +29,9 @@ unreliable in a file format where a single misplaced element silently corrupts t
 - Layouts as **files in the AL workspace** (extension-owned layouts referenced from the `rendering`
   section) or exported from a BC client.
 - Reading report dataset schemas from the layout's custom XML part or an exported report schema XML.
-- Deterministic editing: fields, labels, static text, pictures, plain tables, repeater tables, nested
-  detail-row repeaters, and table structure (columns, widths, merges, cell borders and text).
+- Deterministic editing: fields, labels, static text, page numbers, pictures, plain tables (in the body,
+  headers and footers), repeater tables, nested detail-row repeaters, block repeaters, text formatting,
+  and table structure (columns, widths, merges, cell rules, fills and text).
 - Structural + binding **validation**.
 - **Mock preview**: sample-data merge + PDF conversion, entirely offline, plus page rasterisation so the
   agent can visually inspect its own work.
@@ -128,45 +129,50 @@ mock preview approximates that pipeline (§5), and can never be authoritative ab
 ## 3. Architecture
 
 ```
-┌──────────────────────────────────────────────────────────────┐
-│  MCP Host (Claude Code / VS Code / other MCP client)         │
-└───────────────┬──────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│  MCP Host (Claude Code / VS Code / other MCP client)            │
+└───────────────┬─────────────────────────────────────────────────┘
                 │ stdio (JSON-RPC / MCP)
-┌───────────────▼──────────────────────────────────────────────┐
-│  bc-word-layout-mcp  (.NET 10 console app)                   │
-│                                                              │
-│  ┌ McpHost ─────────────────────────────────────────────┐    │
-│  │ ReadTools / EditTools / TableTools / LifecycleTools   │    │
-│  │ ToolGuards  — the one open→validate→save-or-reject    │    │
-│  │               choreography every mutating tool shares │    │
-│  │ CrossProcessLock, ToolContracts ({ok,data,error})     │    │
-│  └──────────────┬────────────────────────────────────────┘    │
-│  ┌ Domain ──────▼────────────────────────────────────────┐    │
-│  │ SchemaProvider    — dataset model from the XML part    │    │
-│  │ LayoutReader      — control inventory + table structure│    │
-│  │ LayoutValidator   — structure, bindings, BC rules      │    │
-│  │ LayoutEditor      — control-level edits                │    │
-│  │ TableStructureEditor / TableGridNavigator — grid ops   │    │
-│  │ LocationResolver  — where an edit lands                │    │
-│  │ SdtFactory        — builds correct content controls    │    │
-│  │ LayoutBuilder / LayoutRefresher — create / re-schema   │    │
-│  │ guards: TableGridConsistencyGuard, PlainTextNesting-   │    │
-│  │         Guard, ResourceLimits, LabelConvention         │    │
-│  │ LayoutPackage — the one way a .docx is opened          │    │
-│  └──────────────┬────────────────────────────────────────┘    │
-│  ┌ Merge ───────▼────────────────────────────────────────┐    │
-│  │ SampleDataGenerator — seeded, type-aware fakes         │    │
-│  │ MergeEngine    — binding fill, repeater expansion,     │    │
-│  │                  XPathReanchor per nesting level       │    │
-│  │ ExternalRelationshipStripper, ExternalReference-       │    │
-│  │   Neutralizer, FullValidator                           │    │
-│  └──────────────┬────────────────────────────────────────┘    │
-│  ┌ Render ──────▼────────────────────────────────────────┐    │
-│  │ IPdfConverter → WordComConverter (primary, Windows)    │    │
-│  │                 LibreOfficeConverter (fallback)        │    │
-│  │ PdfRasterizer — PDF pages → PNG for agent inspection   │    │
-│  └───────────────────────────────────────────────────────┘    │
-└──────────────────────────────────────────────────────────────┘
+┌───────────────▼─────────────────────────────────────────────────┐
+│  bc-word-layout-mcp  (.NET 10 console app)                      │
+│                                                                 │
+│  ┌ McpHost ────────────────────────────────────────────────┐    │
+│  │ ReadTools / EditTools / TableTools / LifecycleTools     │    │
+│  │ ToolGuards  — the one open→validate→save-or-reject      │    │
+│  │               choreography every mutating tool shares   │    │
+│  │ ToolCallBoundary — malformed calls get the envelope too │    │
+│  │ ToolInputSchemas — allowed values on a list's items     │    │
+│  │ CrossProcessLock, ToolContracts ({ok,data,error})       │    │
+│  └──────────────┬──────────────────────────────────────────┘    │
+│  ┌ Domain ──────▼──────────────────────────────────────────┐    │
+│  │ SchemaProvider    — dataset model from the XML part     │    │
+│  │ LayoutReader      — control inventory + table structure │    │
+│  │ LayoutValidator   — structure, bindings, BC rules       │    │
+│  │ LayoutEditor      — control-level edits                 │    │
+│  │ TableStructureEditor / TableGridNavigator — grid ops    │    │
+│  │ TableShell        — a new table's widths and borders    │    │
+│  │ CellTextEditor    — plain text in table cells           │    │
+│  │ TextFormatEditor / RunFormatter — text formatting       │    │
+│  │ LocationResolver  — where an edit lands                 │    │
+│  │ SdtFactory        — builds correct content controls     │    │
+│  │ LayoutBuilder / LayoutRefresher — create / re-schema    │    │
+│  │ guards: TableGridConsistencyGuard, PlainTextNesting-    │    │
+│  │         Guard, ResourceLimits, LabelConvention          │    │
+│  │ LayoutPackage — the one way a .docx is opened           │    │
+│  └──────────────┬──────────────────────────────────────────┘    │
+│  ┌ Merge ───────▼──────────────────────────────────────────┐    │
+│  │ SampleDataGenerator — seeded, type-aware fakes          │    │
+│  │ MergeEngine    — binding fill, repeater expansion,      │    │
+│  │                  XPathReanchor per nesting level        │    │
+│  │ ExternalRelationshipStripper, ExternalReference-        │    │
+│  │   Neutralizer, FullValidator                            │    │
+│  └──────────────┬──────────────────────────────────────────┘    │
+│  ┌ Render ──────▼──────────────────────────────────────────┐    │
+│  │ IPdfConverter → WordComConverter (primary, Windows)     │    │
+│  │                 LibreOfficeConverter (fallback)         │    │
+│  │ PdfRasterizer — PDF pages → PNG for agent inspection    │    │
+│  └─────────────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────────┘
         reads/writes .docx + schema .xml in the AL workspace
 ```
 
@@ -195,7 +201,8 @@ alongside the quick checks in `Domain.LayoutValidator`.
 | Validate | `validate_layout` (`quick` \| `full`) |
 | Preview | `preview_layout`, `render_preview_pages` |
 | Author | `create_layout`, `insert_field`, `insert_label`, `insert_text`, `insert_page_number`, `insert_picture`, `insert_table`, `insert_repeater_table`, `insert_repeater_row`, `insert_subtotal_row`, `wrap_in_repeater` |
-| Table structure | `insert_table_row`, `insert_column`, `remove_column`, `set_column_widths`, `merge_cells`, `split_cells`, `set_cell_text`, `clear_cell_text`, `set_cell_format` |
+| Table structure | `insert_table_row`, `insert_column`, `remove_column`, `set_column_widths`, `merge_cells`, `split_cells`, `set_cell_text`, `clear_cell_text` |
+| Format | `set_text_format`, `set_cell_format` |
 | Lifecycle | `remove_control`, `refresh_xml_part` |
 
 Conventions that hold across the surface:
@@ -294,7 +301,8 @@ inside a data-bound control's own content, where Word either rejects the file or
 says why. `insert_column` at a position falling inside a spanned cell of a row that must carry the new
 content is refused, because widening would silently drop the requested field and splitting would make a
 layout decision nobody asked for. `create_layout` refuses a `templatePath` that already carries its own
-bound controls. Nested repeaters in a header/footer are refused. The cost of a wrong guess is a corrupt
+bound controls. `set_text_format` refuses a `searchText` that occurs more than once rather than format the
+first match. The cost of a wrong guess is a corrupt
 deliverable a developer discovers in a sandbox; the cost of a refusal is one clear message.
 
 **4. Emit only OOXML that has been seen in a real layout.** Shapes absent from every reviewed layout
@@ -412,7 +420,9 @@ version exposes part-URI control, adopting it is a one-line change and this note
   (`al-word-layout-design`) documents what a from-scratch layout should *look like*: the archetype
   skeletons and the observed BC document conventions, each tagged with the stock corpus layout or
   BC-verified sandbox build it was observed in — the quality dimension `validate_layout` cannot
-  judge.
+  judge. Two more start from a finished design: `al-word-layout-from-design` binds a Word design to the
+  report's dataset, and `al-word-layout-composite` splits one into BC's composable body, header/footer
+  and theme layouts.
 - Telemetry: none. Structured logs go to stderr; stdout is the MCP protocol stream and must never carry
   anything else.
 

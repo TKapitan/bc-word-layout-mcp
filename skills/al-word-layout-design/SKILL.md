@@ -112,8 +112,9 @@ totals table, which is the BC-verified simpler shape [verified: P07]).
   - **Beside** — label col 0, value col 1, one datum per row (3×2 at `2800,3000`): the verified
     recipe [P01, P06] and the Statement's stock shape [1316].
   - **Above** — caption row over value row (e.g. 2 rows × 5 equal columns [1304], stacked
-    caption/value row-pairs [1322]): the *dominant stock shape* [1304, 1322, 1306]. Build as
-    `insert_table` rows×cols, `insert_label` into the caption row's cells, `insert_field` below.
+    caption/value row-pairs [1322]): the *dominant stock shape* [1304, 1322, 1306]. Build it with
+    `insert_table` (`rowCount` rows, one `columns` entry per column), `insert_label` into the caption
+    row's cells, `insert_field` below.
     Stock captions are smaller + bold (9 pt bold over 11 pt values).
 - Info-grid values are left-aligned in every stock file — don't right-align them.
 - Keep the grid narrower than the page (verified: 5800 twips, left-anchored) — it is not a

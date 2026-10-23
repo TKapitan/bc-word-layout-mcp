@@ -74,7 +74,7 @@ internal static class ToolGuards
         EditLocks.GetOrAdd(PathIdentity.Canonical(layoutPath), static _ => new object());
 
     /// <summary>
-    /// Shared choreography for all 20 mutating tools — every tool that writes through <see cref="GuardEdit"/>,
+    /// Shared choreography for all 22 mutating tools — every tool that writes through <see cref="GuardEdit"/>,
     /// <see cref="GuardCellEdit"/>, <see cref="GuardTableEdit"/> or <see cref="GuardRefresh"/>: copy
     /// <paramref name="layoutPath"/> to a private temp working copy, open THAT copy read-write
     /// (<see cref="OpenSettings.AutoSave"/> off), apply <paramref name="mutate"/>, then run
@@ -89,15 +89,15 @@ internal static class ToolGuards
     /// control id, a missing/invalid new schema source, …) flow up through the same
     /// <see cref="Guard(Func{ToolResponse}, string)"/> every other tool uses.
     /// <para>
-    /// Structural guarantee (generalized in): this method is also the ONE place that
+    /// Structural guarantee: this method is also the ONE place that
     /// computes a post-edit <see cref="LayoutValidator.Quick"/> summary (on the saved working copy, right
     /// before commit) AND the ONE place <paramref name="onSuccess"/> is invoked to build the tool's own
     /// success <see cref="ToolResponse"/> — every mutating tool's own DTO construction (<see cref="EditResultDto"/>,
     /// <see cref="RefreshResultDto"/>) is therefore structurally incapable of shipping without a populated
     /// <c>QuickValidation</c>; this is not a convention an individual tool could forget to follow. The
     /// <paramref name="mutate"/> result type is generic (<typeparamref name="TResult"/>) precisely because
-    /// different mutating tools return different result shapes — <see cref="EditResult"/> for the nine
-    /// content-control and repeater edits, <see cref="CellEditResult"/> and <see cref="TableEditResult"/> for the
+    /// different mutating tools return different result shapes — <see cref="EditResult"/> for the eleven
+    /// content-control, repeater and text-format edits, <see cref="CellEditResult"/> and <see cref="TableEditResult"/> for the
     /// cell and table-structure edits, <see cref="RefreshResult"/> for <c>refresh_xml_part</c> (which additionally
     /// computes ITS OWN <see cref="RefreshResult.QuickValidation"/> internally, for Domain-level callers
     /// that never go through this tool layer at all — <paramref name="onSuccess"/> is free to reuse that
@@ -1553,7 +1553,7 @@ internal static class ToolGuards
 
     /// <summary>
     /// Builds a <c>not_found</c> hint tailored to what kind of lookup target failed, keyed off the typed
-    /// <see cref="NotFoundException.TargetKind"/> the throw site set explicitly - unlike the pre-B11 design,
+    /// <see cref="NotFoundException.TargetKind"/> the throw site set explicitly - unlike an earlier design,
     /// which sniffed <see cref="Exception.Message"/> substrings because <see cref="InvalidOperationException"/>
     /// has no structured equivalent of <see cref="ArgumentException.ParamName"/> to key off (see
     /// <see cref="NotFoundException"/>'s own remarks: rewording a Domain message could silently degrade that

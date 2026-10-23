@@ -7,7 +7,8 @@ single misplaced element silently corrupts the document.
 
 **28 typed MCP tools** over stdio: inspect any layout, validate it (structurally, and via a real
 dry-run merge), render an offline mock PDF preview the agent can look at, and author edits — fields,
-labels, repeater tables, nested detail rows, table structure, full lifecycle refresh. One uniform
+labels, repeater tables, nested detail rows, block repeaters, table structure, text and cell
+formatting, full lifecycle refresh. One uniform
 response envelope; nothing throws across the MCP boundary; every mutating edit is validated *before*
 it is saved and rejected outright if it would corrupt the file.
 
@@ -323,17 +324,19 @@ Error `message`/`hint` texts are not part of the contract — never parse them.
   changelog. The envelope boundary above is pinned by a host-level test that runs the real server
   pipeline over the SDK's own transport, so an upgrade that changes it fails the suite.
 
-## Not in v1 / deferred
+## Not supported
 
 - **Hide-if-empty BC add-in conditional controls** (Hide Field if Zero, Hide Empty Table, Hide Empty
   Table Row, layout comment) — no `set_hide_if_empty` tool. The row and table variants are captured
   in two corpus layouts and wait on a sandbox check of what BC treats as empty ([#123](https://github.com/TKapitan/bc-word-layout-mcp/issues/123));
   Hide Field if Zero and layout comments wait on capturing the BC Word add-in's OOXML ([#8](https://github.com/TKapitan/bc-word-layout-mcp/issues/8),
   [ADR-0005](docs/adr/0005-emit-only-observed-ooxml.md)).
-- **Repeater tables in headers/footers** — `insert_repeater_table` only creates them in the document
-  body; a pre-existing/hand-authored one is still detected by `validate_layout` with a warning rather
-  than silently accepted. (NESTED repeaters in the body are supported: insert the inner table into a
-  cell of the outer table's `dataRowIndex` row.)
+- **Repeaters in headers/footers** — nothing shows that BC renders a repeating section there, so
+  `insert_repeater_table` only creates one in the document body and `wrap_in_repeater` only wraps body
+  content; a pre-existing/hand-authored one is still detected by `validate_layout` with a warning
+  rather than silently accepted. (NESTED repeaters in the body are supported: `insert_repeater_row`
+  adds the standard detail row under each parent line, or insert the inner table into a cell of the
+  outer table's `dataRowIndex` row.)
 - **Real XLF caption translations** — not planned. With generated sample data, `preview_layout` fills
   labels from the dataset's own label columns, falling back to humanized element names, so captions read
   differently from a real BC render. Pass a real exported dataset via `dataOverridesPath` when caption
@@ -438,10 +441,10 @@ Or write the requests to a file of your own and pipe it (`Get-Content requests.j
 
 | Project | Role |
 |---|---|
-| `src/BcWordLayout.Domain` | Core: dataset models, `SchemaProvider` (schema parsing), `LayoutReader` (control inventory), `LayoutValidator` (quick validation), `LayoutEditor`/`SdtFactory`/`Location`+`LocationResolver` (edits), `LayoutBuilder` (`create_layout`), `LayoutRefresher` (`refresh_xml_part`). |
+| `src/BcWordLayout.Domain` | Core: dataset models, `SchemaProvider` (schema parsing), `LayoutReader` (control inventory), `LayoutValidator` (quick validation), `LayoutEditor`/`SdtFactory`/`Location`+`LocationResolver` (edits), `TableStructureEditor`/`TableShell` (table structure and new-table shells), `CellTextEditor`/`TextFormatEditor`/`RunFormatter` (cell text and formatting), `LayoutBuilder` (`create_layout`), `LayoutRefresher` (`refresh_xml_part`). |
 | `src/BcWordLayout.Merge` | `SampleDataGenerator` (seeded, type-aware fakes), `MergeEngine` (binding fill, repeater expansion incl. nested/re-anchored XPaths, picture placeholders), `FullValidator` (the dry-run merge behind `validate_layout level=full`). |
 | `src/BcWordLayout.Render` | `IPdfConverter` + `WordComConverter` (primary) / `LibreOfficeConverter` (fallback) + `PdfConverterFactory` (auto-selection) + PDF output sanity checks. |
-| `src/BcWordLayout.McpHost` | The MCP stdio server (console app): the 28 tool definitions (`Tools/ReadTools.cs`, `Tools/EditTools.cs`, `Tools/TableTools.cs`, `Tools/LifecycleTools.cs`, sharing `Tools/ToolGuards.cs`) and the `{ok,data,error}` envelope (`ToolContracts.cs`). |
+| `src/BcWordLayout.McpHost` | The MCP stdio server (console app): the 28 tool definitions (`Tools/ReadTools.cs`, `Tools/EditTools.cs`, `Tools/TableTools.cs`, `Tools/LifecycleTools.cs`, sharing `Tools/ToolGuards.cs`), their structured arguments (`Tools/TableArguments.cs`, `Tools/TextFormatArgument.cs`, the enum lists in `Tools/AllowedValueAttributes.cs`), the `{ok,data,error}` envelope (`ToolContracts.cs`), the call filter that keeps malformed calls inside it (`ToolCallBoundary.cs`), and the schema correction that puts a list parameter's allowed values and range on its items (`ToolInputSchemas.cs`). |
 | `tests/BcWordLayout.Tests` | xUnit tests: the 10 real corpus layouts in `tests/corpus/` plus synthetic fixtures — reader/validator/merge/editor/refresher/converter coverage, snapshot tests, MCP host tool tests, packaging-manifest guards, and the fidelity harness. |
 
 ## Contributing and security
@@ -454,7 +457,7 @@ Or write the requests to a file of your own and pipe it (`Get-Content requests.j
 ## Further reading
 
 - [`skills/al-word-layout/SKILL.md`](skills/al-word-layout/SKILL.md) — the companion skill: intended
-  agent workflow, full tool reference, v1 supported matrix, anti-patterns, and error handling.
+  agent workflow, full tool reference, supported matrix, anti-patterns, and error handling.
 - [`skills/al-word-layout-design/SKILL.md`](skills/al-word-layout-design/SKILL.md) — the design
   skill: the two archetype skeletons (trading document, list report), per-element BC conventions
   (address blocks, caption placement, line-table alignment, totals, chrome, typography), and the

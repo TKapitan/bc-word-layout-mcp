@@ -57,7 +57,7 @@ situation actually occurs, no standing hotfix machinery exists — that is delib
    the existing history.
 5. **Gates.** CI must be green — the required check is the single `ci-result` gate, which passes
    only when every CI job succeeded ([`ci.yml`](../.github/workflows/ci.yml)). Documentation PRs run
-   the full suite too: the tests read the README, both skills and the other docs they guard against
+   the full suite too: the tests read the README, the skills and the other docs they guard against
    drift, so a docs-only change can break them. The branch must be current with
    `main`, and every review conversation must be resolved. External PRs are reviewed by the code owner
    ([`CODEOWNERS`](../.github/CODEOWNERS)); maintainer PRs merge on green CI — the required-check
@@ -99,7 +99,7 @@ Ordered most → least severe; this order is the tie-breaker when picking what t
 
 Issues whose only impact is on documentation need no impact label — the `documentation` type
 already says it. Leave impact off while it is genuinely unknown (e.g.
-[#6](https://github.com/TKapitan/bc-word-layout-mcp/issues/6) until the Word behaviour check runs).
+[#6](https://github.com/TKapitan/bc-word-layout-mcp/issues/6) was until the Word behaviour check ran).
 
 ### Blocked — why it is parked (any that apply)
 

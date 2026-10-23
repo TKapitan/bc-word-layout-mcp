@@ -1707,8 +1707,8 @@ public static class LayoutEditor
 
     /// <summary>
     /// Describes <paramref name="location"/> for a human-readable edit summary. When
-    /// <paramref name="resolvedPartName"/> is the main document (<c>document.xml</c>) this is EXACTLY the
-    /// pre-Phase-4.3 wording (body-targeted summaries are unchanged, word for word); a header/footer part
+    /// <paramref name="resolvedPartName"/> is the main document (<c>document.xml</c>) this is the bare
+    /// location (body-targeted summaries name no part); a header/footer part
     /// gets a short " in {part}" suffix instead, since the whole point of targeting one is to make that
     /// visible in the result.
     /// </summary>

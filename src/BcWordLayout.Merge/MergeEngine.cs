@@ -256,7 +256,7 @@ public static class MergeEngine
     }
 
     /// <summary>
-    /// Best-effort age-based cleanup of orphaned <c>.bcwl-merge-stage-*.docx</c> files (Opus review of B21,
+    /// Best-effort age-based cleanup of orphaned <c>.bcwl-merge-stage-*.docx</c> files.
     /// <see cref="Merge(string, string, MergeOptions?)"/> stages its fill into
     /// exactly this shape of file, in <paramref name="outputDir"/>, and normally deletes it again within the
     /// same call (consumed by the commit <see cref="File.Move(string, string, bool)"/> on success, or the

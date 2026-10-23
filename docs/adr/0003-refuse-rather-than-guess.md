@@ -8,7 +8,8 @@ When an edit has more than one defensible outcome, the tool **refuses and says w
 a non-empty `hint`), rather than picking one. Standing examples: `insert_column` at a position that
 falls inside a spanned cell of a row that must carry the new content (widening silently drops the
 requested field; splitting makes a layout decision nobody asked for); `create_layout` with a
-`templatePath` that already carries bound controls; creating nested repeaters in a header/footer; an
+`templatePath` that already carries bound controls; `set_text_format` with a `searchText` that occurs
+more than once (formatting the first match would be a guess); an
 argument name the tool does not have (ignoring it would run the call on that parameter's default),
 or a relative path (resolving it would pick the server's working directory).
 
