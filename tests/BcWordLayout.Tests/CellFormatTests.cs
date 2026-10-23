@@ -13,7 +13,7 @@ namespace BcWordLayout.Tests;
 /// Covers <see cref="TableStructureEditor.SetCellFormat"/> and its <c>set_cell_format</c> tool surface —
 /// the per-cell half of the BC table look. Real BC documents draw no table grid: their rules
 /// are per-cell <c>w:tcBorders</c> (a line under the lines-table header row, a line above a totals block),
-/// which <c>insert_repeater_table</c>'s <c>look='bc'</c> default only covers for the header row. Everything
+/// which <c>insert_repeater_table</c>'s <c>borders='headerRule'</c> default only covers for the header row. Everything
 /// else an author needs is this tool.
 /// </summary>
 public class CellFormatTests
@@ -118,7 +118,7 @@ public class CellFormatTests
         var path = CopyOfCorpus(Corpus.SalesInvoice);
         try
         {
-            var inserted = TableTools.InsertTable(path, rows: 1, columns: 2, locationType: "documentEnd", withBorders: true);
+            var inserted = TableTools.InsertTable(path, rows: 1, columns: 2, locationType: "documentEnd", borders: "grid");
             var tableIndex = Assert.IsType<TableEditResultDto>(inserted.Data).TableIndex;
 
             var response = TableTools.SetCellFormat(path, tableIndex, row: 0, edges: "left,right", borderStyle: "none");

@@ -45,6 +45,12 @@ public static class TableTools
     /// </summary>
     internal const int MaxCellSpan = 63;
 
+    /// <summary>The <c>tableStyle</c> parameter's description, shared by the two table-creating tools.</summary>
+    private const string TableStyleDescription =
+        "Optional id of a TABLE style the layout's styles part defines, referenced via w:tblStyle - e.g. "
+        + "'TableGrid' (create_layout's blank layouts define it) or a branded templatePath shell's own table style. "
+        + "Refused when the layout does not define it; the error lists the ones it does. Ids are case-sensitive.";
+
     [McpServerTool(Name = "insert_repeater_table")]
     [Description("Insert a complete repeater TABLE bound to a repeating data item (e.g. '/Header/Line', as "
                  + "reported by list_dataset_fields): a header row (label controls where a label column "
@@ -52,8 +58,8 @@ public static class TableTools
                  + "isLabel flag - else static humanized text) plus one data row wrapped in a "
                  + "repeating-section control, with one bound field control per column. This is the flagship "
                  + "tool for adding a new line-items-style table to a layout. By default the table gets the "
-                 + "BC-NATIVE look (look='bc'): no drawn grid, just a rule under the header row, exactly like "
-                 + "every real BC lines table. TOTALS: the stock shape puts them INSIDE this table as trailing "
+                 + "BC-NATIVE look (borders='headerRule'): no drawn grid, just a rule under the header row, exactly "
+                 + "like every real BC lines table. TOTALS: the stock shape puts them INSIDE this table as trailing "
                  + "static rows - append them with insert_table_row (+ set_cell_format for the rule). "
                  + "The result reports tableIndex and dataRowIndex - the new table's own 0-based index and "
                  + "the 0-based index of its repeating DATA row - so follow-up edits need no re-read. "
@@ -85,8 +91,7 @@ public static class TableTools
         [Description("When true (default), each header cell binds to its column's label column when one can "
                      + "be found; otherwise every header cell is static humanized column-name text.")]
         bool headerFromLabels = true,
-        [Description("Optional Word table style name to reference via w:tblStyle, e.g. 'TableGrid'.")]
-        string? tableStyle = null,
+        [Description(TableStyleDescription)] string? tableStyle = null,
         [Description("Optional comma-separated column widths in twips (1/20 pt, each 1-31680), one per column; count must "
                      + "match the number of columns. Omit for an even split of the document's content width "
                      + "(page width minus margins; for a table placed inside a cell, that cell's width), so "
@@ -99,11 +104,12 @@ public static class TableTools
                      + "column), applied to both the header and data cell of each column - real BC line "
                      + "tables right-align their quantity/price/amount columns. Omit for the default (left).")]
         string? columnAlignments = null,
-        [Description("Border treatment: 'bc' (default) draws NO table grid, only a 1/2-pt rule under the "
-                     + "header row - the corpus-verified look of every real BC lines table; 'grid' draws an "
-                     + "explicit single-line border on every edge and between every cell. Use "
-                     + "set_cell_format afterwards for the other rules a BC document has (e.g. above a "
-                     + "totals block).")] string look = "bc",
+        [Description("The table's borders, the same option insert_table takes: 'headerRule' (default) draws NO "
+                     + "table grid, only a 1/2-pt rule under the header row - the corpus-verified look of every "
+                     + "real BC lines table; 'none' draws no border at all (e.g. a composable body whose theme's "
+                     + "table style supplies the look); 'grid' draws an explicit single-line border on every edge "
+                     + "and between every cell. Use set_cell_format afterwards for the other rules a BC document "
+                     + "has (e.g. above a totals block).")] string borders = "headerRule",
         [Description("SCOPE: only 'body' (the default) is supported for a repeater table - passing "
                      + "'header'/'footer' here is rejected with invalid_argument (nothing shows that Business "
                      + "Central renders a repeating section in a header or footer). Present for parameter-shape "
@@ -122,7 +128,7 @@ public static class TableTools
 
             var options = new RepeaterTableOptions
             {
-                Look = ParseTableBorderLookOrThrow(look),
+                Borders = ParseBordersOrThrow(borders, TableBorderLook.HeaderRule),
                 HeaderFromLabels = headerFromLabels,
                 TableStyle = string.IsNullOrWhiteSpace(tableStyle) ? null : tableStyle,
                 ColumnWidths = ParseColumnWidths(columnWidths),
@@ -330,9 +336,8 @@ public static class TableTools
                  + "header-info grids, and a stand-alone right-anchored totals block. (For the LINE-ITEMS "
                  + "table bound to a repeating data item use insert_repeater_table instead, and for the "
                  + "stock totals-INSIDE-the-lines-table shape use insert_table_row on that table.) The table is rows x columns of "
-                 + "empty single-column cells, borderless by default (the corpus shape for those blocks; pass "
-                 + "withBorders=true for an explicit single-line border on every edge and between every cell, "
-                 + "the grid insert_repeater_table draws with look='grid'). "
+                 + "empty single-column cells, borderless by default (the corpus shape for those blocks); "
+                 + "borders and tableStyle work exactly as on insert_repeater_table. "
                  + "columnWidths (twips, comma-separated, one per column) defaults to an even split of the "
                  + "layout's own content width (its page width minus the left and right margins, or 10206 - "
                  + "the A4 content width - when the layout declares no page size or margins); "
@@ -365,10 +370,12 @@ public static class TableTools
         [Description("Optional comma-separated per-column alignments ('left'/'center'/'right', one per "
                      + "column) seeding each cell's paragraph justification; omit for the default (left).")]
         string? columnAlignments = null,
-        [Description("When true, draw an explicit single-line border on every edge and between every cell "
-                     + "(the grid insert_repeater_table draws with look='grid'); default false (borderless - "
-                     + "the shape of BC's own address/info/totals blocks).")]
-        bool withBorders = false,
+        [Description("The table's borders, the same option insert_repeater_table takes: 'none' (default) is "
+                     + "borderless - the shape of BC's own address/info/totals blocks; 'headerRule' draws a 1/2-pt "
+                     + "rule under the first row, the rule set_cell_format draws for a bottom edge; 'grid' draws an "
+                     + "explicit single-line border on every edge and between every cell.")]
+        string borders = "none",
+        [Description(TableStyleDescription)] string? tableStyle = null,
         [Description("v1 SCOPE: only 'body' (the default) is supported - 'header'/'footer' are rejected "
                      + "with invalid_argument (same scope rule as insert_repeater_table).")]
         string layoutPart = "body",
@@ -382,7 +389,9 @@ public static class TableTools
                 ? null
                 : SplitCommaList(columnAlignments);
             return LayoutEditor.InsertPlainTable(
-                doc, rows, columns, location, ParseColumnWidths(columnWidths), alignments, withBorders);
+                doc, rows, columns, location, ParseColumnWidths(columnWidths), alignments,
+                ParseBordersOrThrow(borders, TableBorderLook.None),
+                string.IsNullOrWhiteSpace(tableStyle) ? null : tableStyle);
         }, tool: "insert_table"); // rows/columns mean something else on other tools - see ToolSpecificInvalidArgumentHint
     }
 
@@ -609,7 +618,7 @@ public static class TableTools
     [Description("Set the APPEARANCE of the cells on one row of a table: the per-cell RULES (w:tcBorders) "
                  + "real BC documents get their look from, and/or a FILL colour (w:shd). A BC layout draws no "
                  + "table grid: it has a 1/2-pt rule under the lines-table header row (insert_repeater_table's "
-                 + "look='bc' default already adds that one) and a rule above a totals block, and nothing "
+                 + "borders='headerRule' default already adds that one) and a rule above a totals block, and nothing "
                  + "else. This is the tool for the rest of them - 'put a line above the totals row', "
                  + "'underline the grand-total cell' - and for a shaded header row. Addressed by 0-based table "
                  + "index and row index (the SAME indices get_layout_info reports); omit col to apply to EVERY "
@@ -733,18 +742,22 @@ public static class TableTools
     }
 
     /// <summary>
-    /// Parses a <see cref="TableBorderLook"/> from <c>insert_repeater_table</c>'s <c>look</c> parameter
-    /// (case-insensitive). An explicit JSON <c>null</c> (bound straight through by the SDK) is the documented
-    /// default, <c>bc</c>, as if the argument had been omitted.
+    /// Parses the <c>borders</c> parameter <c>insert_table</c> and <c>insert_repeater_table</c> share
+    /// (case-insensitive). An explicit JSON <c>null</c> (bound straight through by the SDK) is the calling tool's
+    /// documented default, <paramref name="whenNull"/>, as if the argument had been omitted.
     /// </summary>
-    private static TableBorderLook ParseTableBorderLookOrThrow(string? look) => (look ?? "bc").Trim().ToLowerInvariant() switch
-    {
-        "bc" => TableBorderLook.Bc,
-        "grid" => TableBorderLook.Grid,
-        _ => throw new ArgumentException(
-            $"Unknown look '{look}'. Use 'bc' (default - no drawn grid, just a rule under the header row, "
-            + "like every real BC lines table) or 'grid' (an explicit border on every edge).", nameof(look)),
-    };
+    private static TableBorderLook ParseBordersOrThrow(string? borders, TableBorderLook whenNull) =>
+        borders?.Trim().ToLowerInvariant() switch
+        {
+            null => whenNull,
+            "none" => TableBorderLook.None,
+            "headerrule" => TableBorderLook.HeaderRule,
+            "grid" => TableBorderLook.Grid,
+            _ => throw new ArgumentException(
+                $"Unknown borders '{borders}'. Use 'none' (no border at all), 'headerRule' (a 1/2-pt rule under the "
+                + "first row, like every real BC lines table) or 'grid' (an explicit border on every edge).",
+                nameof(borders)),
+        };
 
     /// <summary>
     /// Parses <c>set_cell_format</c>'s flat <c>edges</c>/<c>borderStyle</c>/<c>borderSize</c> parameters into a

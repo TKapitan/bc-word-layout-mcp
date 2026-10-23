@@ -121,6 +121,27 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Pass `edges`, `fill`, or both. The `set_cell_borders` fixes listed under *Fixed* below apply to
   `set_cell_format`.
 
+- **BREAKING: one `borders` option on `insert_table` and `insert_repeater_table`** (GitHub issue
+  #131). It replaces `insert_table`'s `withBorders` and `insert_repeater_table`'s `look`: the two tools
+  described the same choice in two ways, and `look='bc'` did not say what it draws. Both now take the
+  same three values:
+  - `none`: no border at all (`insert_table`'s default, as before);
+  - `headerRule`: a ½ pt rule under the first row, the one `set_cell_format` draws for a bottom edge
+    (`insert_repeater_table`'s default, `look='bc'` before);
+  - `grid`: a single-line border on every edge and between every cell.
+
+  `withBorders=true` becomes `borders="grid"`, and `look="bc"`/`look="grid"` become
+  `borders="headerRule"`/`borders="grid"`. `none` on a repeater table is new: a composable body's line
+  table takes its look from the theme's table style, and the header rule had to be removed by hand.
+
+- **BREAKING: `insert_table` takes `tableStyle` too, and both table tools refuse a style the layout
+  does not define** (GitHub issue #131). Without it, a plain block could not take a branded shell's
+  table style while authoring. A `w:tblStyle` naming an undefined style, or one that is not a table
+  style, is valid OOXML that Word and Business Central silently ignore, so it was written and the
+  table rendered in the defaults. It is now refused with `invalid_argument`, and the message lists the
+  table styles the layout defines, as `format.characterStyle` already does. Style ids are
+  case-sensitive.
+
 - **`remove_control keepText=true` on a block-level repeater now unwraps it** instead of refusing
   (GitHub issue #31): section, group and item go at once and the content stays in place, printing
   once. It is the undo of `wrap_in_repeater`, and works on the stock statement and work-description

@@ -887,14 +887,13 @@ public static class LayoutValidator
     }
 
     // 8. Every w:tblStyle names a style the layout's own styles part actually defines. A dangling reference
-    //    is not structurally invalid and Word/BC simply ignore it — which is exactly the trap: a caller who
-    //    passed insert_repeater_table's tableStyle parameter (or hand-authored a w:tblStyle) believes they
-    //    styled the table, and every renderer silently falls back to its own defaults instead (GitHub
-    //    issue #3's knock-on finding). WARNING, not an error: the layout renders fine, the reference just
-    //    does nothing, and BC's upload validation does not police style references. Layouts this tool creates from
-    //    scratch ship a styles part defining TableGrid (see DefaultStylesScaffold), so the documented
-    //    tableStyle example resolves; this check covers everything else — typo'd style names, bare
-    //    externally-authored layouts, and templates whose styles part lacks the referenced style.
+    //    is not structurally invalid and Word/BC simply ignore it — which is exactly the trap: whoever wrote it
+    //    believes the table is styled, and every renderer silently falls back to its own defaults instead
+    //    (GitHub issue #3's knock-on finding). WARNING, not an error: the layout renders fine, the reference
+    //    just does nothing, and BC's upload validation does not police style references. The table tools
+    //    refuse to write one (tableStyle, GitHub issue #131 — see TableShell.CheckTableStyle), so this check
+    //    covers everything else: hand-authored references, bare externally-authored layouts, and templates
+    //    whose styles part lacks the referenced style.
     private static void CheckTableStylesResolve(MainDocumentPart main, List<ValidationFinding> findings)
     {
         // Style ids are case-sensitive in Word's model (w:styleId is an xsd:string) — Ordinal, not

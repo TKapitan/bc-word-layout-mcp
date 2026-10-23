@@ -74,13 +74,13 @@ public class PlainTableTests
     }
 
     [Fact]
-    public void Tool_insert_table_with_borders_draws_the_explicit_single_line_grid()
+    public void Tool_insert_table_borders_grid_draws_the_explicit_single_line_grid()
     {
         var path = CopyOfCorpus(Corpus.SalesInvoice);
         try
         {
             var response = TableTools.InsertTable(path, rows: 1, columns: 2, locationType: "documentEnd",
-                withBorders: true);
+                borders: "grid");
             Assert.True(response.Ok, response.Error?.Message);
             var dto = Assert.IsType<TableEditResultDto>(response.Data);
 
@@ -92,6 +92,71 @@ public class PlainTableTests
             Assert.Equal(
                 new[] { "5103", "5103" },
                 table.GetFirstChild<TableGrid>()!.Elements<GridColumn>().Select(g => g.Width!.Value));
+            Assert.Empty(OpenXmlErrors(reopened));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Tool_insert_table_borders_headerRule_draws_set_cell_formats_bottom_rule_under_the_first_row_only()
+    {
+        // The repeater table's BC-native look, now on a plain table too (GitHub issue #131): one rule under row 0,
+        // byte-identical to the one set_cell_format draws for a bottom edge, and nothing anywhere else.
+        var path = CopyOfCorpus(Corpus.SalesInvoice);
+        try
+        {
+            var ruled = Assert.IsType<TableEditResultDto>(TableTools.InsertTable(
+                path, rows: 3, columns: 2, locationType: "documentEnd", borders: "headerRule").Data);
+            var drawnLater = Assert.IsType<TableEditResultDto>(TableTools.InsertTable(
+                path, rows: 3, columns: 2, locationType: "documentEnd").Data);
+            Assert.True(TableTools.SetCellFormat(path, drawnLater.TableIndex, row: 0, edges: "bottom").Ok);
+
+            using var reopened = WordprocessingDocument.Open(path, false);
+            var tables = TableGridNavigator.Tables(reopened.MainDocumentPart!.Document!.Body!);
+            var table = tables[ruled.TableIndex];
+            Assert.Null(table.GetFirstChild<TableProperties>()!.GetFirstChild<TableBorders>());
+
+            var rows = table.Elements<TableRow>().ToList();
+            var expected = tables[drawnLater.TableIndex].Elements<TableRow>().First()
+                .Elements<TableCell>().Select(c => c.TableCellProperties!.TableCellBorders!.OuterXml).ToList();
+            Assert.Equal(expected, rows[0].Elements<TableCell>().Select(c => c.TableCellProperties!.TableCellBorders!.OuterXml));
+            Assert.All(rows.Skip(1).SelectMany(r => r.Elements<TableCell>()), c => Assert.Null(c.TableCellProperties!.TableCellBorders));
+
+            // A rule, not a header: no w:tblHeader, which insert_column reads as "this row takes a header cell".
+            Assert.Null(rows[0].TableRowProperties);
+            Assert.Empty(OpenXmlErrors(reopened));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Tool_insert_table_tableStyle_references_a_table_style_the_layout_defines()
+    {
+        // insert_table had no tableStyle, so a body block could not take a branded shell's table style while
+        // authoring (GitHub issue #131); it now takes the same option, with the same refusal for a style the
+        // layout does not define.
+        var path = CopyOfCorpus(Corpus.SalesInvoice);
+        try
+        {
+            var dto = Assert.IsType<TableEditResultDto>(TableTools.InsertTable(
+                path, rows: 1, columns: 2, locationType: "documentEnd", tableStyle: "TableGrid").Data);
+
+            var refused = TableTools.InsertTable(path, rows: 1, columns: 2, locationType: "documentEnd", tableStyle: "NoSuchStyle");
+            Assert.Equal("invalid_argument", refused.Error?.Code);
+            Assert.Contains("'TableGrid'", refused.Error!.Message, StringComparison.Ordinal);
+
+            using var reopened = WordprocessingDocument.Open(path, false);
+            var tblPr = TableGridNavigator.Tables(reopened.MainDocumentPart!.Document!.Body!)[dto.TableIndex]
+                .GetFirstChild<TableProperties>()!;
+            Assert.Equal("TableGrid", tblPr.TableStyle!.Val!.Value);
+            Assert.Equal(new[] { "tblStyle", "tblW", "tblLayout" }, tblPr.ChildElements.Select(e => e.LocalName));
+            Assert.DoesNotContain(LayoutValidator.Quick(reopened).Findings, f => f.Check == "table-style-resolves");
             Assert.Empty(OpenXmlErrors(reopened));
         }
         finally
@@ -268,7 +333,7 @@ public class PlainTableTests
         try
         {
             var response = TableTools.InsertTable(
-                path, rows: 1, columns: 2, locationType: "documentEnd", withBorders: true);
+                path, rows: 1, columns: 2, locationType: "documentEnd", borders: "grid");
             var dto = Assert.IsType<TableEditResultDto>(response.Data);
 
             using var reopened = WordprocessingDocument.Open(path, false);

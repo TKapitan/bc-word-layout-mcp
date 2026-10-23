@@ -58,17 +58,16 @@ theme layout for Tenant Report Defaults.
 - **Which tool calls keep a body style-only.**
   - Fine: `format` with only `characterStyle` (a style reference; it is refused until the body's own
     `styles.xml` defines the id, which the bullets above require anyway), `alignment` on
-    `set_text_format` and `set_cell_text`, and `insert_repeater_table`'s `tableStyle` (e.g.
-    `BCDataTable`). Inserts take the formatting of the text before them, which adds nothing to a body
-    that has none.
+    `set_text_format` and `set_cell_text`, `tableStyle` on `insert_repeater_table` and `insert_table`
+    (e.g. `BCDataTable`, `BCBlockTable` — refused until the body's `styles.xml` defines it), and
+    `borders: "none"` on both (no border at all, `insert_table`'s default). Inserts take the formatting
+    of the text before them, which adds nothing to a body that has none.
   - Not fine, because they write direct formatting: every other `format` member (bold, italic,
     underline, size, font, colour), on the insert tools and on `set_text_format`; `set_cell_format`
     (rules and fills — its `borderStyle: "none"` writes an explicit "no border", which also hides the
-    theme table style's own rule); `insert_table`'s `withBorders`; and both of
-    `insert_repeater_table`'s looks (`bc` draws a rule under each header cell, `grid` a table-level
-    grid). Until a borderless look exists (GitHub issue #131), use `bc`, then remove the header cells'
-    `w:tcBorders` by hand and re-validate. `insert_table` takes no `tableStyle` yet either, so a block
-    or totals table gets its `w:tblStyle` by hand.
+    theme table style's own rule); and the other two `borders` values on both table tools
+    (`headerRule` draws a rule under each first-row cell, `grid` a table-level grid). So a body's line
+    table is `insert_repeater_table` with `borders: "none"` and `tableStyle: "BCDataTable"`.
 - Bindings and repeaters follow al-word-layout and al-word-layout-from-design; the body keeps the
   report title and document number, because the header/footer cannot see report data. Tags in the
   newest samples: field `w:alias` = column name, `w:tag` = `#BC:InsertDataItem,DataItems/<Item>/<Column>`

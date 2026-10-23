@@ -157,12 +157,12 @@ public class RepeaterTableTests
     }
 
     [Fact]
-    public void InsertRepeaterTable_look_grid_still_draws_the_full_explicit_border_grid()
+    public void InsertRepeaterTable_borders_grid_draws_the_full_explicit_border_grid()
     {
         var path = CopyOfCorpus(Corpus.SalesInvoice);
         try
         {
-            var result = InsertThreeColumnTable(path, new RepeaterTableOptions { Look = TableBorderLook.Grid });
+            var result = InsertThreeColumnTable(path, new RepeaterTableOptions { Borders = TableBorderLook.Grid });
 
             using var reopened = WordprocessingDocument.Open(path, false);
             var table = FindInsertedTable(reopened, result.ControlId);
@@ -757,7 +757,8 @@ public class RepeaterTableTests
     {
         // The defect fixture (a dangling w:tblStyle) paired with a valid sibling (a resolving one) in the
         // SAME document, per the validator-tests non-tautology rule. A dangling reference is a WARNING,
-        // never an error: the layout still renders, the reference just silently does nothing.
+        // never an error: the layout still renders, the reference just silently does nothing. The tools
+        // refuse to write one (the tests below), so the fixture is the hand edit this check exists for.
         var path = Path.Combine(Path.GetTempPath(), $"bcwl-repeatertable-badstyle-{Guid.NewGuid():N}.docx");
         try
         {
@@ -768,9 +769,10 @@ public class RepeaterTableTests
                 LayoutEditor.InsertRepeaterTable(
                     doc, LineItemPath, ThreeColumns, new Location { Type = LocationKind.DocumentEnd },
                     new RepeaterTableOptions { TableStyle = "TableGrid" });
-                LayoutEditor.InsertRepeaterTable(
+                var handEdited = LayoutEditor.InsertRepeaterTable(
                     doc, LineItemPath, ThreeColumns, new Location { Type = LocationKind.DocumentEnd },
-                    new RepeaterTableOptions { TableStyle = "NoSuchStyle" });
+                    new RepeaterTableOptions { TableStyle = "TableGrid" });
+                FindInsertedTable(doc, handEdited.ControlId).GetFirstChild<TableProperties>()!.TableStyle!.Val = "NoSuchStyle";
                 doc.MainDocumentPart!.Document!.Save();
             }
 
@@ -786,6 +788,59 @@ public class RepeaterTableTests
             // A warning-only finding must never fail quick validation on its own.
             Assert.True(quick.Passed);
             Assert.Equal(0, quick.ErrorCount);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Theory]
+    [InlineData("NoSuchStyle", "does not define it")]
+    [InlineData("tablegrid", "does not define it")] // style ids are case-sensitive
+    [InlineData("Normal", "it is a paragraph style, not a table style")]
+    public void TableStyle_that_is_not_a_defined_table_style_is_refused_listing_the_defined_ones(string style, string reason)
+    {
+        // A dangling w:tblStyle is valid OOXML that Word and BC silently ignore, so writing one used to leave the
+        // caller believing the table was styled (GitHub issue #131) - the same rule format.characterStyle follows.
+        var path = CopyOfCorpus(Corpus.SalesInvoice);
+        try
+        {
+            var before = File.ReadAllBytes(path);
+
+            var response = TableTools.InsertRepeaterTable(
+                path, LineItemPath, string.Join(",", ThreeColumns), "documentEnd", tableStyle: style);
+
+            Assert.False(response.Ok);
+            Assert.Equal("invalid_argument", response.Error!.Code);
+            Assert.Contains($"tableStyle '{style}'", response.Error.Message, StringComparison.Ordinal);
+            Assert.Contains(reason, response.Error.Message, StringComparison.Ordinal);
+            Assert.Contains("Table styles this layout defines: ", response.Error.Message, StringComparison.Ordinal);
+            Assert.Contains("'TableGrid'", response.Error.Message, StringComparison.Ordinal);
+            Assert.Equal(before, File.ReadAllBytes(path));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Borders_none_draws_no_header_rule_and_no_grid()
+    {
+        // The borderless repeater a composable body needs: a theme's table style supplies its look, and any
+        // direct border would override the style (GitHub issue #131).
+        var path = CopyOfCorpus(Corpus.SalesInvoice);
+        try
+        {
+            var result = InsertThreeColumnTable(path, new RepeaterTableOptions { Borders = TableBorderLook.None });
+
+            using var reopened = WordprocessingDocument.Open(path, false);
+            var table = FindInsertedTable(reopened, result.ControlId);
+
+            Assert.Null(table.GetFirstChild<TableProperties>()!.GetFirstChild<TableBorders>());
+            Assert.Empty(table.Descendants<TableCellBorders>());
+            Assert.Empty(new OpenXmlValidator(FileFormatVersions.Office2021).Validate(reopened));
         }
         finally
         {
@@ -833,7 +888,7 @@ public class RepeaterTableTests
         {
             InsertThreeColumnTable(
                 path,
-                new RepeaterTableOptions { TableStyle = "TableGrid", Look = TableBorderLook.Grid });
+                new RepeaterTableOptions { TableStyle = "TableGrid", Borders = TableBorderLook.Grid });
 
             using var reopened = WordprocessingDocument.Open(path, false);
             var table = reopened.MainDocumentPart!.Document!.Body!.Elements<Table>().Last();

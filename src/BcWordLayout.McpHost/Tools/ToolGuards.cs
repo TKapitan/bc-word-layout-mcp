@@ -1465,10 +1465,17 @@ internal static class ToolGuards
             "alignment must be 'left', 'center' or 'right' (case-insensitive); omit it to keep the paragraph's "
             + "existing alignment.",
 
-        "look" =>
-            "insert_repeater_table's look must be 'bc' (the default - no drawn table grid, just a rule under "
-            + "the header row, matching every real BC lines table) or 'grid' (an explicit single-line border "
-            + "on every edge and between every cell).",
+        "borders" =>
+            "borders must be 'none' (no border at all - insert_table's default, the shape of BC's address, info and "
+            + "totals blocks), 'headerRule' (no grid, just a 1/2-pt rule under the first row - insert_repeater_table's "
+            + "default, matching every real BC lines table) or 'grid' (an explicit single-line border on every edge "
+            + "and between every cell), case-insensitive.",
+
+        "tablestyle" =>
+            "tableStyle must be the id of a TABLE style this layout's styles part defines - the message above lists "
+            + "them; ids are case-sensitive. create_layout's blank layouts define 'TableGrid'; a branded templatePath "
+            + "shell brings its own. Omit tableStyle for no style reference, and draw the rules with borders and "
+            + "set_cell_format instead.",
 
         "edges" =>
             "set_cell_format changes rules (edges), a fill, or both - pass at least one. edges is a "

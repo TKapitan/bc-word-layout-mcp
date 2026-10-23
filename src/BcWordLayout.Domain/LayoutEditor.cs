@@ -323,10 +323,11 @@ public static class LayoutEditor
     /// schema/id work, so a rejected call never touches <paramref name="doc"/>.
     /// </remarks>
     /// <exception cref="ArgumentException">
-    /// <paramref name="location"/>.Part is not <see cref="LayoutPart.Body"/> (see remarks); or propagated
-    /// unchanged from <see cref="SdtFactory.BuildRepeaterTable"/> (bad data item path, bad column, bad
-    /// column-width count) or <see cref="LocationResolver.Resolve"/> (structurally invalid
-    /// <paramref name="location"/>).
+    /// <paramref name="location"/>.Part is not <see cref="LayoutPart.Body"/> (see remarks); <paramref name="options"/>'
+    /// <see cref="RepeaterTableOptions.TableStyle"/> names no table style the layout defines (see
+    /// <see cref="TableShell.CheckTableStyle"/>); or propagated unchanged from
+    /// <see cref="SdtFactory.BuildRepeaterTable"/> (bad data item path, bad column, bad column-width count) or
+    /// <see cref="LocationResolver.Resolve"/> (structurally invalid <paramref name="location"/>).
     /// </exception>
     /// <exception cref="NotFoundException">
     /// Propagated unchanged from <see cref="LocationResolver.Resolve"/> (a well-formed
@@ -354,6 +355,11 @@ public static class LayoutEditor
                 + "still fully support layoutPart='header'/'footer' - only a repeater TABLE cannot target one; "
                 + "omit layoutPart (or pass 'body') to insert this table into the main document instead.",
                 nameof(location));
+        }
+
+        if (!string.IsNullOrEmpty(options.TableStyle))
+        {
+            TableShell.CheckTableStyle(doc, options.TableStyle, "tableStyle");
         }
 
         var schema = SchemaProvider.FromLayoutForBinding(doc);
@@ -967,9 +973,10 @@ public static class LayoutEditor
     /// single-column cells as a block at <paramref name="location"/> — the missing counterpart to
     /// <see cref="InsertRepeaterTable"/> for the NON-repeating blocks every real BC layout is built from
     /// (side-by-side address columns, label/value header-info grids, right-anchored totals blocks).
-    /// Borderless by default — the corpus shape for those blocks — or, when <paramref name="withBorders"/> is
-    /// true, with the explicit single-line grid <see cref="SdtFactory.BuildRepeaterTable"/> emits for
-    /// <c>look='grid'</c>. Each cell carries an explicit <c>w:tcW</c> matching its grid column, and an optional per-column
+    /// <paramref name="borders"/> and <paramref name="tableStyle"/> mean exactly what they mean on
+    /// <see cref="InsertRepeaterTable"/> (both come from <see cref="TableShell"/>): borderless by default — the
+    /// corpus shape for those blocks — a rule under row 0 for <see cref="TableBorderLook.HeaderRule"/>, or the
+    /// explicit single-line grid for <see cref="TableBorderLook.Grid"/>. Each cell carries an explicit <c>w:tcW</c> matching its grid column, and an optional per-column
     /// paragraph justification seeds each cell's alignment (which <see cref="CellTextEditor.SetCellText"/>
     /// and a <c>tableCell</c>-located <see cref="InsertField"/> both preserve afterwards). The result's
     /// <see cref="TableEditResult.TableIndex"/> is the new table's 0-based document-order index — exactly
@@ -978,9 +985,10 @@ public static class LayoutEditor
     /// </summary>
     /// <exception cref="ArgumentException">
     /// <paramref name="rows"/>/<paramref name="columns"/> out of range; a width/alignment list whose count
-    /// doesn't equal <paramref name="columns"/>; an unrecognized alignment; or
-    /// <paramref name="location"/>.Part is not <see cref="LayoutPart.Body"/> (plain tables in
-    /// headers/footers are not supported yet, the same body-only scope as <see cref="InsertRepeaterTable"/>).
+    /// doesn't equal <paramref name="columns"/>; an unrecognized alignment; <paramref name="tableStyle"/> naming no
+    /// table style the layout defines; or <paramref name="location"/>.Part is not <see cref="LayoutPart.Body"/>
+    /// (plain tables in headers/footers are not supported yet, the same body-only scope as
+    /// <see cref="InsertRepeaterTable"/>).
     /// </exception>
     /// <exception cref="NotFoundException">Propagated from <see cref="LocationResolver.Resolve"/>.</exception>
     public static TableEditResult InsertPlainTable(
@@ -990,7 +998,8 @@ public static class LayoutEditor
         Location location,
         IReadOnlyList<int>? columnWidths = null,
         IReadOnlyList<string>? columnAlignments = null,
-        bool withBorders = false)
+        TableBorderLook borders = TableBorderLook.None,
+        string? tableStyle = null)
     {
         ArgumentNullException.ThrowIfNull(doc);
         ArgumentNullException.ThrowIfNull(location);
@@ -1031,6 +1040,11 @@ public static class LayoutEditor
                 nameof(columnAlignments));
         }
 
+        if (!string.IsNullOrEmpty(tableStyle))
+        {
+            TableShell.CheckTableStyle(doc, tableStyle, nameof(tableStyle));
+        }
+
         // Even split of the document's own content width (page width minus margins, read from the body
         // sectPr; the corpus-standard 10206 twips when unset) when no explicit widths are given — a plain
         // top-section block spans the full content width in every corpus layout.
@@ -1041,31 +1055,10 @@ public static class LayoutEditor
             .Select(a => (JustificationValues?)CellTextEditor.ParseAlignment(a, nameof(columnAlignments)))
             .ToArray();
 
-        var tblPr = new TableProperties();
-
-        // Pin the grid below to the widths resolved above; without this Word autofits and recomputes every
-        // column from cell content, making columnWidths advisory at best (see FixedTableLayout).
-        FixedTableLayout.ApplyTo(tblPr, widths);
-
-        if (withBorders)
-        {
-            tblPr.TableBorders = new TableBorders
-            {
-                TopBorder = new TopBorder { Val = BorderValues.Single, Size = 4, Space = 0, Color = "auto" },
-                LeftBorder = new LeftBorder { Val = BorderValues.Single, Size = 4, Space = 0, Color = "auto" },
-                BottomBorder = new BottomBorder { Val = BorderValues.Single, Size = 4, Space = 0, Color = "auto" },
-                RightBorder = new RightBorder { Val = BorderValues.Single, Size = 4, Space = 0, Color = "auto" },
-                InsideHorizontalBorder =
-                    new InsideHorizontalBorder { Val = BorderValues.Single, Size = 4, Space = 0, Color = "auto" },
-                InsideVerticalBorder =
-                    new InsideVerticalBorder { Val = BorderValues.Single, Size = 4, Space = 0, Color = "auto" },
-            };
-        }
-
         var grid = new TableGrid(widths.Select(w =>
             (OpenXmlElement)new GridColumn { Width = w.ToString(System.Globalization.CultureInfo.InvariantCulture) }));
 
-        var table = new Table(tblPr, grid);
+        var table = new Table(TableShell.Properties(widths, borders, tableStyle), grid);
         for (var r = 0; r < rows; r++)
         {
             var row = new TableRow();
@@ -1096,6 +1089,11 @@ public static class LayoutEditor
             }
 
             table.AppendChild(row);
+        }
+
+        if (borders == TableBorderLook.HeaderRule)
+        {
+            TableShell.DrawHeaderRule(table.Elements<TableRow>().First().Elements<TableCell>());
         }
 
         var anchor = LocationResolver.Resolve(location, doc);

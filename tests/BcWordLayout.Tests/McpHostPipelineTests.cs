@@ -134,7 +134,8 @@ public sealed class McpHostPipelineTests(McpHostPipeline pipeline) : IClassFixtu
     }
 
     [Theory]
-    [InlineData("insert_repeater_table", """ "dataItem":"/Header/Line","columns":"ItemNo_Line","locationType":"documentEnd","look":null """)]
+    [InlineData("insert_repeater_table", """ "dataItem":"/Header/Line","columns":"ItemNo_Line","locationType":"documentEnd","borders":null """)]
+    [InlineData("insert_table", """ "rows":1,"columns":2,"locationType":"documentEnd","borders":null """)]
     [InlineData("set_cell_format", """ "tableIndex":0,"row":0,"edges":"top","borderStyle":null """)]
     [InlineData("validate_layout", """ "level":null """)]
     public async Task An_explicit_null_for_an_optional_enum_like_string_is_its_documented_default(

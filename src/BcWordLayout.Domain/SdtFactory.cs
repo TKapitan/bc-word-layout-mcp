@@ -209,10 +209,12 @@ public static class SdtFactory
     /// is <c>rPr, alias, tag, id, dataBinding, repeatingSection</c> / <c>rPr, id, placeholder,
     /// repeatingSectionItem</c>; the decorative run-properties (<c>w:rPr</c>) are cosmetic only (absent
     /// from the simpler corpus field example this factory already mirrors in <see cref="Build"/>) and are
-    /// omitted here for the same reason. Borders follow <see cref="RepeaterTableOptions.Look"/>: the default
-    /// <see cref="TableBorderLook.Bc"/> mirrors the real corpus (NO table-level <c>w:tblBorders</c>; one per-cell
-    /// <c>w:tcBorders</c> bottom rule under each header cell), while <see cref="TableBorderLook.Grid"/> emits the
-    /// explicit full border grid that makes a freshly inserted table visible without depending on a style.
+    /// omitted here for the same reason. Borders follow <see cref="RepeaterTableOptions.Borders"/>: the default
+    /// <see cref="TableBorderLook.HeaderRule"/> mirrors the real corpus (NO table-level <c>w:tblBorders</c>; one
+    /// per-cell <c>w:tcBorders</c> bottom rule under each header cell), <see cref="TableBorderLook.None"/> draws
+    /// nothing (for a body a theme's table style dresses), and <see cref="TableBorderLook.Grid"/> emits the
+    /// explicit full border grid that makes a freshly inserted table visible without depending on a style. The
+    /// table-level properties are <see cref="TableShell"/>'s, shared with <c>insert_table</c>.
     /// </remarks>
     /// <param name="schema">The report's parsed dataset (see <see cref="BuildField"/>).</param>
     /// <param name="dataItemPath">
@@ -304,16 +306,7 @@ public static class SdtFactory
             var column = columns[i];
             var width = widths[i];
 
-            var headerCell = BuildHeaderCell(schema, dataItem, column, options, nextId, width);
-
-            // The BC look's one structural rule: a ½-pt line under the header row, drawn per cell rather
-            // than by a table-level border grid (see TableBorderLook's corpus evidence).
-            if (options.Look == TableBorderLook.Bc)
-            {
-                TableStructureEditor.ApplyCellBorders(headerCell, new CellBorderOptions { Bottom = true });
-            }
-
-            headerCells.Add(headerCell);
+            headerCells.Add(BuildHeaderCell(schema, dataItem, column, options, nextId, width));
 
             var field = BuildField(schema, $"{dataItem.Path}/{column}", id: nextId());
             dataCells.Add(WrapCell(new Paragraph(field), width));
@@ -332,7 +325,14 @@ public static class SdtFactory
             }
         }
 
-        var tblPr = BuildTableProperties(options, widths);
+        // The BC look's one structural rule: a ½-pt line under the header row, drawn per cell rather than by a
+        // table-level border grid (see TableBorderLook's corpus evidence).
+        if (options.Borders == TableBorderLook.HeaderRule)
+        {
+            TableShell.DrawHeaderRule(headerCells);
+        }
+
+        var tblPr = TableShell.Properties(widths, options.Borders, options.TableStyle);
         var tblGrid = new TableGrid(widths.Select(w => (OpenXmlElement)new GridColumn { Width = w.ToString(CultureInfo.InvariantCulture) }));
 
         var headerRowChildren = new List<OpenXmlElement> { new TableRowProperties(new TableHeader()) };
@@ -797,46 +797,7 @@ public static class SdtFactory
         IReadOnlyList<int>? explicitWidths, int columnCount, int availableWidthTwips) =>
         explicitWidths ?? Enumerable.Repeat(availableWidthTwips / columnCount, columnCount).ToList();
 
-    // ---- BuildRepeaterTable: table shell (tblPr/tblGrid/cells) ----
-
-    /// <summary>
-    /// An optional <c>w:tblStyle</c> reference plus — for <see cref="TableBorderLook.Grid"/> only — explicit
-    /// single-line borders (top/left/bottom/right/inside). <see cref="TableBorderLook.Bc"/> emits no
-    /// <c>w:tblBorders</c> at all, exactly like every real corpus lines table: its look comes from the
-    /// per-cell header rule <see cref="BuildRepeaterTable"/> applies instead.
-    /// </summary>
-    private static TableProperties BuildTableProperties(RepeaterTableOptions options, IReadOnlyList<int> widths)
-    {
-        var tblPr = new TableProperties();
-        if (!string.IsNullOrEmpty(options.TableStyle))
-        {
-            tblPr.TableStyle = new TableStyle { Val = options.TableStyle };
-        }
-
-        // Pin the grid the caller asked for; without this Word autofits and recomputes every width from
-        // cell content (see FixedTableLayout). Assigned through typed properties throughout this method so
-        // each element lands at its schema position regardless of the order they are set in.
-        FixedTableLayout.ApplyTo(tblPr, widths);
-
-        if (options.Look != TableBorderLook.Grid)
-        {
-            return tblPr;
-        }
-
-        tblPr.TableBorders = new TableBorders
-        {
-            TopBorder = new TopBorder { Val = BorderValues.Single, Size = 4, Space = 0, Color = "auto" },
-            LeftBorder = new LeftBorder { Val = BorderValues.Single, Size = 4, Space = 0, Color = "auto" },
-            BottomBorder = new BottomBorder { Val = BorderValues.Single, Size = 4, Space = 0, Color = "auto" },
-            RightBorder = new RightBorder { Val = BorderValues.Single, Size = 4, Space = 0, Color = "auto" },
-            InsideHorizontalBorder =
-                new InsideHorizontalBorder { Val = BorderValues.Single, Size = 4, Space = 0, Color = "auto" },
-            InsideVerticalBorder =
-                new InsideVerticalBorder { Val = BorderValues.Single, Size = 4, Space = 0, Color = "auto" },
-        };
-
-        return tblPr;
-    }
+    // ---- BuildRepeaterTable: cells (the table's tblPr is TableShell's, shared with insert_table) ----
 
     private static TableCell WrapCell(Paragraph paragraph, int width)
     {

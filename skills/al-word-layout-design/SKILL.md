@@ -130,15 +130,16 @@ totals table, which is the BC-verified simpler shape [verified: P07]).
   115]. BC honours it [verified: P07], and since the #19 fix the mock preview repeats it too.
 - Two buildable looks, both BC-proven:
   - **Open** [stock: 1304, 1322]: no table style, single ½ pt rule under the header row — exactly
-    what `insert_repeater_table` draws by default (`look="bc"`); add nothing. (For a table built
-    another way, the rule is `set_cell_format` `row=0, edges="bottom", borderSize=4`.)
+    what `insert_repeater_table` draws by default (`borders="headerRule"`); add nothing. (A plain
+    `insert_table` takes the same `borders="headerRule"`; on an existing table the rule is
+    `set_cell_format` `row=0, edges="bottom", borderSize=4`.)
   - **Full grid** [verified: P06]: `tableStyle="TableGrid"` — the style reference alone draws the
     ½ pt grid (BC honours `w:tblStyle` against the scaffolded styles part); don't also paint
-    per-cell borders. (`look="grid"` paints the same grid as explicit cell borders instead; that
-    shape is not BC-verified, so prefer the style.)
+    per-cell borders. (`borders="grid"` paints the same grid as explicit table borders instead;
+    that shape is not BC-verified, so prefer the style.)
   - Stock 1306 additionally rules under *every* data row — a bottom border on the repeater's data
     (template) row should repeat per line, but that exact shape is **not BC-verified**; its solid
-    colour header band is template/hand-edit territory (no tool paints shading).
+    colour header band is `set_cell_format`'s `fill` on the header row.
 - ½ pt (`borderSize=4`) is the only rule weight observed anywhere in the corpus — use it unless asked.
 
 ### Totals block

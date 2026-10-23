@@ -475,17 +475,41 @@ public class InvalidArgumentHintCoverageTests
         }
     }
 
-    // ---- "look" — TableTools.ParseTableBorderLookOrThrow ----
+    // ---- "borders" — TableTools.ParseBordersOrThrow ----
 
-    [Fact]
-    public void InsertRepeaterTable_bad_look_hint_names_the_valid_looks()
+    [Theory]
+    [InlineData("insert_repeater_table")]
+    [InlineData("insert_table")]
+    public void Bad_borders_hint_names_the_valid_values_on_both_table_tools(string tool)
     {
         var path = CopyOfCorpus(Corpus.SalesInvoice);
         try
         {
-            var response = TableTools.InsertRepeaterTable(
-                path, "/Header/Line", "ItemNo_Line", "documentEnd", look: "fancy");
-            AssertActionableFailure(response, "invalid_argument", "'bc'");
+            var response = tool == "insert_table"
+                ? TableTools.InsertTable(path, rows: 1, columns: 2, locationType: "documentEnd", borders: "bc")
+                : TableTools.InsertRepeaterTable(path, "/Header/Line", "ItemNo_Line", "documentEnd", borders: "fancy");
+            AssertActionableFailure(response, "invalid_argument", "'headerRule'");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    // ---- "tableStyle" — TableShell.CheckTableStyle ----
+
+    [Theory]
+    [InlineData("insert_repeater_table")]
+    [InlineData("insert_table")]
+    public void Undefined_tableStyle_hint_explains_the_style_must_be_defined(string tool)
+    {
+        var path = CopyOfCorpus(Corpus.SalesInvoice);
+        try
+        {
+            var response = tool == "insert_table"
+                ? TableTools.InsertTable(path, rows: 1, columns: 2, locationType: "documentEnd", tableStyle: "NoSuchStyle")
+                : TableTools.InsertRepeaterTable(path, "/Header/Line", "ItemNo_Line", "documentEnd", tableStyle: "NoSuchStyle");
+            AssertActionableFailure(response, "invalid_argument", "blank layouts define 'TableGrid'");
         }
         finally
         {
