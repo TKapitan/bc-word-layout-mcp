@@ -97,11 +97,13 @@ Show the table to the consultant in plain language and get a yes, or corrections
 
 ## 4. Build the bound layout
 
-The design's look (shading, colours, borders, fonts) has no tool (al-word-layout-design §5), and no
-tool turns sample text into a bound field *in place*: `insert_field` with `locationType="atText"`
-inserts beside the match and nothing deletes plain text outside a table cell. So the binding is a
-deliberate, validated package edit, exactly the route al-word-layout §4 reserves for "what genuinely
-has no tool". Keep it mechanical:
+The design's look is already in its file, so the layout starts from the design's own package instead
+of being rebuilt: the formatting tools (`format`, `set_text_format`, `set_cell_format`) could
+re-create a look, but keeping the original is cheaper and exact. What no tool does is turn sample text
+into a bound field *in place*: `insert_field` with `locationType="atText"` appends the field at the end
+of the paragraph that holds the match, not where the match is, and nothing deletes plain text outside a
+table cell. So the binding is a deliberate, validated package edit, exactly the route al-word-layout §4
+reserves for "what genuinely has no tool". Keep it mechanical:
 
 ### 4.1 Start from the design's package
 
@@ -162,6 +164,17 @@ Bind straight to `/Header[1]/…`: BC already prints the body once per document.
 when one is really wanted, `wrap_in_repeater` writes the correct shape. Block repeaters over nested
 items (work-description lines) need no group.
 
+### 4.5 Touch-ups after binding: use the tools
+
+Once the package is bound and validates, change its look with typed calls, not more hand edits:
+- `set_text_format` restyles text that is already there: a control by id (including the control's own
+  `w:sdtPr/w:rPr`, which BC formats the bound value with), a table cell, a whole row, or one exact
+  piece of text. It takes the `format` object (`bold`, `italic`, `underline`, `fontSizePoints`,
+  `fontName`, `color`, `characterStyle`) and an optional `alignment`.
+- `set_cell_format` sets cell rules (`edges`) and a cell `fill`.
+- Fields, labels and static text added with the insert tools take the formatting of the text before
+  them; pass `format` only to differ from it.
+
 ## 5. Check it
 
 1. `validate_layout level=full` — 0 errors; every binding resolves.
@@ -196,7 +209,11 @@ the result into a composable layout: `al-word-layout-composite`.
 
 No such tool exists yet — do not try to call one. Everything in §4.2 would be a single typed call with
 a tool that replaces matched sample text with a bound field or label control, inheriting the run's
-formatting (proposed working name: *replace text with field*: layout path, search text, occurrence,
-dataset path), plus a row variant that turns a sample table row into a repeater row and deletes its
-sibling sample rows. Until it exists, the package edit above is the route — always followed by
-`validate_layout level=full`.
+formatting (proposed working name: *replace text with field*: layout path, search text, dataset path),
+plus a row variant that turns a sample table row into a repeater row and deletes its sibling sample
+rows. `set_text_format`'s `text` target already does the hard part: it finds the text, splits it out of
+its run with the run's formatting kept, and refuses text inside a data-bound control. The new tool
+should share that contract. One open question: `set_text_format` refuses text that occurs more than
+once, but a design can repeat a sample value with nothing around it to tell the two apart, so the new
+tool may need an `occurrence` argument; if it gets one, `set_text_format` should get the same. Until
+the tool exists, the package edit above is the route — always followed by `validate_layout level=full`.

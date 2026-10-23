@@ -55,6 +55,20 @@ theme layout for Tenant Report Defaults.
 - Tables: the BC skeleton is three tables — a block table for layout (`firstRow`, no banding), a data
   table for lines (`firstRow`, banded), a totals table (`lastRow`) [MS sample]; layout tables carry
   `w:tblCaption` / `w:tblDescription` ("Layout table. Used for positioning, not for tabular data.").
+- **Which tool calls keep a body style-only.**
+  - Fine: `format` with only `characterStyle` (a style reference; it is refused until the body's own
+    `styles.xml` defines the id, which the bullets above require anyway), `alignment` on
+    `set_text_format` and `set_cell_text`, and `insert_repeater_table`'s `tableStyle` (e.g.
+    `BCDataTable`). Inserts take the formatting of the text before them, which adds nothing to a body
+    that has none.
+  - Not fine, because they write direct formatting: every other `format` member (bold, italic,
+    underline, size, font, colour), on the insert tools and on `set_text_format`; `set_cell_format`
+    (rules and fills — its `borderStyle: "none"` writes an explicit "no border", which also hides the
+    theme table style's own rule); `insert_table`'s `withBorders`; and both of
+    `insert_repeater_table`'s looks (`bc` draws a rule under each header cell, `grid` a table-level
+    grid). Until a borderless look exists (GitHub issue #131), use `bc`, then remove the header cells'
+    `w:tcBorders` by hand and re-validate. `insert_table` takes no `tableStyle` yet either, so a block
+    or totals table gets its `w:tblStyle` by hand.
 - Bindings and repeaters follow al-word-layout and al-word-layout-from-design; the body keeps the
   report title and document number, because the header/footer cannot see report data. Tags in the
   newest samples: field `w:alias` = column name, `w:tag` = `#BC:InsertDataItem,DataItems/<Item>/<Column>`
@@ -71,7 +85,10 @@ theme layout for Tenant Report Defaults.
   `w:tag` = `#BC:InsertDataItem,BCReportInformation/CompanyMetadata/CompanyPhone` [MS sample].
 - The look is carried by **direct formatting** in the header/footer parts — fixed colours, sizes,
   bold — on top of standard styles (`Header`, `Footer`, `NoSpacing`) [MS sample: ExternalDefaultDetailedHFDesign].
-  So the header/footer keeps its look whichever theme is chosen; restyle it in its own file.
+  So the header/footer keeps its look whichever theme is chosen; restyle it in its own file. The tools
+  write exactly this: the insert tools' `format` (bold, italic, underline, size, font, colour) on
+  fields, labels, static text and page numbers, and `set_text_format` to restyle what is already there
+  (a control by id, or a `cell`/`row`/`text` target with `layoutPart` `header`/`footer`).
 - First page vs following pages: set `w:titlePg`, put the full masthead in the `first` part and a slim
   running header in `default`; give both footers the page number (`PAGE` / `NUMPAGES` fields) [verified].
   Use `get_layout_info` `partDetails` to address the right part (al-word-layout §4).
@@ -109,8 +126,11 @@ theme layout for Tenant Report Defaults.
 
 Before handing over, list every `w:pStyle` / `w:rStyle` / `w:tblStyle` the body and the header/footer
 use and confirm each id exists in: the theme, the body's own `styles.xml`, and any Microsoft theme the
-customer might pick instead (Calm, Default, Playful). A missing id renders as plain text with no error.
-Watch for Word's duplicate ids (`BCLabel0`, `BCLabelNumber0`) that appear when a body was attached to
+customer might pick instead (Calm, Default, Playful). In BC a missing id renders as plain text with no
+error. Within one file, `validate_layout` catches two of the three kinds: `table-style-resolves` (a
+`w:tblStyle`) and `character-style-resolves` (a `w:rStyle`, including one that names a paragraph style)
+warn about ids that file's own `styles.xml` does not define. `w:pStyle` ids, and every check against the
+theme file, stay manual. Watch for Word's duplicate ids (`BCLabel0`, `BCLabelNumber0`) that appear when a body was attached to
 a template in Word — no theme defines them [MS sample: WordBody_3].
 
 ## 6. Splitting one designed document into the three parts
