@@ -395,7 +395,7 @@ dotnet publish src/BcWordLayout.McpHost -c Release -r win-x64 --self-contained
 
 Produces `BcWordLayout.McpHost.exe` (~160 KB) in
 `src/BcWordLayout.McpHost/bin/Release/net10.0/win-x64/publish/` alongside the rest of a
-self-contained deployment (238 files, ~109 MB — the .NET 10 runtime plus every dependency, so the
+self-contained deployment (240 files, ~109 MB — the .NET 10 runtime plus every dependency, so the
 target machine needs no .NET installed; native debug symbols are stripped at publish). **Ship the
 whole `publish/` folder together**, not just the `.exe` — it depends on the sibling `.dll`s.
 `scripts/build-release-zips.ps1` builds the exact per-RID zips (+ checksums) a GitHub Release

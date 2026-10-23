@@ -17,7 +17,7 @@ dotnet test
 The full suite must be green before and after your change. Tests locate the corpus via
 `AppContext.BaseDirectory`, so they run from any directory. Optional Python 3 tooling under
 `tools/e2e/` (not required for a PR, but a good smoke test for tool-surface changes):
-`scenarios.py` drives 19 multi-step edit journeys through the real stdio server;
+`scenarios.py` drives 24 multi-step edit journeys through the real stdio server;
 `call.py` makes a one-shot tool call from the CLI (handy while debugging);
 `author_order_confirmation.py` is the worked example that authors a complete layout from scratch
 through the tools alone; `sandbox_pack.py`/`bc_compare.py` build and re-check the BC-sandbox

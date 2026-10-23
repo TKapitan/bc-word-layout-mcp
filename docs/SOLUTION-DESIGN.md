@@ -396,7 +396,7 @@ version exposes part-URI control, adopting it is a one-line change and this note
   byte-identical determinism check.
 - **Tool-surface tests**: every tool driven through its real MCP entry point, including the guard/envelope
   behaviour and every `hint` branch.
-- **e2e scenarios** (`tools/e2e/scenarios.py`): 19 multi-step edit journeys against corpus copies, each
+- **e2e scenarios** (`tools/e2e/scenarios.py`): 24 multi-step edit journeys against corpus copies, each
   verifying that an edit introduces **no new validation finding** versus the pristine layout, then
   previewing and rendering it. Caches are keyed on the content of every server assembly, the harness code
   and the corpus file a scenario edits, so a code change that flips an outcome cannot be masked by a stale
