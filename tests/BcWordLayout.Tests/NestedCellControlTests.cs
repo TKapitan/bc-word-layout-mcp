@@ -105,12 +105,12 @@ public class NestedCellControlTests
     }
 
     [Fact]
-    public void SetCellBorders_draws_the_rule_on_every_w_tc_of_the_row_leaving_no_gap_under_the_wrapped_cell()
+    public void SetCellFormat_draws_the_rule_on_every_w_tc_of_the_row_leaving_no_gap_under_the_wrapped_cell()
     {
         var path = CopyOfCorpus(Corpus.SalespersonCommission);
         try
         {
-            var response = TableTools.SetCellBorders(path, TableIndex, Row, edges: "top");
+            var response = TableTools.SetCellFormat(path, TableIndex, Row, edges: "top");
             Assert.True(response.Ok, response.Error?.Message);
             Assert.Contains("all 9 cell(s)", Assert.IsType<TableEditResultDto>(response.Data).Summary);
 

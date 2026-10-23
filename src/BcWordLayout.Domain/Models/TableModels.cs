@@ -116,7 +116,7 @@ public sealed class TableRowInfo
 /// <remarks>
 /// TWO COORDINATES, ONE PER KIND OF TOOL. <see cref="ColIndex"/> is the cell's PHYSICAL position in its row
 /// — what the cell tools take (<c>tableCell</c> locations, <c>set_cell_text</c>, <c>merge_cells</c>,
-/// <c>split_cells</c>, <c>set_cell_borders</c>'s <c>col</c>). <see cref="GridColumn"/>/<see cref="GridSpan"/>
+/// <c>split_cells</c>, <c>set_cell_format</c>'s <c>col</c>). <see cref="GridColumn"/>/<see cref="GridSpan"/>
 /// are where the cell sits on the table's <c>w:tblGrid</c> — what the column tools take
 /// (<c>insert_column</c>'s <c>atColumn</c>, <c>remove_column</c>, <c>set_column_widths</c>' list order).
 /// They differ on almost every real BC table, which is <c>gridSpan</c>-pervasive: on the stock VAT-spec

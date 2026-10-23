@@ -27,7 +27,7 @@ import sys
 import threading
 import time
 
-EXPECTED_TOOLS_DEFAULT = 27
+EXPECTED_TOOLS_DEFAULT = 28
 DEFAULT_TIMEOUT = 300    # seconds per request
 POLL_INTERVAL = 0.5      # seconds between liveness checks of the server while a request is outstanding
 EXIT_GRACE = 2.0         # seconds a dead server's last output gets to drain before a wait gives up on it

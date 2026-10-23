@@ -60,7 +60,7 @@ public class StaticTableRowTests
             {
                 result = TableStructureEditor.InsertStaticRow(
                     doc, LayoutPart.Body, null, QuoteLinesTable, atRow: null, TotalsRowCells(),
-                    new CellTextFormat { Bold = true });
+                    new TextFormat { Bold = true });
 
                 // The edit introduces no structural error and no grid desync on this heavily spanned table.
                 Assert.Empty(new OpenXmlValidator(FileFormatVersions.Office2021).Validate(doc));
@@ -236,27 +236,6 @@ public class StaticTableRowTests
     }
 
     [Fact]
-    public void A_row_level_alignment_is_refused_even_for_an_all_spacer_row()
-    {
-        // Alignment is per-cell (RepeaterRowCell.Alignment); a row-level one would be silently swallowed
-        // for a spacer row (no controls to style), so it must be refused up front instead.
-        var path = CopyOfCorpus(Corpus.StandardSalesQuote);
-        try
-        {
-            using var doc = WordprocessingDocument.Open(path, true);
-            var ex = Assert.Throws<ArgumentException>(() => TableStructureEditor.InsertStaticRow(
-                doc, LayoutPart.Body, null, QuoteLinesTable, atRow: null,
-                [new RepeaterRowCell { Span = 8 }],
-                new CellTextFormat { Alignment = "right" }));
-            Assert.Contains("per-cell alignments", ex.Message, StringComparison.Ordinal);
-        }
-        finally
-        {
-            File.Delete(path);
-        }
-    }
-
-    [Fact]
     public void A_vMerge_table_is_refused_like_every_other_structure_op()
     {
         var body = "<w:tbl><w:tblPr/><w:tblGrid><w:gridCol w:w=\"2000\"/><w:gridCol w:w=\"2000\"/></w:tblGrid>"
@@ -315,7 +294,7 @@ public class StaticTableRowTests
                 QuoteLinesTable,
                 cells: $"-,-,-,-,3:{CaptionPath},{AmountPath}",
                 alignments: "-,-,-,-,-,right",
-                bold: true);
+                format: new TextFormatArgument { Bold = true });
 
             Assert.True(response.Ok, response.Error?.Message);
             var dto = Assert.IsType<TableEditResultDto>(response.Data);

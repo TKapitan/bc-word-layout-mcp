@@ -271,9 +271,9 @@ public sealed record CellEditResultDto(
 /// <summary>
 /// Result of a table-STRUCTURE edit tool (<c>insert_table</c>, <c>insert_table_row</c>,
 /// <c>set_column_widths</c>, <c>insert_column</c>, <c>remove_column</c>, <c>merge_cells</c>, <c>split_cells</c>,
-/// <c>set_cell_borders</c>). The table is addressed by its 0-based document-order index (the same one
+/// <c>set_cell_format</c>). The table is addressed by its 0-based document-order index (the same one
 /// <c>get_layout_info</c> reports); <see cref="ColumnIndex"/> is the GRID column the edit added/removed, or
-/// for a single-cell edit (<c>merge_cells</c>, <c>split_cells</c>, <c>set_cell_borders</c> with a
+/// for a single-cell edit (<c>merge_cells</c>, <c>split_cells</c>, <c>set_cell_format</c> with a
 /// <c>col</c>) the grid column that cell starts at — the <c>gridColumn</c> <c>get_layout_info</c> reports
 /// for it — and null for a whole-table or whole-row edit. <see cref="ColumnCountBefore"/>/<see cref="ColumnCountAfter"/> are
 /// the grid column counts around the edit. <see cref="QuickValidation"/> is always populated on a

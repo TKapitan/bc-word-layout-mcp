@@ -120,7 +120,7 @@ public class InheritedRunFormatTests
         {
             using (var doc = WordprocessingDocument.Open(path, true))
             {
-                LayoutEditor.InsertText(doc, " | ", AfterInHeader2(DocumentNoId), new CellTextFormat { Bold = false });
+                LayoutEditor.InsertText(doc, " | ", AfterInHeader2(DocumentNoId), new TextFormat { Bold = false });
                 SaveAll(doc);
             }
 
@@ -144,7 +144,7 @@ public class InheritedRunFormatTests
             using (var doc = WordprocessingDocument.Open(path, true))
             {
                 LayoutEditor.InsertText(doc, " | ", AfterInHeader2(DocumentNoId),
-                    new CellTextFormat { Bold = true, FontSizePoints = 7 });
+                    new TextFormat { Bold = true, FontSizePoints = 7 });
                 SaveAll(doc);
             }
 

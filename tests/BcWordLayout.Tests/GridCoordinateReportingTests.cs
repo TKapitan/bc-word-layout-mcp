@@ -182,12 +182,12 @@ public class GridCoordinateReportingTests
     [InlineData(7, 9)] // Line Amount
     public void Set_cell_borders_reports_the_grid_column_of_the_cell_it_drew_on(int physicalCol, int gridColumn)
     {
-        // TableEditResultDto.ColumnIndex is documented as a GRID column; set_cell_borders echoed the physical
+        // TableEditResultDto.ColumnIndex is documented as a GRID column; set_cell_format echoed the physical
         // col back instead.
         var path = CopyOfCorpus(Corpus.SalesInvoiceVatSpec);
         try
         {
-            var response = TableTools.SetCellBorders(path, LinesTable, row: 1, edges: "bottom", col: physicalCol);
+            var response = TableTools.SetCellFormat(path, LinesTable, row: 1, edges: "bottom", col: physicalCol);
             Assert.True(response.Ok, response.Error?.Message);
 
             var dto = Assert.IsType<TableEditResultDto>(response.Data);

@@ -9,6 +9,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **New tool `set_text_format`: restyle text that is already in the layout** (GitHub issue #15).
+  The insert tools only format what they create, so making a stock field blue or a header row bold
+  meant hand-editing the OOXML. `set_text_format` takes the same `format` object, plus an optional
+  alignment, and one of four targets:
+  - `control` (by id, in any part): all of the control's text and its own `w:sdtPr/w:rPr`, which
+    is what Business Central formats the bound value with;
+  - `cell`, or every cell of a `row`: the cell's text outside a nested table, any field or label in
+    it, and the paragraph marks. An empty cell formatted first gives text inserted later the same
+    look;
+  - `text`: exactly one occurrence of a substring, split out of its run when it is only part of one.
+    Text that occurs more than once, or sits inside a data-bound control, is refused.
+
+  Alignment goes on the target's paragraphs, or for an inline control or a text match on the line it
+  sits in. A target given an argument it does not use is refused.
+
 - **New tool `wrap_in_repeater`: repeat body content per record without a table** (GitHub issue
   #31). Repeaters could only be table rows, so two stock shapes could not be authored: a statement
   that gives every customer its own page, and a paragraph per record of a nested item such as the
@@ -23,6 +38,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   inside need no change. It refuses a range in a header or footer, a range holding a section break,
   a repeater in the range over data outside the item, and a range with nothing bound under the item.
   The tool-written shapes have no BC sandbox render yet.
+
+- **New `validate_layout` check `character-style-resolves` (warning)** (GitHub issue #15), the
+  run-level twin of `table-style-resolves`. A `w:rStyle` naming a style the layout does not define,
+  or a paragraph style rather than a character style, silently does nothing, so text the author
+  believes is styled renders in its defaults. The tools refuse to write such a reference; this
+  catches one left by a hand edit or a template that lost the style. No corpus layout trips it.
 
 - **New `validate_layout` check `top-level-repeater-group` (error).** A block-level repeating
   section bound directly to the top-level data item (e.g. the whole invoice body wrapped in a
@@ -51,6 +72,38 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **BREAKING: one `format` object replaces the `bold` and `fontSizePoints` arguments** (GitHub
+  issue #15) on `insert_field`, `insert_label`, `insert_text`, `insert_page_number`,
+  `set_cell_text`, `insert_table_row` and `insert_subtotal_row`. Each tool described the two
+  options in its own words, and adding more would have meant four more arguments on seven tools.
+  `"bold": true, "fontSizePoints": 8` becomes `"format": {"bold": true, "fontSizePoints": 8}`.
+  The object also takes italic, underline, a font, a colour and a character style, each written in
+  the shape Microsoft's own layouts carry:
+  - `italic`: `w:i` + `w:iCs`, the pair every corpus style definition uses;
+  - `underline`: `w:u w:val="single"`;
+  - `fontName`: `w:rFonts` naming the font for `ascii`/`hAnsi`/`cs`, as nearly every stock run does
+    with Segoe UI;
+  - `color`: `RRGGBB` (a leading `#` is fine) or `auto`;
+  - `characterStyle`: `w:rStyle`, refused unless the layout defines it as a character style (the
+    error lists the ones it does).
+
+  `false` for bold, italic or underline also overrides what a character style supplies. A
+  misspelled member is refused like a misspelled argument, and a `format` sent as a JSON string is
+  read as the object it holds. Alignment stays a separate argument on `set_cell_text`, because it
+  belongs to the whole paragraph. Italic is in the corpus only inside style definitions, so sandbox
+  probe P13 checks the direct form in Business Central.
+
+- **BREAKING: `set_cell_format` replaces `set_cell_borders`, and adds a cell fill** (GitHub issue
+  #15). Rules and fill are both cell appearance, so they share one tool:
+  - `edges` is unchanged;
+  - `style` and `size` are renamed `borderStyle` and `borderSize`, and are refused without `edges`;
+  - the new `fill` takes `RRGGBB` (a leading `#` is fine) or `auto` for none. It is written as
+    `w:shd w:val="clear" w:color="auto" w:fill="…"`, the shape of the stock fills (`E8E8E8` and
+    `0070C0`, in four layouts).
+
+  Pass `edges`, `fill`, or both. The `set_cell_borders` fixes listed under *Fixed* below apply to
+  `set_cell_format`.
+
 - **`remove_control keepText=true` on a block-level repeater now unwraps it** instead of refusing
   (GitHub issue #31): section, group and item go at once and the content stays in place, printing
   once. It is the undo of `wrap_in_repeater`, and works on the stock statement and work-description
@@ -78,8 +131,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
   Placeholder styling, tracked-change marks and hidden text are not copied, and pictures are skipped.
   A new control carries the formatting on its `w:sdtPr/w:rPr` too, where stock controls carry it.
-  `bold`/`fontSizePoints` still override it, and `bold=false` now writes `w:b w:val="0"` when the
-  run took over a character style, so it beats a bold style such as `Strong`. The insert summary
+  The `format` argument still overrides it (see *Changed*), and its `"bold": false` writes `w:b
+  w:val="0"` when the run took over a character style, so it beats a bold style such as `Strong`. The insert summary
   names what was taken. An insert that opens a new paragraph, or lands in a fresh `insert_table`
   cell, has nothing to take and is unchanged.
 
