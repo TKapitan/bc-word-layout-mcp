@@ -759,34 +759,53 @@ def p09(b: Build):
     b.note("no edits: the stock layout with its #BC:HideTableRowIfEmpty wrapper, as Microsoft ships it")
 
 
+# The add-in's two hide-if-empty wrappers differ only in their alias and tag: the same cell-level w:sdt, the same
+# w15:color, around a cell of the parent repeater's row bound to a column of a CHILD repeating item (captured in
+# SalespersonCommission and SubcontractorDispatchList).
+HIDE_ROW_WRAPPER = ('<w:alias w:val="Hide Table Row If Empty" />', '<w:tag w:val="#BC:HideTableRowIfEmpty" />')
+HIDE_TABLE_WRAPPER = ('<w:alias w:val="Hide Table If Empty" />', '<w:tag w:val="#BC:HideTableIfEmpty" />')
+
+
+def retag_hide_row_as_hide_table(xml: str) -> str:
+    """P09's one Hide Table Row If Empty wrapper becomes the Hide Table If Empty variant, alias and tag alone."""
+    for row, table in zip(HIDE_ROW_WRAPPER, HIDE_TABLE_WRAPPER):
+        if xml.count(row) != 1:
+            raise ItemFailure(f"expected exactly one {row!r} in the stock commission layout, found {xml.count(row)}")
+        xml = xml.replace(row, table)
+    return xml
+
+
 @item(
-    id="p10", title="Hide Empty Table as Microsoft ships it",
-    report="99000789 - Subcontractor Dispatch List", base="SubcontractorDispatchList.docx",
+    id="p10", title="Hide Empty Table on the commission report",
+    report="115 - Salesperson Commission", base="SalespersonCommission.docx",
     purpose="GitHub issue #123: the BC add-in's 'Hide Table If Empty' control is captured (tag "
-            "#BC:HideTableIfEmpty) but its semantics are not. This is the stock layout with one repair: "
-            "38 of its bindings name a superseded namespace (report 50030), which BC rejects on upload, so "
-            "refresh_xml_part re-points them first - nothing else changes. The wrapper sits around the 'Components needed' CAPTION cell inside each production-order-line "
-            "block - a cell whose own text is never empty - so the test must be on something else, most "
-            "likely the components table's data.",
+            "#BC:HideTableIfEmpty) but not what BC treats as empty. Its one capture is in the Subcontractor "
+            "Dispatch List, whose test data needs a subcontracted production order, and its wrapper is shaped "
+            "exactly like P09's 'Hide Table Row If Empty' one: the same cell-level control, around a cell of the "
+            "parent row bound to a column of the CHILD repeating item, differing only in alias and tag. So this "
+            "is P09's stock layout with that one wrapper re-tagged to the table variant (a hand edit): same "
+            "report, same data, and the two renders side by side show what each variant hides.",
     asks=[
-        "A production order line with NO components: is the 'Components needed' caption left out? Its "
-        "component rows (there are none)? The whole surrounding table?",
-        "A line WITH components: are the caption and its component rows printed normally?",
+        "A salesperson with NO customer ledger entries in the filter: what is left out - their group-header "
+        "row (code, name, commission %), their entry rows, or the WHOLE table, every salesperson included? "
+        "Or nothing?",
+        "A salesperson WITH entries: is their group printed normally, code included?",
+        "Side by side with P09's render on the same filter: what does this table variant hide that P09's row "
+        "variant does not?",
     ],
     bc_steps=[
-        "Needs a released production order routed through a SUBCONTRACTOR work center (a work center "
-        "with a Subcontractor No.). If the sandbox has none, record 'not run' rather than building one.",
-        "Report Layouts > New layout for report 99000789, upload this .docx, then run Subcontractor - "
-        "Dispatch List for that vendor with it - ideally covering one line with components and one "
-        "without.",
+        "The same run as P09: report 115, filtered to at least one salesperson who HAS posted sales and one "
+        "who has NONE in the posting-date filter.",
+        "Report Layouts > New layout for report 115, upload this .docx, then run the report with it and the "
+        "SAME filter as P09.",
     ],
 )
 def p10(b: Build):
-    refresh = b.edit("refresh_xml_part",
-                     newSchemaSource=os.path.join(CORPUS_DIR, "SubcontractorDispatchList.docx"))["data"]
-    b.note(f"refresh_xml_part against the layout's own schema: re-pointed "
-           f"{len(refresh['repointedForeignBindings'])} bindings off the superseded report 50030 "
-           "namespace, which BC rejects on upload; the #BC:HideTableIfEmpty wrapper is untouched")
+    parts = rewrite_parts(b.work, r"word/document\.xml", retag_hide_row_as_hide_table)
+    b.note(f"hand edit in {', '.join(parts)}: the stock layout's one 'Hide Table Row If Empty' wrapper "
+           "(#BC:HideTableRowIfEmpty, around the salesperson row's cell bound to "
+           "/Salesperson_Purchaser/Cust_Ledger_Entry/SalespersonPurchaser_Code) re-tagged as 'Hide Table If "
+           "Empty' (#BC:HideTableIfEmpty) - alias and tag only, as captured in the Subcontractor Dispatch List")
 
 
 # The nested IF PAGE = NUMPAGES construct, run for run as Word itself serializes it: opening this exact
