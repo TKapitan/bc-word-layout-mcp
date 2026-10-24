@@ -838,7 +838,7 @@ public static class LayoutValidator
     }
 
     // 6. Repeater LOCATION: a repeating section control (w15:repeatingSection) located in a header/footer
-    //    part is outside this tool's v1 supported matrix — insert_repeater_table itself now refuses to
+    //    part is outside this tool's supported matrix — insert_repeater_table and wrap_in_repeater refuse to
     //    CREATE one there (see LayoutEditor.InsertRepeaterTable), but a hand-authored layout, one edited
     //    outside this tool, or a pre-existing BC layout could still legitimately have one; the design's own
     //    principle is to flag anything outside the matrix instead of silently treating it the same as a

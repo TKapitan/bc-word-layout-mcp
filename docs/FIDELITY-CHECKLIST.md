@@ -33,7 +33,7 @@ harness below (Deliverable 2) repeats it in every artifact it writes.
 
 | Dimension | Tag | Automated guard / what "manual" means |
 |---|---|---|
-| Binding fill / field values | **[Automated]** | `MergeSnapshotTests` (merged main-part XML vs. approved snapshot, all 3 corpus layouts) + `MergeEngineTests.Field_fill_matches_the_generators_exact_value` (exact value equality against the generator's own output). |
+| Binding fill / field values | **[Automated]** | `MergeSnapshotTests` (merged main-part XML vs. approved snapshot, three corpus layouts) + `MergeEngineTests.Field_fill_matches_the_generators_exact_value` (exact value equality against the generator's own output). |
 | Repeater expansion / nesting / re-anchoring | **[Automated]** | `MergeEngineTests` — `Repeater_expands_configured_row_count_with_reanchored_per_row_values`, `Nested_repeater_reanchors_across_two_levels_and_counts_multiply`, the `MaxRowsPerRepeater` row-cap tests — plus `MergeSnapshotTests` for the real corpus, and `W15BindingAndDeepNestingTests` for the deepest nesting the corpus contains (a 5-level chain in a single table). |
 | Structural OOXML validity of edited/created/merged layouts | **[Automated]** | `OpenXmlValidator`, run in: `FidelityHarnessTests` (merged corpus docx), `LayoutValidatorTests`/`FullValidatorTests` (quick/full validation), `MergeEngineTests.Corpus_layouts_merge_and_validate_with_zero_errors`, and every mutating tool's own before/after structural gate (`ToolGuards.GuardMutate`). |
 | Merge determinism | **[Automated]** | `MergeSnapshotTests.Merging_the_same_corpus_file_twice_produces_byte_identical_pretty_printed_xml`, `MergeEngineTests.Merging_the_same_corpus_file_twice_is_deterministic`. |
@@ -47,17 +47,30 @@ harness below (Deliverable 2) repeats it in every artifact it writes.
 
 ## The sandbox pack (the prepared version of the manual procedure)
 
-`python tools/e2e/sandbox_pack.py` builds twelve layouts into `preview-output/sandbox-pack/` (gitignored)
+`python tools/e2e/sandbox_pack.py` builds fourteen layouts into `preview-output/sandbox-pack/` (gitignored)
 for uploading to a real BC sandbox: three authored entirely by the tools (P01, P06, P07 — every one a
 `create_layout` blank build, so all three carry the scaffolded default typography whose BC-side
 verification rides this pack), four exercising a distinct editing capability against stock
-base-app layouts (P02–P05), and four research probes (P08–P11) that answer open questions blocked on BC
+base-app layouts (P02–P05), four research probes (P08–P11) that answer open questions blocked on BC
 behaviour rather than check a capability — storeItemIDs naming no part
 ([#102](https://github.com/TKapitan/bc-word-layout-mcp/issues/102)), the add-in's hide-if-empty semantics
 ([#123](https://github.com/TKapitan/bc-word-layout-mcp/issues/123)) and last-page-only footer content
-([#11](https://github.com/TKapitan/bc-word-layout-mcp/issues/11)), plus P13, a capability check of the formatting tools
-([#15](https://github.com/TKapitan/bc-word-layout-mcp/issues/15)): direct italic (a shape no stock layout carries), colour,
-underline, a character style, a font that exists nowhere, a cell fill, and restyled stock content. Each item folder carries the `.docx` to upload, this
+([#11](https://github.com/TKapitan/bc-word-layout-mcp/issues/11)) — and three capability checks of what
+2.0 writes:
+
+- **P12**, a statement repeated per customer by `wrap_in_repeater`
+  ([#31](https://github.com/TKapitan/bc-word-layout-mcp/issues/31)) — no tool-written block repeater,
+  `w:group` included, has been rendered by BC before;
+- **P13**, the formatting tools ([#15](https://github.com/TKapitan/bc-word-layout-mcp/issues/15)):
+  direct italic (a shape no stock layout carries), colour, underline, a character style, a font that
+  exists nowhere, a cell fill, and restyled stock content;
+- **P14**, the reworked table tools
+  ([#131](https://github.com/TKapitan/bc-word-layout-mcp/issues/131)–[#133](https://github.com/TKapitan/bc-word-layout-mcp/issues/133)):
+  tables in a header and a footer, `borders="headerRule"` on a plain table and `"grid"` on a totals
+  block, a rule under every repeated line, a column that takes what the others leave, and the work
+  description repeated per line (the nested-item block repeater).
+
+Each item folder carries the `.docx` to upload, this
 tool's own mock render of it, a README naming the questions that item's BC render answers, and the full
 tool-call/validation record; the pack root carries `INSTRUCTIONS.md` (BC-side procedure) and
 `COMPARISON.md` (a per-item sheet keyed to the dimensions table above).
@@ -135,7 +148,7 @@ passed**; the filled comparison sheet lives with the round's pack output.
 
 ## Manual procedure (per release, 3 corpus reports)
 
-For each of the 3 corpus layouts — `SalesInvoiceForSubscriptionBilling.docx`, `InventoryOrderDetails.docx`,
+For each of these three corpus layouts — `SalesInvoiceForSubscriptionBilling.docx`, `InventoryOrderDetails.docx`,
 `StandardStatement.docx` (`tests/corpus/`):
 
 1. **Generate the mock preview.** Either run the harness with the repo-root output opted in —
@@ -202,6 +215,6 @@ These are the existing suites the checklist's **[Automated]** tags above point a
 - **`PdfConverterTests`** (`PdfConverterFactoryTests`, `PdfConverterContractTests`, `LibreOfficeCliTests`,
   `PdfFileValidationTests`) — dependency-agnostic converter contract tests; green whether or not Word/
   LibreOffice is installed on the machine running them.
-- **`FidelityHarnessTests`** (this task, Deliverable 2) — batch-produces the fresh artifacts above for all
-  3 corpus layouts and asserts the automatable invariants: the merge produced output, zero bindings are
+- **`FidelityHarnessTests`** — batch-produces the fresh artifacts above for the same three corpus
+  layouts and asserts the automatable invariants: the merge produced output, zero bindings are
   unresolved against the corpus, and the merged docx stays `OpenXmlValidator`-clean.

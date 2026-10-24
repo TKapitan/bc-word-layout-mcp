@@ -1,6 +1,6 @@
 ---
 name: al-word-layout
-description: Use whenever inspecting, creating, editing, validating, or previewing a Business Central Word report layout (.docx) — BC Word layouts, report layouts, and their bound content controls (fields, labels, repeater tables) — through the bc-word-layout MCP tools, instead of hand-editing the underlying OOXML directly. Covers the inspect → edit → validate → preview workflow, the exact tool surface and parameters, what v1 does and does not support, and the error envelope every tool returns.
+description: Use whenever inspecting, creating, editing, validating, or previewing a Business Central Word report layout (.docx) — BC Word layouts, report layouts, and their bound content controls (fields, labels, repeater tables) — through the bc-word-layout MCP tools, instead of hand-editing the underlying OOXML directly. Covers the inspect → edit → validate → preview workflow, the exact tool surface and parameters, what the tools do and do not support, and the error envelope every tool returns.
 ---
 
 # al-word-layout
@@ -81,7 +81,7 @@ uniform envelope described in §5 and never throws.
 
 | Tool | Key params (defaults) | Returns | Reach for it when… |
 |---|---|---|---|
-| `validate_layout` | `layoutPath`, `level` = `"quick"` \| `"full"` (default `"quick"`) | `level`, `passed`, `errorCount`, `warningCount`, `findings[]` (`check`, `severity`, `message`, `location`). `quick`: OpenXML validity, `document-content-type` **error** (the main part is typed as a Word template or macro-enabled file — Word refuses to open it as a `.docx`, whatever the file name says), single BC XML part (with several, the finding lists them and the other checks measure against the one the bindings name by `storeItemID`; `refresh_xml_part` and every tool that writes a binding refuse such a layout with `invalid_layout` until the extra part is removed from the package), `storeItemID` match, `binding-namespace` **error** (a binding names another report's BC namespace), `binding-prefix-mapping` **error** (a dataset binding's `w:prefixMappings` does not declare every prefix its XPath uses as the layout's own namespace — a misspelled or `dynamics-365` namespace, or `ns1` declared for an `ns0` XPath; Word cannot map the control. A bare URI naming the right namespace is tolerated: stock layouts ship it and BC prints them), XPath resolution, repeater shape/location, `attachedTemplate` warning, dangling `w:tblStyle` reference warning (a table naming a style the layout's styles part does not define — the reference silently does nothing), `compatibility-mode` warning (the layout CONTAINS repeaters but declares a Word compatibility mode below 15 — a Word save would convert them to plain rich-text controls and drop their bindings; blank builds declare 15, so this fires for a `templatePath` shell or a layout authored before that scaffold). `repeater-downgraded` **error** (a control whose alias names a whole data item but which is not a repeating section — what a Word save leaves behind when it converts a repeater to a plain rich-text control; the row then renders once instead of once per record). `top-level-repeater-group` **error** (a block-level repeating section over the TOP-LEVEL data item whose `repeatingSectionItem` is not inside a `w:group` sdt — BC prints the whole layout as an empty document, although `preview_layout` and `full` fill it normally; bind the body straight to `<Item>[1]` instead, since BC already renders one document per top-level record, or use the StandardStatement shape repeatingSection › `w:group` › repeatingSectionItem). `duplicate-control-id` **warning** (two content controls share a `w:sdtPr/w:id` — the file still opens, but `remove_control`, an `afterControl` location and `parentRepeaterId` refuse that id with `invalid_layout` rather than act on the first match). One structural complaint is deliberately a **warning**, not an error: `w:rPr/w:w=0`, the character scaling Word writes into a content control's placeholder run — it renders correctly in Word and BC and no tool here can edit run properties. `full`: everything `quick` does, plus a real dry-run merge (sample data + repeater expansion) against a throwaway copy, surfacing every merge warning as a finding. | `quick` liberally (cheap, run it constantly); `full` before treating the loop as done — it's the only level that proves every binding actually resolves. |
+| `validate_layout` | `layoutPath`, `level` = `"quick"` \| `"full"` (default `"quick"`) | `level`, `passed`, `errorCount`, `warningCount`, `findings[]` (`check`, `severity`, `message`, `location`). `quick`: OpenXML validity, `document-content-type` **error** (the main part is typed as a Word template or macro-enabled file — Word refuses to open it as a `.docx`, whatever the file name says), single BC XML part (with several, the finding lists them and the other checks measure against the one the bindings name by `storeItemID`; `refresh_xml_part` and every tool that writes a binding refuse such a layout with `invalid_layout` until the extra part is removed from the package), `storeItemID` match, `binding-namespace` **error** (a binding names another report's BC namespace), `binding-prefix-mapping` **error** (a dataset binding's `w:prefixMappings` does not declare every prefix its XPath uses as the layout's own namespace — a misspelled or `dynamics-365` namespace, or `ns1` declared for an `ns0` XPath; Word cannot map the control. A bare URI naming the right namespace is tolerated: stock layouts ship it and BC prints them), XPath resolution, repeater shape/location, `attachedTemplate` warning, dangling `w:tblStyle` reference warning (a table naming a style the layout's styles part does not define — the reference silently does nothing), `compatibility-mode` warning (the layout CONTAINS repeaters but declares a Word compatibility mode below 15 — a Word save would convert them to plain rich-text controls and drop their bindings; blank builds declare 15, so this fires for a `templatePath` shell or a layout authored before that scaffold). `repeater-downgraded` **error** (a control whose alias names a whole data item but which is not a repeating section — what a Word save leaves behind when it converts a repeater to a plain rich-text control; the row then renders once instead of once per record). `top-level-repeater-group` **error** (a block-level repeating section over the TOP-LEVEL data item whose `repeatingSectionItem` is not inside a `w:group` sdt — BC prints the whole layout as an empty document, although `preview_layout` and `full` fill it normally; bind the body straight to `<Item>[1]` instead, since BC already renders one document per top-level record, or use the StandardStatement shape repeatingSection › `w:group` › repeatingSectionItem). `duplicate-control-id` **warning** (two content controls share a `w:sdtPr/w:id` — the file still opens, but `remove_control`, an `afterControl` location and `parentRepeaterId` refuse that id with `invalid_layout` rather than act on the first match). One structural complaint is deliberately a **warning**, not an error: `w:rPr/w:w=0`, the character scaling Word writes into a content control's placeholder run — it renders correctly in Word and BC, and no tool here edits character scaling. `full`: everything `quick` does, plus a real dry-run merge (sample data + repeater expansion) against a throwaway copy, surfacing every merge warning as a finding. | `quick` liberally (cheap, run it constantly); `full` before treating the loop as done — it's the only level that proves every binding actually resolves. |
 
 ### Preview
 
@@ -103,6 +103,12 @@ each `afterControl` on the same anchor. For `Label: Value`: `insert_label`, then
 and `documentEnd` starts a new paragraph on every call, so it cannot chain a line. `layoutPart` picks which OOXML part `locationType` resolves within — `body` (default),
 `header`, or `footer` — with an optional `partName` to pick a specific part when more than one exists;
 `insert_repeater_table` is body-only and has neither.
+Omitting `partName` targets the first section's **default** part (the everyday header/footer — often
+NOT the first part in the package; `get_layout_info`'s `partDetails` gives each part's role). In a
+layout with `hasTitlePage` (a distinct first page), the default header/footer does **not** render on
+page 1 — content that must appear there needs the `first`-role part too, and the insert tools warn in
+their summary when an edit lands in that trap.
+
 Inline inserts (`insert_field`, `insert_label`, `insert_text`, `insert_page_number`) take the run
 formatting of the text before them, as typing in Word does: the anchor control for `afterControl`, the
 paragraph's last text for `tableCell`/`atText`, or an empty paragraph's own mark. So a separator in a
@@ -118,11 +124,6 @@ layouts use), `color` (`RRGGBB` hex such as `"0070C0"`, or `"auto"`), and `chara
 character style the layout's styles part defines — refused otherwise, with the defined ones listed). A
 member you omit is left as it is. A misspelled member is refused like a misspelled argument. Alignment is
 not a member: it belongs to the whole paragraph, so only the tools that own the paragraph take it.
-Omitting `partName` targets the first section's **default** part (the everyday header/footer — often
-NOT the first part in the package; `get_layout_info`'s `partDetails` gives each part's role). In a
-layout with `hasTitlePage` (a distinct first page), the default header/footer does **not** render on
-page 1 — content that must appear there needs the `first`-role part too, and the insert tools warn in
-their summary when an edit lands in that trap.
 
 A location that resolves **inside a data-bound control's own content** is refused with
 `invalid_argument`, for every insert tool: `afterControl` on a **cell-level** field/label (it wraps
@@ -153,17 +154,16 @@ cells — the repeater is a container, not a bound field.
 
 ### Table structure (mutating — the same write safety and grid-consistency guard as every mutating tool)
 
-All seven are addressed by the SAME `tableIndex`/`row`/cell indices `get_layout_info` reports — a
-cell's physical `colIndex` for the cell tools (`merge_cells`, `split_cells`, `set_cell_format`' `col`),
-its grid `gridColumn` for the column tools (`insert_column`'s `atColumn`, `remove_column`'s `column`,
-the position in `set_column_widths`' list). The two differ on any row with spanned cells, which is
-nearly every real BC table: on the stock VAT-spec invoice, Line Amount is `colIndex` 7 but
-`gridColumn` 9 — take
+All seven are addressed by the SAME `tableIndex`/`row`/cell indices `get_layout_info` reports, take
 `layoutPart`=`"body"` (also `"header"`/`"footer"`) + `partName`=`null`, and pass the shared
 grid-consistency backstop that rejects (`edit_would_break_table`, file untouched) any edit desyncing
-a row from its `w:tblGrid`. Rows that skip grid columns (`w:gridBefore`/`w:gridAfter` — real BC
-line tables have them) are handled; tables using **vertical merges (`w:vMerge`) are rejected** by
-every tool here except `set_cell_format`. Every one of them — and `insert_table` — returns the
+a row from its `w:tblGrid`. The cell tools take a cell's physical `colIndex` (`merge_cells`,
+`split_cells`, `set_cell_format`'s `col`), the column tools its grid `gridColumn` (`insert_column`'s
+`atColumn`, `remove_column`'s `column`, the position in `set_column_widths`' list). The two differ on
+any row with spanned cells, which is nearly every real BC table: on the stock VAT-spec invoice, Line
+Amount is `colIndex` 7 but `gridColumn` 9. Rows that skip grid columns (`w:gridBefore`/`w:gridAfter`
+— real BC line tables have them) are handled; tables using **vertical merges (`w:vMerge`) are
+rejected** by every tool here except `set_cell_format`. Every one of them — and `insert_table` — returns the
 **table-edit result**: `operation`, `part`, `tableIndex`, `columnIndex` (the grid column added or
 removed, or the grid column an edited cell starts at; absent for a whole-table or whole-row edit),
 `rowsAffected`, `columnCountBefore`, `columnCountAfter`, `summary`, and post-edit `quickValidation`.
@@ -185,7 +185,7 @@ removed, or the grid column an edited cell starts at; absent for a whole-table o
 | `create_layout` | `schemaSource` (existing `.docx` layout **or** schema `.xml`), `outputPath`, `templatePath`=`null` (an **unbound** branded/styled shell — headers/footers/logo/fonts/styles, NOT a full BC layout with its own bound controls; a `.docx`, or a `.dotx` template, which is converted to a document — a macro-enabled `.dotm`/`.docm` is refused with `invalid_argument`), `headingText`=`null` (the heading paragraph a BLANK build's body starts with — omit for the report's own name, pass a human document title when authoring from scratch, or `""` for no heading; ignored when a template's body already has content) | `outputPath`, report identity, `storeItemId`, `usedTemplate`, `replacedExistingBcPart`, `quickValidation` | Starting a brand-new layout, optionally over a branded template — §1 ("Where the schema comes from") covers how to obtain the `schemaSource` artifact when none exists yet. Always ships exactly one BC custom XML part (fresh `storeItemID`) plus the glossary part the `insert_*` placeholders depend on. A BLANK (non-template) layout also ships empty header/footer parts wired into its page setup, **a default styles part pinning its typography** (Calibri 11 pt `docDefaults` plus the standard `Normal`/`TableGrid` definitions), so it renders with the same font in Word and in Business Central, **and a settings part declaring `compatibilityMode` 15** — the mode every stock layout declares and the one in which repeating-section controls exist, so a Word round trip cannot silently convert its repeaters to plain rich-text controls — a template keeps its own headers/footers, styles/theme and settings untouched (`validate_layout`'s `compatibility-mode` warning covers the shell that leaves the layout below 15). `templatePath` MUST be unbound: if it already carries a BC part **and** bound controls that would go stale against the fresh `storeItemID`, the call fails outright with `template_not_unbound` (nothing is written) instead of silently shipping a broken layout — see §5. A template whose BC part has zero bound controls of its own still succeeds. `outputPath` may name `schemaSource` itself only while that file has no bound controls (scaffolding a just-compiled layout in place); over an authored layout it is refused with `invalid_argument` and nothing is written, because the result would keep only the dataset part — use `refresh_xml_part` to re-bind an existing layout to a new schema. |
 | `refresh_xml_part` | `layoutPath`, `newSchemaSource` (existing `.docx` **or** schema `.xml`) | Old/new report identity, `namespaceChanged`, `remappedCount`, `orphanedBindings[]` (`alias`, `xPath`, `part`, `sdtId` — the control's id, ready for `remove_control`), `repointedForeignBindings[]` (`alias`, `xPath`, `part`, `sdtId`, `previousNamespace`), `newUnboundFields[]`, `quickValidation`, `repairedUnreadablePart` | After the AL report dataset changes — and to repair a dataset part that no longer parses (`validate_layout` reports it as `schema-parse`, naming the part and the parser error): this is the one tool that can replace such a part, keeping its `storeItemID`; `repairedUnreadablePart` then describes what was replaced and `newUnboundFields` is empty (there was no readable old schema to diff). Replaces the dataset part's content **in place** (keeps the same `storeItemID`, so every existing binding still links to the same part) and reclassifies every existing binding by element name — matches are remapped/kept, non-matches are reported as `orphanedBindings` and **left in place** (this tool never deletes or rebinds anything itself — that's your call via `remove_control`/`insert_field`/`insert_label`). It DOES re-point namespaces: every BC-namespaced binding's `prefixMappings` is rewritten to the layout's namespace, always — including a binding left naming a **foreign** report's namespace, which BC rejects at upload (`InvalidPrefixMapping`) and which nothing else here can repair; those are reported as `repointedForeignBindings`. A re-pointed mapping written as a bare URI comes back as an `xmlns:ns0='…'` declaration, the form Word maps. A non-zero `errorCount` here from `xpath-resolves` findings is the *expected* corroboration of the orphan report, not a failed refresh. |
 
-## 3. Supported matrix (v1)
+## 3. Supported matrix
 
 **Works:**
 - Field and label content controls (plain-text SDTs), in the document **body, headers, and footers
@@ -198,6 +198,11 @@ removed, or the grid column an edited cell starts at; absent for a whole-table o
   repeater per call, `insert_repeater_row` adds a nested DETAIL-ROW repeater inside an existing
   repeater's item — the standard BC per-line-detail shape — and `insert_subtotal_row` appends the
   static per-group spacer/subtotal rows that close each group in Microsoft's grouped list reports.
+- Block repeaters without a table (`wrap_in_repeater`, body only): a page per customer, or a
+  paragraph per work-description line, in the shapes the stock statement and quote carry — over a
+  top-level item with the `w:group` BC needs. `remove_control` `keepText=true` unwraps one again.
+- Text formatting: the `format` object on every tool that writes text, and `set_text_format` to
+  restyle text already in the layout — a control, a cell, a row, or one exact piece of text.
 - Static text (`insert_text`, with an optional `format`), plain unbound tables
   (`insert_table`, in the body, headers and footers), and picture controls (`insert_picture`, mm-sized); existing and inserted picture
   controls get a placeholder image blip during merge (counted in `stats.picturesFilled`).
@@ -224,10 +229,11 @@ removed, or the grid column an edited cell starts at; absent for a whole-table o
   Empty Table* are captured in two corpus layouts, and the table tools address cells inside their
   wrapper, but authoring them waits on what BC treats as empty (GitHub issue #123). *Hide Field if
   Zero* and layout comments have never been captured (#8).
-- **Repeater tables in headers/footers** — not supported: nothing shows BC renders a repeating section there. `insert_repeater_table`
-  takes no `layoutPart` at all (a plain `insert_table` does work there); `validate_layout` (`quick`)
-  still flags a pre-existing/hand-authored header or footer repeater with a
-  `repeater-in-header-footer` **warning** (not an error) rather than silently accepting it.
+- **Repeaters in headers/footers** — not supported: nothing shows BC renders a repeating section
+  there. `insert_repeater_table` takes no `layoutPart` at all and `wrap_in_repeater` refuses a range
+  in a header or footer (a plain `insert_table` does work there); `validate_layout` (`quick`) still
+  flags a pre-existing/hand-authored header or footer repeater with a `repeater-in-header-footer`
+  **warning** (not an error) rather than silently accepting it.
 - **Vertical merges (`w:vMerge`)** — every table-structure tool except the cosmetic
   `set_cell_format` rejects a table using them, with a clear message, pending a real-add-in OOXML
   capture. (Ragged rows, `gridSpan` spans, and `w:gridBefore`/`w:gridAfter` skips are all supported —
@@ -261,8 +267,9 @@ removed, or the grid column an edited cell starts at; absent for a whole-table o
 - **Never treat `preview_layout`'s PDF as final sign-off.** It's an explicit MOCK: deterministic
   sample data (or your override), converted outside the real BC report engine. The outer loop — AL
   build → publish to dev sandbox → run the report — is unchanged and is the only real verification.
-- **Don't try to create a repeater table in a header or footer.** `insert_repeater_table` is body-only
-  (it has no `layoutPart`); this is a deliberate limit (nothing shows BC renders a repeating section in a header/footer), not something to work around by
+- **Don't try to create a repeater in a header or footer.** `insert_repeater_table` is body-only
+  (it has no `layoutPart`) and `wrap_in_repeater` wraps body content only; this is a deliberate limit
+  (nothing shows BC renders a repeating section in a header/footer), not something to work around by
   hand-authoring one.
 - **Don't ignore a failure's `error.hint`/`error.code`.** Every failure is agent-actionable — it names
   the exact argument to fix or the inspection tool to call first (typically `get_layout_info` /
@@ -355,6 +362,6 @@ simply absent. Field names are camelCase as shown throughout §2 (`xPath`, `stor
     `data.warnings[]` and `data.quickValidation`.
 - Mutating tools apply a **structural gate only**: a write is rejected solely if it would introduce a
   *new* OpenXML structural error versus the file's own pre-edit baseline (`edit_would_corrupt`), or a
-  new table row out of step with its grid (`edit_would_break_table` — every one of the 20 runs this
+  new table row out of step with its grid (`edit_would_break_table` — every one of the 22 runs this
   check, not only the table tools). Semantic issues (like an orphaned binding) are always allowed
   through and reported as validation findings, never blocked.

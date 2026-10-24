@@ -81,7 +81,7 @@ public sealed class SampleDataOptions
     /// emits; revisit only if a real layout ever surfaces one.
     /// Null (the default — every direct <see cref="SampleDataGenerator.Generate"/> caller that does not scan a
     /// live document, e.g. every existing unit test) means "no scan was done": every business item is treated
-    /// as consumed, exactly the pre-B23 behavior, so generation run without a document to scan is unaffected.
+    /// as consumed, as before this scan existed, so generation run without a document to scan is unaffected.
     /// </summary>
     public IReadOnlySet<string>? RepeaterConsumedPaths { get; init; }
 }

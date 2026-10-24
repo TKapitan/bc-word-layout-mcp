@@ -4,7 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
-// BC Word Layout MCP server (v1: inspect, validate, preview, create/edit/refresh tools).
+// BC Word Layout MCP server: tools that inspect, validate, preview, create, edit and refresh BC Word layouts.
 // stdio JSON-RPC transport via the official ModelContextProtocol C# SDK.
 // IMPORTANT: stdout carries the MCP protocol, so ALL logging must go to stderr.
 

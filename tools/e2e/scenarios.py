@@ -58,6 +58,7 @@ CORPUS_DIR = os.path.join(REPO, "tests", "corpus")
 OUT_ROOT = os.path.join(REPO, "preview-output", "e2e-edits")
 BASELINE_ROOT = os.path.join(OUT_ROOT, "_baseline")
 RENDER_PAGES = 2
+W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"  # WordprocessingML, as ElementTree spells a tag
 
 POLL_INTERVAL = 0.5        # seconds between liveness checks of the server while a request is outstanding
 EXIT_GRACE = 2.0           # seconds a dead server's last output gets to drain before a wait gives up on it
@@ -310,6 +311,17 @@ class Ctx:
     def grid_total(table: dict) -> int:
         return sum(table["gridColumnWidths"])
 
+    def part_root(self, part: str = "word/document.xml") -> ET.Element:
+        """The parsed XML of one part of the saved work.docx, read straight off the package."""
+        with zipfile.ZipFile(self.work) as package:
+            return ET.fromstring(package.read(part))
+
+    @staticmethod
+    def attr(element: ET.Element, path: str, name: str = "val") -> str | None:
+        """The w:<name> attribute of the first element at path under element, or None when either is absent."""
+        found = element.find(path)
+        return None if found is None else found.get(W + name)
+
     def rows_off_grid(self, table_index: int, part: str = "word/document.xml") -> list[str]:
         """Rows of the table_index-th table of `part` in the saved work.docx whose gridBefore + sum of
         gridSpan + gridAfter differs from the table's w:gridCol count - one line per offender, empty when
@@ -320,29 +332,27 @@ class Ctx:
         is the row (however many cell-level controls wrap it). Checks that asked the server could not see
         the rows its own walker missed (GitHub issue #80), so they passed while those rows were broken.
         """
-        w = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
-        with zipfile.ZipFile(self.work) as package:
-            root = ET.fromstring(package.read(part))
+        root = self.part_root(part)
         parent = {child: node for node in root.iter() for child in node}
 
         def nearest(element, tag):
             node = parent.get(element)
-            while node is not None and node.tag != w + tag:
+            while node is not None and node.tag != W + tag:
                 node = parent.get(node)
             return node
 
         def val(element, path):
             found = element.find(path)
-            return int(found.get(w + "val")) if found is not None else 0
+            return int(found.get(W + "val")) if found is not None else 0
 
-        table = list(root.iter(w + "tbl"))[table_index]
-        grid = len(table.find(w + "tblGrid").findall(w + "gridCol"))
-        rows = [tr for tr in table.iter(w + "tr") if nearest(tr, "tbl") is table]
+        table = list(root.iter(W + "tbl"))[table_index]
+        grid = len(table.find(W + "tblGrid").findall(W + "gridCol"))
+        rows = [tr for tr in table.iter(W + "tr") if nearest(tr, "tbl") is table]
         offenders = []
         for index, tr in enumerate(rows):
-            spans = sum(max(1, val(tc, f"{w}tcPr/{w}gridSpan"))
-                        for tc in tr.iter(w + "tc") if nearest(tc, "tr") is tr)
-            total = val(tr, f"{w}trPr/{w}gridBefore") + spans + val(tr, f"{w}trPr/{w}gridAfter")
+            spans = sum(max(1, val(tc, f"{W}tcPr/{W}gridSpan"))
+                        for tc in tr.iter(W + "tc") if nearest(tc, "tr") is tr)
+            total = val(tr, f"{W}trPr/{W}gridBefore") + spans + val(tr, f"{W}trPr/{W}gridAfter")
             if total != grid:
                 offenders.append(f"w:tr {index} covers {total} of {grid} grid columns")
         return offenders
@@ -1086,6 +1096,282 @@ def s19(ctx: Ctx):
     ctx.edit("set_cell_format", tableIndex=table["tableIndex"], row=after["rowCount"] - 1, edges=["top"])
     off_grid = ctx.rows_off_grid(table["tableIndex"])
     ctx.expect(not off_grid, f"every w:tr of the authored table covers its grid (off-grid: {off_grid})")
+
+
+@scenario("s20-quote-restyle-existing-content",
+          layout="StandardSalesQuote.docx",
+          desc="Restyle what the stock quote already has (issue #15): the lines header row italic blue on a "
+               "grey fill, one bound field red and bold, an info cell right-aligned, and one phrase of a new "
+               "note line bold - set_text_format's four targets plus set_cell_format's fill.")
+def s20(ctx: Ctx):
+    info = ctx.info()
+    ctx.expect(info["tables"][2]["columnCount"] == 8, "quote lines table has the corpus-verified 8 columns")
+    field = next(c for c in info["controls"]
+                 if c["kind"] == "Field" and c["level"] == "run" and c["part"] == "document.xml")
+    ctx.note(f"restyling run-level field {field['sdtId']} ({field['alias']})")
+
+    ctx.edit("set_text_format", target="row", tableIndex=2, row=0, format={"italic": True, "color": "0070C0"})
+    ctx.edit("set_cell_format", tableIndex=2, row=0, fill="E8E8E8")
+    ctx.edit("set_text_format", target="control", controlId=field["sdtId"],
+             format={"bold": True, "color": "C00000"})
+    ctx.edit("set_text_format", target="cell", tableIndex=1, row=1, col=4, alignment="right")
+
+    note = "Prices valid for 30 days; delivery within 30 days."
+    ctx.edit("insert_text", text=note, locationType="documentEnd")
+    refused = ctx.edit("set_text_format", expect_ok=False, target="text", searchText="30 days",
+                       format={"bold": True})["error"]
+    ctx.expect("2 times" in refused["message"],
+               f"a phrase that occurs twice is refused, not guessed ({refused['message'][:80]})")
+    ctx.edit("set_text_format", target="text", searchText="Prices valid for 30 days", format={"bold": True})
+
+    body = ctx.part_root()
+    tables = list(body.iter(W + "tbl"))
+    header_row = next(tables[2].iter(W + "tr"))
+    runs = [r for r in header_row.iter(W + "r") if r.find(W + "t") is not None]
+    ctx.expect(bool(runs) and all(r.find(f"{W}rPr/{W}i") is not None
+                                  and ctx.attr(r, f"{W}rPr/{W}color") == "0070C0" for r in runs),
+               f"every run of the header row is italic and 0070C0 ({len(runs)} runs)")
+    fills = [ctx.attr(tc, f"{W}tcPr/{W}shd", "fill") for tc in header_row.iter(W + "tc")]
+    ctx.expect(bool(fills) and all(f == "E8E8E8" for f in fills), f"every header cell is filled E8E8E8 ({fills})")
+
+    sdt = next(s for s in body.iter(W + "sdt") if ctx.attr(s, f"{W}sdtPr/{W}id") == str(field["sdtId"]))
+    ctx.expect(ctx.attr(sdt, f"{W}sdtPr/{W}rPr/{W}color") == "C00000"
+               and sdt.find(f"{W}sdtPr/{W}rPr/{W}b") is not None,
+               "the field's own w:sdtPr/w:rPr - what BC formats the bound value with - is red and bold")
+
+    info_rows = list(tables[1].iter(W + "tr"))
+    ctx.expect(len(info_rows) == 2 and len(list(info_rows[1].iter(W + "tc"))) == 5,
+               "corpus-verified: the info table is 2 rows of 5 plain cells")
+    cell = list(info_rows[1].iter(W + "tc"))[4]
+    ctx.expect(all(ctx.attr(p, f"{W}pPr/{W}jc") == "right" for p in cell.iter(W + "p")),
+               "every paragraph of info cell (1, 4) is right-aligned")
+
+    paragraph = next(p for p in body.iter(W + "p") if "".join(t.text or "" for t in p.iter(W + "t")) == note)
+    bold = ["".join(t.text or "" for t in r.iter(W + "t"))
+            for r in paragraph.iter(W + "r") if r.find(f"{W}rPr/{W}b") is not None]
+    ctx.expect(bold == ["Prices valid for 30 days"],
+               f"exactly the matched phrase is bold, split out of its run (bold runs: {bold})")
+
+
+@scenario("s21-quote-unwrap-and-rewrap-work-description",
+          layout="StandardSalesQuote.docx",
+          desc="Round-trip the stock block repeater over the work-description lines (issue #31): unwrap it "
+               "with remove_control keepText=true, wrap the line field again with wrap_in_repeater, and get "
+               "the pristine merge back; the header/footer and nothing-bound refusals on the way.")
+def s21(ctx: Ctx):
+    def merge_stats(folder: str) -> dict:
+        return ctx.data("preview_layout", {"layoutPath": ctx.work,
+                                           "outputDir": os.path.join(ctx.out_dir, folder)})["stats"]
+
+    def work_description_repeaters(controls: list) -> list:
+        return [c for c in controls if c["kind"] == "Repeater" and c["level"] == "block"
+                and (c.get("alias") or "").endswith("/Header/WorkDescriptionLines")]
+
+    stats_before = merge_stats("pristine")
+    controls = ctx.info()["controls"]
+    repeaters = work_description_repeaters(controls)
+    ctx.expect(len(repeaters) == 1, "corpus-verified: one block repeater over /Header/WorkDescriptionLines")
+    line = next(c for c in controls if (c.get("alias") or "").endswith("/WorkDescriptionLines/WorkDescriptionLine"))
+    in_footer = next(c for c in controls if (c.get("part") or "").startswith("footer"))
+
+    ctx.edit("remove_control", controlId=repeaters[0]["sdtId"], keepText=True)
+    controls = ctx.info()["controls"]
+    ctx.expect(not work_description_repeaters(controls), "keepText=true unwrapped the block repeater")
+    ctx.expect(any(c["sdtId"] == line["sdtId"] for c in controls), "the line field it held stayed in place")
+
+    refused = ctx.edit("wrap_in_repeater", expect_ok=False, dataItem="/Header/WorkDescriptionLines",
+                       firstControlId=in_footer["sdtId"])["error"]
+    ctx.expect("document body only" in refused["message"],
+               f"a range in a footer is refused ({refused['message'][:80]})")
+    refused = ctx.edit("wrap_in_repeater", expect_ok=False, dataItem="/Header/Line",
+                       firstControlId=line["sdtId"])["error"]
+    ctx.expect(refused["code"] == "invalid_argument",
+               f"a range with nothing bound under the item is refused ({refused['message'][:80]})")
+
+    wrapped = ctx.edit("wrap_in_repeater", dataItem="/Header/WorkDescriptionLines",
+                       firstControlId=line["sdtId"])["data"]
+    controls = ctx.info()["controls"]
+    repeaters = work_description_repeaters(controls)
+    ctx.expect([r["sdtId"] for r in repeaters] == [wrapped["controlId"]],
+               "the new block repeater is the returned control, over /Header/WorkDescriptionLines")
+    inner = next(c for c in controls if c["sdtId"] == line["sdtId"])
+    ctx.expect("WorkDescriptionLines" in (inner.get("parentRepeaterXPath") or ""),
+               "the line field repeats with it")
+    stats_after = merge_stats("rewrapped")
+    ctx.expect(stats_after == stats_before,
+               f"the merge after the round trip is the pristine one ({stats_before} vs {stats_after})")
+
+
+@scenario("s22-statement-page-per-customer",
+          layout=None,
+          desc="Author one customer's statement body from the stock statement's schema, then repeat it per "
+               "customer with wrap_in_repeater wholeBody + pageBreakBefore (issue #31): the grouped top-level "
+               "shape BC needs, two customers on two pages.")
+def s22(ctx: Ctx):
+    ctx.work = os.path.join(ctx.out_dir, "work.docx")
+    ctx.tool("create_layout", {"schemaSource": os.path.join(CORPUS_DIR, "StandardStatement.docx"),
+                               "outputPath": ctx.work, "headingText": "STATEMENT"})
+    for leaf in ("CustAddr1", "CustAddr2", "CustAddr3"):
+        ctx.edit("insert_field", field=f"/Customer/Integer/{leaf}", locationType="documentEnd")
+    entries = "/Customer/Integer/CurrencyLoop/CustLedgEntryHdr/DtldCustLedgEntries"
+    ctx.edit("insert_repeater_table", dataItem=entries, locationType="documentEnd",
+             columns=[{"field": f"{entries}/PostDate_DtldCustLedgEntries", "width": 1500},
+                      {"field": f"{entries}/DocNo_DtldCustLedgEntries", "width": 1800},
+                      {"field": f"{entries}/Description"},
+                      {"field": f"{entries}/Amt_DtldCustLedgEntries", "width": 1800, "alignment": "right"}])
+
+    wrapped = ctx.edit("wrap_in_repeater", dataItem="/Customer", wholeBody=True, pageBreakBefore=True)["data"]
+    controls = ctx.info()["controls"]
+    repeater = next(c for c in controls if c["sdtId"] == wrapped["controlId"])
+    ctx.expect(repeater["kind"] == "Repeater" and repeater["level"] == "block"
+               and (repeater.get("alias") or "").endswith("/Customer"),
+               "the returned control is a block repeater over /Customer")
+    ctx.expect(any(c["kind"] == "Unbound" and c["level"] == "block" for c in controls),
+               "the unbound w:group between section and item is there (without it BC prints an empty document)")
+    validation = ctx.validate()
+    ctx.expect(validation["errorCount"] == 0
+               and not any(f["check"] == "top-level-repeater-group" for f in validation["findings"]),
+               f"full validation passes with no top-level-repeater-group error ({validation['errorCount']} errors)")
+
+    two = os.path.join(ctx.out_dir, "two-customers")
+    preview = ctx.data("preview_layout", {"layoutPath": ctx.work, "sampleRows": 2, "outputDir": two})
+    pages = render_preview(ctx, preview, 4, two)
+    ctx.expect(int(pages.split("/")[1]) >= 2, f"two customers render on two pages or more ({pages})")
+
+
+@scenario("s23-blank-quote-tables-in-every-part",
+          layout=None,
+          desc="A blank quote built with the 2.0 table options (issues #131-#133): a logo-beside-title table "
+               "in the header, a ruled company-details table in the footer, a borderless TableGrid lines "
+               "table with partial widths and a gridded totals block - plus the refusals for an undefined "
+               "style, a part argument on a repeater table, a bare field name and a comma-separated list.")
+def s23(ctx: Ctx):
+    ctx.work = os.path.join(ctx.out_dir, "work.docx")
+    ctx.tool("create_layout", {"schemaSource": os.path.join(CORPUS_DIR, "StandardSalesQuote.docx"),
+                               "outputPath": ctx.work, "headingText": "SALES QUOTE"})
+
+    header = ctx.edit("insert_table", rowCount=1, columns=[{"width": 3000}, {"alignment": "right"}],
+                      locationType="documentEnd", layoutPart="header")["data"]
+    ctx.expect(header["part"].startswith("header"), f"the table landed in a header part ({header['part']})")
+    in_header = {"locationType": "tableCell", "tableIndex": header["tableIndex"], "row": 0, "layoutPart": "header"}
+    ctx.edit("insert_picture", picture="/Header/CompanyPicture", col=0, widthMm=35, heightMm=18, **in_header)
+    title = ctx.edit("insert_label", label="/Header/DocumentTitle_Lbl", col=1, format={"bold": True},
+                     **in_header)["data"]
+    ctx.edit("insert_field", field="/Header/DocumentNo", locationType="afterControl",
+             controlId=title["controlId"], layoutPart="header")
+    ctx.edit("insert_text", text=" ", locationType="afterControl", controlId=title["controlId"],
+             layoutPart="header")
+
+    footer = ctx.edit("insert_table", rowCount=1, columns=[{}, {}, {}], locationType="documentEnd",
+                      layoutPart="footer")["data"]
+    for col, leaf in enumerate(("CompanyAddress1", "CompanyAddress2", "CompanyAddress3")):
+        ctx.edit("insert_field", field=f"/Header/{leaf}", locationType="tableCell",
+                 tableIndex=footer["tableIndex"], row=0, col=col, layoutPart="footer", format={"fontSizePoints": 8})
+    ctx.edit("set_cell_format", tableIndex=footer["tableIndex"], row=0, edges=["top"], layoutPart="footer")
+
+    lines = ctx.edit("insert_repeater_table", dataItem="/Header/Line", locationType="documentEnd",
+                     columns=[{"field": "/Header/Line/ItemNo_Line", "width": 1500},
+                              {"field": "/Header/Line/Description_Line"},
+                              {"field": "/Header/Line/Quantity_Line", "width": 1200, "alignment": "right"},
+                              {"field": "/Header/Line/LineAmount_Line", "width": 1800, "alignment": "right"}],
+                     borders="none", tableStyle="TableGrid")["data"]
+    totals = ctx.edit("insert_table", rowCount=2, locationType="documentEnd", borders="grid",
+                      columns=[{"width": 6200, "alignment": "right"}, {"width": 2400, "alignment": "right"}])["data"]
+    in_totals = {"locationType": "tableCell", "tableIndex": totals["tableIndex"]}
+    ctx.edit("insert_field", field="/Header/Totals/TotalExcludingVATText", row=0, col=0, **in_totals)
+    ctx.edit("insert_field", field="/Header/Totals/TotalNetAmount", row=0, col=1, **in_totals)
+    ctx.edit("insert_field", field="/Header/Totals/TotalIncludingVATText", row=1, col=0, **in_totals)
+    ctx.edit("insert_field", field="/Header/Totals/TotalAmountIncludingVAT", row=1, col=1,
+             format={"bold": True}, **in_totals)
+
+    def refusal(name: str, **args) -> str:
+        error = ctx.edit(name, expect_ok=False, **args)["error"]
+        ctx.expect(error["code"] == "invalid_argument", f"{name} refused as invalid_argument ({error['code']})")
+        return f"{error['message']} {error['hint']}"
+
+    said = refusal("insert_table", rowCount=1, columns=[{}], locationType="documentEnd", tableStyle="FancyGrid")
+    ctx.expect("TableGrid" in said, "an undefined table style is refused, naming the styles the layout defines")
+    said = refusal("insert_repeater_table", dataItem="/Header/Line", columns=[{"field": "/Header/Line/ItemNo_Line"}],
+                   locationType="documentEnd", layoutPart="header")
+    ctx.expect("layoutPart" in said, "a repeater table takes no part argument (issue #132)")
+    said = refusal("insert_repeater_table", dataItem="/Header/Line", columns=[{"field": "ItemNo_Line"}],
+                   locationType="documentEnd")
+    ctx.expect("/Header/Line/ItemNo_Line" in said, "a bare column name is refused with the full path it stands for")
+    said = refusal("set_column_widths", tableIndex=lines["tableIndex"], widths="1500,6206,1200,1800")
+    ctx.expect("array" in said.lower(), "a comma-separated list is refused with a hint asking for an array")
+
+    body = ctx.part_root()
+    section = body.find(f"{W}body/{W}sectPr")
+    content = (int(ctx.attr(section, f"{W}pgSz", "w")) - int(ctx.attr(section, f"{W}pgMar", "left"))
+               - int(ctx.attr(section, f"{W}pgMar", "right")))
+    tables = ctx.info()["tables"]
+
+    def table_in(part: str, index: int) -> dict:
+        return [t for t in tables if t["part"] == part][index]
+
+    widths = table_in("document.xml", lines["tableIndex"])["gridColumnWidths"]
+    ctx.expect(widths == [1500, content - 4500, 1200, 1800],
+               f"the description column takes what the others leave of the {content}-twip content width ({widths})")
+    widths = table_in(header["part"], header["tableIndex"])["gridColumnWidths"]
+    ctx.expect(widths == [3000, content - 3000], f"the header table fills the content width ({widths})")
+    widths = table_in(footer["part"], footer["tableIndex"])["gridColumnWidths"]
+    ctx.expect(abs(sum(widths) - content) < len(widths), f"the footer's even split fills the content width ({widths})")
+
+    xml_tables = list(body.iter(W + "tbl"))
+    lines_xml = xml_tables[lines["tableIndex"]]
+    ctx.expect(ctx.attr(lines_xml, f"{W}tblPr/{W}tblStyle") == "TableGrid", "the lines table references TableGrid")
+    ctx.expect(lines_xml.find(f"{W}tblPr/{W}tblBorders") is None and lines_xml.find(f".//{W}tcBorders") is None,
+               "borders='none' draws no table or cell border of its own: the style draws the grid")
+    edges = {child.tag[len(W):]: child.get(W + "val")
+             for child in xml_tables[totals["tableIndex"]].find(f"{W}tblPr/{W}tblBorders")}
+    ctx.expect(edges == {e: "single" for e in ("top", "left", "bottom", "right", "insideH", "insideV")},
+               f"borders='grid' draws a single line on every edge and between every cell ({edges})")
+    footer_xml = list(ctx.part_root("word/" + footer["part"]).iter(W + "tbl"))[footer["tableIndex"]]
+    rules = [ctx.attr(tc, f"{W}tcPr/{W}tcBorders/{W}top") for tc in footer_xml.iter(W + "tc")]
+    ctx.expect(rules == ["single"] * 3, f"the footer row is ruled on top ({rules})")
+    controls = ctx.info()["controls"]
+    ctx.expect(any(c["kind"] == "Picture" and c.get("part") == header["part"] for c in controls),
+               "the logo picture control sits in the header part")
+    validation = ctx.validate()
+    ctx.expect(validation["errorCount"] == 0, "the authored layout validates with zero errors")
+
+
+@scenario("s24-po-footer-table-first-page-note",
+          layout="StandardPurchaseOrder.docx",
+          desc="insert_table into the PO's footers (issue #132): the default footer's summary warns that page 1 "
+               "renders the first-page footer instead, an explicit partName gets no note, and a label and a "
+               "field go into each new table in its own part.")
+def s24(ctx: Ctx):
+    info = ctx.info()
+    roles = {p["role"]: p["name"] for p in info["partDetails"] if p["kind"] == "footer" and p.get("role")}
+    ctx.expect(info["hasTitlePage"] and {"first", "default"} <= set(roles),
+               "corpus-verified: a distinct first page, with a first and a default footer")
+    columns = [{}, {"alignment": "right"}]
+    default = ctx.edit("insert_table", rowCount=1, columns=columns, locationType="documentEnd",
+                       layoutPart="footer")["data"]
+    ctx.expect(default["part"] == roles["default"], f"no partName resolves the DEFAULT footer ({default['part']})")
+    ctx.expect("DIFFERENT FIRST PAGE" in default["summary"],
+               "the summary warns that page 1 renders the first-page footer instead")
+    first = ctx.edit("insert_table", rowCount=1, columns=columns, locationType="documentEnd",
+                     layoutPart="footer", partName=roles["first"])["data"]
+    ctx.expect(first["part"] == roles["first"] and "DIFFERENT FIRST PAGE" not in first["summary"],
+               "an explicit partName lands in that part with no note")
+
+    header_item = ctx.find_data_item(ctx.fields_root(), "Purchase_Header")
+    field_path, label_path = ctx.unbound_field_with_label(header_item)
+    ctx.note(f"binding {label_path} / {field_path} into both new tables")
+    for result in (default, first):
+        cell = {"locationType": "tableCell", "tableIndex": result["tableIndex"], "row": 0,
+                "layoutPart": "footer", "partName": result["part"]}
+        ctx.edit("insert_label", label=label_path, col=0, **cell)
+        ctx.edit("insert_field", field=field_path, col=1, **cell)
+
+    tables = ctx.info()["tables"]
+    for result in (default, first):
+        new = [t for t in tables if t["part"] == result["part"]][result["tableIndex"]]
+        bound = sum(1 for r in new["rows"] for c in r["cells"]
+                    if c.get("controlId") is not None or c.get("innerControlIds"))
+        ctx.expect(bound == 2, f"both cells of the new table in {result['part']} are bound (got {bound})")
 
 
 # ================================================================ CLI

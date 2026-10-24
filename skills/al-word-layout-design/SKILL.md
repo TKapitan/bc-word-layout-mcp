@@ -30,7 +30,7 @@ Pick the archetype before calling any tool:
 |---|---|---|
 | **Trading document** | Quote, order, invoice, credit memo, shipment — one document per record, addressed to a counterparty | Title/logo chrome → address block → document-info grid → line-items table → totals (§2) |
 | **List / analysis report** | Commission, register, aging, activity lists — rows grouped under entities, running chrome | Header/footer parts with report chrome → grouped repeater table with nested detail rows → totals (§3) |
-| **Per-entity statement** | One sub-document per customer/vendor with a page break between them | Author ONE entity's body bound under the top-level item (e.g. `/Customer/...`), then `wrap_in_repeater` with `wholeBody=true`, `pageBreakBefore=true`: the stock shape [stock: 1316], `w:group` included. BC already prints the body once per top-level record without it; the wrap gives every record its own page in one document. The tool-written shape has no BC sandbox render yet, so when it must be right first time, export the stock layout and edit it. |
+| **Per-entity statement** | One sub-document per customer/vendor with a page break between them | Author ONE entity's body bound under the top-level item (e.g. `/Customer/...`), then `wrap_in_repeater` with `wholeBody=true`, `pageBreakBefore=true`: the stock shape [stock: 1316], `w:group` included. BC already prints the body once per top-level record without it; the wrap gives every record its own page in one document. The tool-written shape has no BC sandbox render yet (sandbox pack item P12 asks for one), so when it must be right first time, export the stock layout and edit it. |
 
 Settle before building (ask only what the request leaves open): which parties' addresses (two is
 the default; add ship-to when it differs [stock: 1322 buy-from + ship-to + company]), which
@@ -112,8 +112,9 @@ totals table, which is the BC-verified simpler shape [verified: P07]).
   - **Beside** — label col 0, value col 1, one datum per row (3×2 at `2800,3000`): the verified
     recipe [P01, P06] and the Statement's stock shape [1316].
   - **Above** — caption row over value row (e.g. 2 rows × 5 equal columns [1304], stacked
-    caption/value row-pairs [1322]): the *dominant stock shape* [1304, 1322, 1306]. Build as
-    `insert_table` rows×cols, `insert_label` into the caption row's cells, `insert_field` below.
+    caption/value row-pairs [1322]): the *dominant stock shape* [1304, 1322, 1306]. Build it with
+    `insert_table` (`rowCount` rows, one `columns` entry per column), `insert_label` into the caption
+    row's cells, `insert_field` below.
     Stock captions are smaller + bold (9 pt bold over 11 pt values).
 - Info-grid values are left-aligned in every stock file — don't right-align them.
 - Keep the grid narrower than the page (verified: 5800 twips, left-anchored) — it is not a
@@ -136,9 +137,9 @@ totals table, which is the BC-verified simpler shape [verified: P07]).
   - **Full grid** [verified: P06]: `tableStyle="TableGrid"` — the style reference alone draws the
     ½ pt grid (BC honours `w:tblStyle` against the scaffolded styles part); don't also paint
     per-cell borders. (`borders="grid"` paints the same grid as explicit table borders instead;
-    that shape is not BC-verified, so prefer the style.)
+    that shape is not BC-verified — sandbox pack item P14 asks — so prefer the style.)
   - Stock 1306 additionally rules under *every* data row — a bottom border on the repeater's data
-    (template) row should repeat per line, but that exact shape is **not BC-verified**; its solid
+    (template) row should repeat per line, but that exact shape is **not BC-verified** (P14 asks); its solid
     colour header band is `set_cell_format`'s `fill` on the header row.
 - ½ pt (`borderSize=4`) is the only rule weight observed anywhere in the corpus — use it unless asked.
 
