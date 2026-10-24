@@ -164,6 +164,12 @@ passed**; the filled comparison sheet lives with the round's pack output.
   link, so the check is newer than they are (the environment is still on BC 28, not 29). Every tool that
   writes a layout now removes the link, `validate_layout` reports one as an error, and the pack unlinks
   the one item no tool saves (P11, edited by hand).
+- **P17 uploaded but failed to print** (`create_layout` over a `.dotx`): BC's "Something went wrong"
+  internal server error. Its one oddity no other item has is its main part, `word/document2.xml`: the
+  template conversion (GitHub issue #77) used the OpenXML SDK's `ChangeDocumentType`, which re-creates
+  the main part under a new name, and Word - so the mock - follows the package relationships to it. The
+  conversion now retypes the main part in place and keeps `word/document.xml`; the rebuilt P17 tells
+  whether that was the cause.
 
 ## Manual procedure (per release, 3 corpus reports)
 

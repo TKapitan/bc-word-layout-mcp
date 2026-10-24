@@ -272,7 +272,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   can open** (GitHub issue #77). The template was copied as-is, so the output kept the template's
   main-part content type under a `.docx` name. Word refused it ("Word was unable to read this
   document"), while `create_layout`'s own quick validation and `validate_layout` reported it clean.
-  - A template is now converted to a document before the BC part is attached.
+  - A template is now converted to a document before the BC part is attached, in place: its main
+    part keeps its name, `word/document.xml`, and only its content type changes, as in Word's own
+    Save As. Converted the way the OpenXML SDK does it, the main part moved to `word/document2.xml`,
+    which Word opens; such a layout was accepted on upload and then failed to print in Business
+    Central with an internal server error (sandbox pack item P17, 2.0.0-rc.1).
   - A macro-enabled `templatePath` (`.dotm`/`.docm`) is refused with `invalid_argument` instead
     of having its macros silently dropped.
   - A new `validate_layout` check, `document-content-type` (error), flags any layout whose main

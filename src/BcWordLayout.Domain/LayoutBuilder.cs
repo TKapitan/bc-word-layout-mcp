@@ -1,3 +1,5 @@
+using System.IO.Compression;
+using System.Xml.Linq;
 using BcWordLayout.Domain.Models;
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
@@ -195,6 +197,8 @@ public static class LayoutBuilder
 
                 try
                 {
+                    RetypeTemplateInPlace(tempPath, templatePath!);
+
                     // callerPath: a templatePath that is not a .docx package must be reported by ITS name,
                     // not the private build file's.
                     using var doc = LayoutPackage.Open(tempPath, isEditable: true, callerPath: templatePath);
@@ -313,25 +317,12 @@ public static class LayoutBuilder
     // ---- template package type: a .dotx shell becomes a document, a macro-enabled one is refused ----
 
     /// <summary>
-    /// Makes the template copy <paramref name="doc"/> a plain Word DOCUMENT package before anything is
-    /// attached to it: a Word template (<c>.dotx</c>) is converted in place, a macro-enabled package
-    /// (<c>.dotm</c>/<c>.docm</c>) is refused, and a document is left exactly as it was.
+    /// Checks that the template copy <paramref name="doc"/> is a plain Word DOCUMENT package before anything is
+    /// attached to it: a Word template (<c>.dotx</c>) was already retyped in place by
+    /// <see cref="RetypeTemplateInPlace"/>, a macro-enabled package (<c>.dotm</c>/<c>.docm</c>) is refused, and a
+    /// document is left exactly as it was.
     /// </summary>
     /// <remarks>
-    /// The package type lives in the main part's CONTENT TYPE, not in the file name, and a plain copy keeps
-    /// it: copying a letterhead <c>.dotx</c> to a <c>.docx</c> output left <c>/word/document.xml</c> typed
-    /// <c>…wordprocessingml.template.main+xml</c>, which Word refuses to open ("Word was unable to read this
-    /// document") while OpenXmlValidator and every binding check passed it (GitHub issue #77). A template is
-    /// the natural input for the branded-shell workflow (letterheads are routinely kept as <c>.dotx</c>), and
-    /// the two types differ in nothing but that content type, so converting is unambiguous: it is what
-    /// Word's own "Save As Word Document" does. <see cref="WordprocessingDocument.ChangeDocumentType"/>
-    /// rewrites the main part's content type in the saved package (pinned by LayoutBuilderTests against the
-    /// output's raw <c>[Content_Types].xml</c>). Inspected through <see cref="WordprocessingDocument.DocumentType"/>
-    /// rather than the extension, so a template renamed to <c>.docx</c> is converted too. The conversion
-    /// re-creates the main part, which lands at <c>/word/document2.xml</c> with its own content-type
-    /// <c>Override</c>, and leaves the package's <c>Default</c> for <c>.xml</c> at the template type, typing
-    /// no part. Both are cosmetic OPC plumbing of the kind SOLUTION-DESIGN §6.9 accepts, and the SDK exposes no
-    /// API to change either.
     /// <para>
     /// A macro-enabled package is REFUSED rather than converted (ADR-0003): becoming a <c>.docx</c> means
     /// dropping its VBA project, which changes the caller's template in a way they did not ask for, and a BC
@@ -350,8 +341,8 @@ public static class LayoutBuilder
                 return;
 
             case WordprocessingDocumentType.Template:
-                doc.ChangeDocumentType(WordprocessingDocumentType.Document);
-                return;
+                throw new InvalidOperationException(
+                    $"templatePath '{templatePath}' is still a Word template after RetypeTemplateInPlace; nothing was written.");
 
             default:
                 throw new ArgumentException(
@@ -361,6 +352,89 @@ public static class LayoutBuilder
                     + "Nothing was written.",
                     nameof(templatePath));
         }
+    }
+
+    private const string DocumentMainContentType =
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml";
+
+    private const string TemplateMainContentType =
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.template.main+xml";
+
+    /// <summary>
+    /// Retypes the template copy at <paramref name="path"/> as a plain Word document IN PLACE when it is a Word
+    /// template (<c>.dotx</c>): its main part keeps its name and its content, and only the content type the
+    /// package's <c>[Content_Types].xml</c> records for it changes - what Word's own "Save As Word Document" does.
+    /// A document or a macro-enabled package is left for <see cref="EnsureDocumentPackage"/> to accept or refuse.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The package type lives in the main part's CONTENT TYPE, not in the file name, and a plain copy keeps
+    /// it: copying a letterhead <c>.dotx</c> to a <c>.docx</c> output left <c>/word/document.xml</c> typed
+    /// <c>…wordprocessingml.template.main+xml</c>, which Word refuses to open ("Word was unable to read this
+    /// document") while OpenXmlValidator and every binding check passed it (GitHub issue #77). A template is
+    /// the natural input for the branded-shell workflow (letterheads are routinely kept as <c>.dotx</c>), and
+    /// the two types differ in nothing but that content type, so converting is unambiguous. Inspected through
+    /// <see cref="WordprocessingDocument.DocumentType"/> rather than the extension, so a template renamed to
+    /// <c>.docx</c> is converted too.
+    /// </para>
+    /// <para>
+    /// NOT <see cref="WordprocessingDocument.ChangeDocumentType"/>, which the first fix used: it re-creates the main
+    /// part, and the copy lands at <c>/word/document2.xml</c>. Word follows the package relationships to it, so the
+    /// mock preview rendered such a layout normally, but Business Central accepted one on upload and then failed to
+    /// print it with an internal server error, the renamed main part being its one oddity (sandbox pack item P17,
+    /// a BC 28 sandbox, 2026-10-24). The SDK cannot
+    /// retype a part in place, so this edits <c>[Content_Types].xml</c> in the zip itself: the main part's
+    /// <c>Override</c> gets the document type (one is added where the main part was typed through the
+    /// <c>Default</c> for <c>.xml</c>, as packages the SDK writes do), and a <c>Default</c> left at the template
+    /// type, which no part relies on any more, goes back to <c>application/xml</c>. The package is opened
+    /// through <see cref="LayoutPackage"/> first, read-only, so it passes the same parse gate as every other
+    /// input before anything in it is read raw.
+    /// </para>
+    /// </remarks>
+    private static void RetypeTemplateInPlace(string path, string templatePath)
+    {
+        string mainPartName;
+        using (var probe = LayoutPackage.Open(path, isEditable: false, callerPath: templatePath))
+        {
+            if (probe.DocumentType != WordprocessingDocumentType.Template || probe.MainDocumentPart is null)
+            {
+                return;
+            }
+
+            mainPartName = probe.MainDocumentPart.Uri.OriginalString;
+        }
+
+        using var zip = ZipFile.Open(path, ZipArchiveMode.Update);
+        var entry = zip.GetEntry("[Content_Types].xml")
+            ?? throw new InvalidDataException($"Template '{templatePath}' has no [Content_Types].xml.");
+        XDocument types;
+        using (var stream = entry.Open())
+        {
+            types = XDocument.Load(stream);
+        }
+
+        XNamespace ct = "http://schemas.openxmlformats.org/package/2006/content-types";
+        var root = types.Root ?? throw new InvalidDataException($"Template '{templatePath}' has an empty [Content_Types].xml.");
+        var mainOverride = root.Elements(ct + "Override").FirstOrDefault(
+            o => string.Equals((string?)o.Attribute("PartName"), mainPartName, StringComparison.OrdinalIgnoreCase));
+        if (mainOverride is null)
+        {
+            root.Add(new XElement(ct + "Override",
+                new XAttribute("PartName", mainPartName), new XAttribute("ContentType", DocumentMainContentType)));
+        }
+        else
+        {
+            mainOverride.SetAttributeValue("ContentType", DocumentMainContentType);
+        }
+
+        foreach (var fallback in root.Elements(ct + "Default").Where(d => (string?)d.Attribute("ContentType") == TemplateMainContentType))
+        {
+            fallback.SetAttributeValue("ContentType", "application/xml");
+        }
+
+        entry.Delete();
+        using var replacement = zip.CreateEntry("[Content_Types].xml").Open();
+        types.Save(replacement);
     }
 
     // ---- shared attach sequence (fresh document or template copy converge here) ----
