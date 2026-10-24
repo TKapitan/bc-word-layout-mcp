@@ -77,7 +77,9 @@ internal static class ToolGuards
     /// Shared choreography for all 22 mutating tools — every tool that writes through <see cref="GuardEdit"/>,
     /// <see cref="GuardCellEdit"/>, <see cref="GuardTableEdit"/> or <see cref="GuardRefresh"/>: copy
     /// <paramref name="layoutPath"/> to a private temp working copy, open THAT copy read-write
-    /// (<see cref="OpenSettings.AutoSave"/> off), apply <paramref name="mutate"/>, then run
+    /// (<see cref="OpenSettings.AutoSave"/> off), apply <paramref name="mutate"/>, drop any link to an external
+    /// attached template (Business Central refuses to upload one - see <see cref="AttachedTemplateLink"/>;
+    /// <paramref name="onSuccess"/> gets the targets to report), then run
     /// <see cref="OpenXmlValidator"/> both BEFORE and after the edit so only NEWLY introduced structural
     /// errors can reject it (see remarks). Only when clean is the working copy saved, staged into
     /// <paramref name="layoutPath"/>'s own directory, and atomically swapped into place via
@@ -141,7 +143,8 @@ internal static class ToolGuards
     private static void RetryTransientFileDenial(Action fileOperation) => TransientFileRetry.Run(fileOperation);
 
     private static ToolResponse GuardMutate<TResult>(
-        string layoutPath, Func<WordprocessingDocument, TResult> mutate, Func<TResult, ValidationResult, ToolResponse> onSuccess)
+        string layoutPath, Func<WordprocessingDocument, TResult> mutate,
+        Func<TResult, ValidationResult, IReadOnlyList<string>, ToolResponse> onSuccess)
     {
         return Guard(() =>
         {
@@ -188,6 +191,7 @@ internal static class ToolGuards
                 try
                 {
                     TResult mutateResult;
+                    IReadOnlyList<string> unlinkedTemplates;
                     ValidationResult quick;
 
                     // callerPath: a layoutPath that is not a .docx package at all must be reported by ITS name,
@@ -218,6 +222,11 @@ internal static class ToolGuards
                         var baselineTableGrid = TableGridConsistencyGuard.Find(doc);
 
                         mutateResult = mutate(doc);
+
+                        // Every save drops the link to an external attached template, whatever the edit was:
+                        // Business Central refuses to upload a layout that links one, and nothing it renders
+                        // comes from the link (see AttachedTemplateLink). Reported to onSuccess, never silent.
+                        unlinkedTemplates = AttachedTemplateLink.Remove(doc);
 
                         var newNesting = DiffOut(baselineNesting, PlainTextNestingGuard.Find(doc).Select(n => n.Describe()));
                         if (newNesting.Count > 0)
@@ -348,7 +357,7 @@ internal static class ToolGuards
                         throw;
                     }
 
-                    return onSuccess(mutateResult, quick);
+                    return onSuccess(mutateResult, quick, unlinkedTemplates);
                 }
                 finally
                 {
@@ -577,9 +586,19 @@ internal static class ToolGuards
         return added;
     }
 
+    /// <summary>
+    /// The sentence an edit summary ends with when the save unlinked an external attached template (see
+    /// <see cref="AttachedTemplateLink"/>); empty when it did not.
+    /// </summary>
+    private static string UnlinkedTemplatesNote(IReadOnlyList<string> unlinkedTemplates) =>
+        unlinkedTemplates.Count == 0
+            ? string.Empty
+            : $" Also unlinked the external attached template {string.Join(", ", unlinkedTemplates.Select(t => $"'{t}'"))}: "
+              + "Business Central refuses to upload a layout that links one, and nothing it renders comes from the link.";
+
     /// <summary>Thin <see cref="GuardMutate{TResult}"/> instantiation building the content-control edit tools' <see cref="EditResultDto"/> — used by <see cref="EditTools"/>'s <c>insert_field</c>/<c>insert_label</c>/<c>insert_text</c>/<c>insert_page_number</c>/<c>insert_picture</c>/<c>remove_control</c> and <see cref="TableTools"/>'s <c>insert_repeater_table</c>/<c>insert_repeater_row</c>/<c>insert_subtotal_row</c>.</summary>
     internal static ToolResponse GuardEdit(string layoutPath, Func<WordprocessingDocument, EditResult> mutate) =>
-        GuardMutate(layoutPath, mutate, (editResult, quick) =>
+        GuardMutate(layoutPath, mutate, (editResult, quick, unlinkedTemplates) =>
         {
             var dto = new EditResultDto(
                 editResult.Operation,
@@ -589,7 +608,7 @@ internal static class ToolGuards
                 editResult.Kind,
                 editResult.ColumnCount,
                 editResult.Part,
-                editResult.Summary,
+                editResult.Summary + UnlinkedTemplatesNote(unlinkedTemplates),
                 new ValidationSummaryDto("quick", quick.Passed, quick.ErrorCount, quick.WarningCount),
                 editResult.TableIndex,
                 editResult.DataRowIndex);
@@ -604,7 +623,7 @@ internal static class ToolGuards
     /// for a result shape addressed by (table, row, column) rather than a control id.
     /// </summary>
     internal static ToolResponse GuardCellEdit(string layoutPath, Func<WordprocessingDocument, CellEditResult> mutate) =>
-        GuardMutate(layoutPath, mutate, (cellResult, quick) =>
+        GuardMutate(layoutPath, mutate, (cellResult, quick, unlinkedTemplates) =>
         {
             var dto = new CellEditResultDto(
                 cellResult.Operation,
@@ -614,7 +633,7 @@ internal static class ToolGuards
                 cellResult.Col,
                 cellResult.PreviousText,
                 cellResult.NewText,
-                cellResult.Summary,
+                cellResult.Summary + UnlinkedTemplatesNote(unlinkedTemplates),
                 new ValidationSummaryDto("quick", quick.Passed, quick.ErrorCount, quick.WarningCount));
 
             return ToolResponse.Success(dto);
@@ -632,7 +651,7 @@ internal static class ToolGuards
     /// </summary>
     internal static ToolResponse GuardTableEdit(
         string layoutPath, Func<WordprocessingDocument, TableEditResult> mutate) =>
-        GuardMutate(layoutPath, mutate, (tableResult, quick) =>
+        GuardMutate(layoutPath, mutate, (tableResult, quick, unlinkedTemplates) =>
         {
             var dto = new TableEditResultDto(
                 tableResult.Operation,
@@ -642,7 +661,7 @@ internal static class ToolGuards
                 tableResult.RowsAffected,
                 tableResult.ColumnCountBefore,
                 tableResult.ColumnCountAfter,
-                tableResult.Summary,
+                tableResult.Summary + UnlinkedTemplatesNote(unlinkedTemplates),
                 new ValidationSummaryDto("quick", quick.Passed, quick.ErrorCount, quick.WarningCount));
 
             return ToolResponse.Success(dto);
@@ -650,14 +669,14 @@ internal static class ToolGuards
 
     /// <summary>
     /// Thin <see cref="GuardMutate{TResult}"/> instantiation for <see cref="LifecycleTools"/>'s
-    /// <c>refresh_xml_part</c>, building <see cref="RefreshResultDto"/>. Reuses
-    /// <see cref="RefreshResult.QuickValidation"/> (computed by <see cref="LayoutRefresher.Refresh"/> itself,
-    /// right after its own mutations) rather than the <see cref="ValidationResult"/>
-    /// <see cref="GuardMutate{TResult}"/> passes alongside it — both reflect the identical post-mutate
-    /// document state, so either is correct; this one is simply already at hand.
+    /// <c>refresh_xml_part</c>, building <see cref="RefreshResultDto"/>. Reports the
+    /// <see cref="ValidationResult"/> <see cref="GuardMutate{TResult}"/> passes, not
+    /// <see cref="RefreshResult.QuickValidation"/>: <see cref="LayoutRefresher.Refresh"/> computes that one
+    /// right after its own mutations, before the save drops an external attached template, so it would still
+    /// report the link the saved layout no longer has.
     /// </summary>
     internal static ToolResponse GuardRefresh(string layoutPath, Func<WordprocessingDocument, RefreshResult> mutate) =>
-        GuardMutate(layoutPath, mutate, (result, _) =>
+        GuardMutate(layoutPath, mutate, (result, quick, unlinkedTemplates) =>
         {
             var dto = new RefreshResultDto(
                 result.OldReportName,
@@ -674,12 +693,9 @@ internal static class ToolGuards
                     .Select(r => new RepointedBindingDto(r.Alias, r.XPath, r.Part, r.SdtId, r.PreviousNamespace))
                     .ToList(),
                 result.NewUnboundFields,
-                new ValidationSummaryDto(
-                    result.QuickValidation.Level,
-                    result.QuickValidation.Passed,
-                    result.QuickValidation.ErrorCount,
-                    result.QuickValidation.WarningCount),
-                result.RepairedUnreadablePart);
+                new ValidationSummaryDto("quick", quick.Passed, quick.ErrorCount, quick.WarningCount),
+                result.RepairedUnreadablePart,
+                unlinkedTemplates.Count > 0 ? unlinkedTemplates : null);
 
             return ToolResponse.Success(dto);
         });

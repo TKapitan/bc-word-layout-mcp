@@ -211,6 +211,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Layouts the tools write no longer link an external attached template, which Business Central now
+  refuses on upload.** A BC 28 sandbox refused a layout built on Microsoft's stock invoice layout
+  (2026-10-24): "UnsupportedExternalContentFields: The Word layout contains unsupported fields or external
+  references: ExternalRelationship:attachedTemplate". Four of Microsoft's own stock layouts link the Word
+  template their developers built them from (`w:attachedTemplate`), and so does any design started from a
+  custom template. The tools kept the link, and `validate_layout` called it harmless; BC accepted the same
+  layouts in August.
+  - Every tool that writes a layout removes the link and its setting; nothing BC renders comes from it.
+    The edit tools say so at the end of their `summary`. `refresh_xml_part` and `create_layout` (which
+    otherwise keeps a template's settings) list the targets in the new `unlinkedAttachedTemplates`.
+  - `validate_layout`'s `attached-template` check is an error now, not a warning. Its message quotes
+    BC's refusal and names the repair for a layout that needs no other edit: `refresh_xml_part` against
+    its own schema.
+
 - `insert_table` placed inside a table cell (`locationType` `tableCell`) without widths now splits the
   host cell's width across its columns, as `insert_repeater_table` does. It split the page's content
   width, so the nested table's fixed grid overran the cell and the outer table with it.

@@ -183,6 +183,7 @@ public static class LayoutBuilder
         {
             string storeItemId;
             bool replacedExistingBcPart;
+            IReadOnlyList<string> unlinkedTemplates;
             ValidationResult quick;
 
             if (usedTemplate)
@@ -201,7 +202,7 @@ public static class LayoutBuilder
                         ?? throw new InvalidDataException($"Template '{templatePath}' has no main document part.");
                     EnsureDocumentPackage(doc, templatePath!);
 
-                    (storeItemId, replacedExistingBcPart, quick) =
+                    (storeItemId, replacedExistingBcPart, unlinkedTemplates, quick) =
                         AttachEverything(doc, datasetBytes, identity, headingText, scaffoldBlankDefaults: false);
                 }
                 catch (System.Xml.XmlException ex)
@@ -223,7 +224,7 @@ public static class LayoutBuilder
                 var main = doc.AddMainDocumentPart();
                 main.Document = new Document(new Body());
 
-                (storeItemId, replacedExistingBcPart, quick) =
+                (storeItemId, replacedExistingBcPart, unlinkedTemplates, quick) =
                     AttachEverything(doc, datasetBytes, identity, headingText, scaffoldBlankDefaults: true);
             }
 
@@ -276,6 +277,7 @@ public static class LayoutBuilder
                 StoreItemId = storeItemId,
                 UsedTemplate = usedTemplate,
                 ReplacedExistingBcPart = replacedExistingBcPart,
+                UnlinkedAttachedTemplates = unlinkedTemplates,
                 QuickValidation = quick,
             };
         }
@@ -382,7 +384,7 @@ public static class LayoutBuilder
     /// throws <see cref="TemplateNotUnboundException"/>), not here — this method's only job is to attach and
     /// report, since it also runs for the "no template" and "clean template" paths where no such errors occur.
     /// </summary>
-    private static (string StoreItemId, bool Replaced, ValidationResult Quick) AttachEverything(
+    private static (string StoreItemId, bool Replaced, IReadOnlyList<string> UnlinkedTemplates, ValidationResult Quick) AttachEverything(
         WordprocessingDocument doc, byte[] datasetBytes, ReportIdentity identity, string? headingText,
         bool scaffoldBlankDefaults)
     {
@@ -410,6 +412,11 @@ public static class LayoutBuilder
             DocumentSettingsScaffold.EnsureCompatibilityMode(main);
         }
 
+        // A template keeps its own settings, except the link to ITS template: Business Central refuses to upload
+        // a layout that links one (see AttachedTemplateLink). Unlinked BEFORE the quick validation below, whose
+        // attached-template error would otherwise make Create refuse the template as not unbound.
+        var unlinkedTemplates = AttachedTemplateLink.Remove(doc);
+
         main.Document!.Save();
 
         var openXmlErrors = new OpenXmlValidator(FileFormatVersions.Office2021).Validate(doc).ToList();
@@ -423,7 +430,7 @@ public static class LayoutBuilder
         }
 
         var quick = LayoutValidator.Quick(doc);
-        return (storeItemId, replaced, quick);
+        return (storeItemId, replaced, unlinkedTemplates, quick);
     }
 
     // ---- schema source loading (.docx layout vs standalone schema .xml) ----

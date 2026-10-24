@@ -311,7 +311,8 @@ public sealed record CreateResultDto(
     string StoreItemId,
     bool UsedTemplate,
     bool ReplacedExistingBcPart,
-    ValidationSummaryDto QuickValidation);
+    ValidationSummaryDto QuickValidation,
+    IReadOnlyList<string>? UnlinkedAttachedTemplates = null);
 
 /// <summary>An existing control binding that no longer resolves against the NEW schema — left in place, reported.</summary>
 /// <remarks><c>SdtId</c> is the control's <c>w:id</c>, ready to pass straight to <c>remove_control</c> (which
@@ -362,4 +363,5 @@ public sealed record RefreshResultDto(
     IReadOnlyList<RepointedBindingDto> RepointedForeignBindings,
     IReadOnlyList<string> NewUnboundFields,
     ValidationSummaryDto QuickValidation,
-    string? RepairedUnreadablePart);
+    string? RepairedUnreadablePart,
+    IReadOnlyList<string>? UnlinkedAttachedTemplates = null);

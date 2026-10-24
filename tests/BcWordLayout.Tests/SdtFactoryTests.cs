@@ -267,8 +267,7 @@ public class SdtFactoryTests
     [Fact]
     public void BuildField_inserted_into_a_corpus_copy_passes_OpenXmlValidator_and_LayoutValidator_Quick()
     {
-        var path = Path.Combine(Path.GetTempPath(), $"bcwl-sdtfactory-field-{Guid.NewGuid():N}.docx");
-        File.Copy(Corpus.Path(Corpus.SalesInvoice), path, overwrite: true);
+        var path = Corpus.UnlinkedCopy(Corpus.SalesInvoice);
         string? expectedStoreItemId;
 
         try
@@ -321,8 +320,7 @@ public class SdtFactoryTests
     [Fact]
     public void BuildLabel_inserted_into_a_corpus_copy_passes_OpenXmlValidator_and_LayoutValidator_Quick()
     {
-        var path = Path.Combine(Path.GetTempPath(), $"bcwl-sdtfactory-label-{Guid.NewGuid():N}.docx");
-        File.Copy(Corpus.Path(Corpus.SalesInvoice), path, overwrite: true);
+        var path = Corpus.UnlinkedCopy(Corpus.SalesInvoice);
 
         try
         {

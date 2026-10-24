@@ -1258,8 +1258,8 @@ def p17_template(b: Build, out_dir: str) -> str:
     b.note(f"template.dotx, made from the stock quote: body emptied (hand edit; page setup and distinct first "
            f"page kept), {removed} bound controls removed from its headers and footers (remove_control), a "
            "bold blue 'P17 TEMPLATE HEADER/FOOTER' line in each default and first-page part (insert_text), "
-           "and the main part typed as a Word template (hand edit). Its settings, which a template keeps, "
-           "still link the stock quote's attached template; the pack unlinks it before upload (last change)")
+           "and the main part typed as a Word template (hand edit). Its settings still link the stock quote's "
+           "attached template, which create_layout removes (BC refuses to upload a layout linking one)")
     return template
 
 
@@ -1325,7 +1325,8 @@ def p17(b: Build):
 # Business Central refuses to upload a layout whose settings link an external attached template:
 # "UnsupportedExternalContentFields: ... ExternalRelationship:attachedTemplate" (a BC 28 sandbox, 2026-10-24).
 # Rounds 1 and 2 uploaded the same stock bases, link included, so the check is newer than they are. Four stock
-# captures carry one and no tool removes it yet, so every item is unlinked before it is validated.
+# captures carry one. Every tool that writes a layout removes it, so only an item no tool saves still carries
+# one (P11, edited by hand); the pack unlinks it there before validation.
 ATTACHED_TEMPLATE_REL = re.compile(r'<Relationship\b[^>]*/attachedTemplate"[^>]*/>')
 ATTACHED_TEMPLATE_SETTING = re.compile(r"<w:attachedTemplate\b[^>]*/>")
 
@@ -1380,7 +1381,7 @@ def build_item(entry: dict, out_dir: str) -> dict:
         if unlinked:
             b.note(f"hand edit: unlinked the external attached template {', '.join(unlinked)} that the layout "
                    "inherits from the stock layout it starts from - BC refuses to upload a layout linking one "
-                   "(UnsupportedExternalContentFields), and no tool removes it yet")
+                   "(UnsupportedExternalContentFields), and no tool saved this item to remove it")
 
         validation = b.tool("validate_layout", {"layoutPath": work, "level": "full"})["data"]
         preview = b.tool("preview_layout", {"layoutPath": work, "sampleRows": PREVIEW_ROWS,

@@ -154,6 +154,17 @@ passed**; the filled comparison sheet lives with the round's pack output.
   `MergeEngine`'s flatten-for-render step now unwraps row-level sdt shells entirely
   (`UnwrapRowLevelSdts`).
 
+### Recorded result — 2026-10-24, BC sandbox (round 3, in progress: P01–P17 on a BC 28 sandbox)
+
+- **BC now refuses a layout that links an external attached template.** P02's upload failed with
+  `UnsupportedExternalContentFields: The Word layout contains unsupported fields or external references:
+  ExternalRelationship:attachedTemplate. Remove them and try again.` P02 starts from Microsoft's stock
+  SalesInvoiceForSubscriptionBilling layout, whose settings link the Word template its developer built
+  it from — as do three more stock captures — and rounds 1 and 2 uploaded the same bases with the same
+  link, so the check is newer than they are (the environment is still on BC 28, not 29). Every tool that
+  writes a layout now removes the link, `validate_layout` reports one as an error, and the pack unlinks
+  the one item no tool saves (P11, edited by hand).
+
 ## Manual procedure (per release, 3 corpus reports)
 
 For each of these three corpus layouts — `SalesInvoiceForSubscriptionBilling.docx`, `InventoryOrderDetails.docx`,

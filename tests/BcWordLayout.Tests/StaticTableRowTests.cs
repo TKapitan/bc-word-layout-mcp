@@ -281,7 +281,7 @@ public class StaticTableRowTests
     [Fact]
     public void InsertTableRow_tool_appends_the_stock_totals_shape_end_to_end()
     {
-        var path = CopyOfCorpus(Corpus.StandardSalesQuote);
+        var path = Corpus.UnlinkedCopy(Corpus.StandardSalesQuote);
         try
         {
             // StandardSalesQuote ships with two Microsoft-shipped defects of its own (the orphaned

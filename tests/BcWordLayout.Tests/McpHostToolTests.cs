@@ -24,8 +24,19 @@ public class McpHostToolTests
     [Fact]
     public void GetLayoutInfo_returns_ok_with_expected_shape()
     {
-        var response = ReadTools.GetLayoutInfo(Corpus.Path(Corpus.SalesInvoice));
+        var path = Corpus.UnlinkedCopy(Corpus.SalesInvoice);
+        try
+        {
+            AssertLayoutInfoShape(ReadTools.GetLayoutInfo(path));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
 
+    private static void AssertLayoutInfoShape(ToolResponse response)
+    {
         Assert.True(response.Ok);
         Assert.Null(response.Error);
 
@@ -106,7 +117,18 @@ public class McpHostToolTests
     [Fact]
     public void ValidateLayout_full_returns_ok_and_passes_for_corpus()
     {
-        var response = ReadTools.ValidateLayout(Corpus.Path(Corpus.SalesInvoice), "full");
+        // Unlinked: the stock file's attached-template link is the one error BC refuses it for (see
+        // AttachedTemplateLinkTests); everything else about it, the dry-run merge included, passes.
+        var path = Corpus.UnlinkedCopy(Corpus.SalesInvoice);
+        ToolResponse response;
+        try
+        {
+            response = ReadTools.ValidateLayout(path, "full");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
 
         Assert.True(response.Ok);
         var dto = Assert.IsType<ValidationResultDto>(response.Data);
@@ -121,10 +143,11 @@ public class McpHostToolTests
     public void PreviewLayout_returns_ok_with_merged_docx_stats_disclaimer_and_quick_validation()
     {
         var outputDir = Path.Combine(Path.GetTempPath(), $"bcwl-preview-test-{Guid.NewGuid():N}");
+        var layout = Corpus.UnlinkedCopy(Corpus.SalesInvoice);
 
         try
         {
-            var response = LifecycleTools.PreviewLayout(Corpus.Path(Corpus.SalesInvoice), outputDir: outputDir);
+            var response = LifecycleTools.PreviewLayout(layout, outputDir: outputDir);
 
             Assert.True(response.Ok);
             Assert.Null(response.Error);
@@ -163,6 +186,7 @@ public class McpHostToolTests
         }
         finally
         {
+            File.Delete(layout);
             if (Directory.Exists(outputDir))
             {
                 Directory.Delete(outputDir, recursive: true);
@@ -551,7 +575,7 @@ public class McpHostToolTests
 
     /// <summary>Recursively collects every <see cref="ExternalRelationship"/> reachable from
     /// <paramref name="main"/>'s own part tree - the same traversal
-    /// <see cref="BcWordLayout.Domain.LayoutValidator"/>'s attachedTemplate check and
+    /// <see cref="BcWordLayout.Domain.AttachedTemplateLink"/> and
     /// <c>ExternalRelationshipStripper</c> both use - so a test can assert none remain anywhere in a merged
     /// package, not just on the main document part itself.</summary>
     private static List<ExternalRelationship> AllExternalRelationships(OpenXmlPart part, HashSet<OpenXmlPart>? visited = null)
@@ -575,7 +599,7 @@ public class McpHostToolTests
     public void PreviewLayout_strips_the_real_corpus_attachedTemplate_relationship_and_leaves_the_original_untouched()
     {
         // SalesInvoiceForSubscriptionBilling.docx carries a REAL external attachedTemplate relationship
-        // (see LayoutValidatorTests.SalesInvoice_surfaces_attachedTemplate_as_warning_not_error) - a stale
+        // (see LayoutValidatorTests.SalesInvoice_surfaces_attachedTemplate_as_the_error_BC_refuses_the_upload_with) - a stale
         // developer template path, exactly the shape a poisoned
         // layout could weaponize with a UNC path or URL instead. This proves preview_layout's merged output
         // never carries it (or ANY external relationship) into the copy handed to a converter, and that the

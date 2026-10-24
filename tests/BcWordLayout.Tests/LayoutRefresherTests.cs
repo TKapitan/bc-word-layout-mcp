@@ -160,7 +160,7 @@ public class LayoutRefresherTests
     [Fact]
     public void Refresh_with_its_own_unmodified_schema_is_idempotent()
     {
-        var path = CopyOfCorpus(Corpus.SalesInvoice);
+        var path = Corpus.UnlinkedCopy(Corpus.SalesInvoice);
         try
         {
             RefreshResult result;
@@ -427,7 +427,7 @@ public class LayoutRefresherTests
     public void Refresh_with_a_different_report_id_remaps_prefixMappings_and_tags_and_bindings_still_resolve()
     {
         const string newNamespace = "urn:microsoft-dynamics-nav/reports/Standard_Sales_Invoice/9999/";
-        var path = CopyOfCorpus(Corpus.SalesInvoice);
+        var path = Corpus.UnlinkedCopy(Corpus.SalesInvoice);
         string? schemaPath = null;
         try
         {

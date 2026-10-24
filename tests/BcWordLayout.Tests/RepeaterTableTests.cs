@@ -88,7 +88,7 @@ public class RepeaterTableTests
     [Fact]
     public void InsertRepeaterTable_passes_OpenXmlValidator_and_LayoutValidator_Quick_with_zero_errors()
     {
-        var path = CopyOfCorpus(Corpus.SalesInvoice);
+        var path = Corpus.UnlinkedCopy(Corpus.SalesInvoice);
         try
         {
             var result = InsertThreeColumnTable(path);

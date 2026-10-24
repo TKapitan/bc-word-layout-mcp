@@ -80,7 +80,9 @@ public static class LifecycleTools
                  + "settings part declaring compatibilityMode 15 - the mode every stock BC layout declares "
                  + "and the one in which repeating-section controls exist, so opening the layout in Word and "
                  + "saving it does not convert its repeaters to plain rich-text controls and drop their "
-                 + "bindings (a template keeps its own headers/footers, styles/theme AND settings untouched - "
+                 + "bindings (a template keeps its own headers/footers, styles/theme AND settings untouched, "
+                 + "except a link to an external attached template, which Business Central refuses to upload: "
+                 + "it is removed and listed in unlinkedAttachedTemplates - "
                  + "templatePath is the way to pin custom branding; validate_layout's compatibility-mode "
                  + "check warns if a template shell leaves the layout below mode 15). Its own post-build "
                  + "quick validation travels with the result - check quickValidation.passed rather than "
@@ -158,7 +160,8 @@ public static class LifecycleTools
                         result.QuickValidation.Level,
                         result.QuickValidation.Passed,
                         result.QuickValidation.ErrorCount,
-                        result.QuickValidation.WarningCount));
+                        result.QuickValidation.WarningCount),
+                    result.UnlinkedAttachedTemplates.Count > 0 ? result.UnlinkedAttachedTemplates : null);
 
                 return ToolResponse.Success(dto);
             }
@@ -198,7 +201,10 @@ public static class LifecycleTools
                  + "and the parser error), this tool replaces that part's content all the same - it is the one "
                  + "tool that can - keeping its storeItemID; repairedUnreadablePart then describes the part "
                  + "that was replaced, and newUnboundFields is empty, there being no readable old schema to "
-                 + "diff against. STRUCTURAL GATE ONLY: like every mutating tool, the write is "
+                 + "diff against. Like every tool that writes a layout, it also removes a link to an external "
+                 + "attached template, which Business Central refuses to upload, listing it in "
+                 + "unlinkedAttachedTemplates - so refreshing against the layout's own schema is the repair for "
+                 + "a layout that needs no other edit. STRUCTURAL GATE ONLY: like every mutating tool, the write is "
                  + "rejected only if it would introduce a NEW OpenXmlValidator structural error (leaving the "
                  + "file untouched) - orphaned bindings are quick-validation (semantic) findings, always "
                  + "ALLOWED and reported, never blocked. quickValidation therefore commonly carries "

@@ -18,8 +18,8 @@ names, MSIP sensitivity-label parts with tenant GUIDs and one personal e-mail ad
 flat-OPC clipboard accident embedded in a dataset sample value). All of it was removed on
 2026-08-01 by [`tools/scrub_corpus_metadata.py`](../../tools/scrub_corpus_metadata.py) — see its
 docstring for the exact rules, including the two deliberate softenings: external `attachedTemplate`
-relationships are kept with a sanitized `C:\Templates\` target (the validator warning and the
-preview-strip tests exercise them), and everything else in the packages — BC dataset parts,
+relationships are kept with a sanitized `C:\Templates\` target (the validator's `attached-template` check,
+the tools' unlinking of them and the preview-strip tests exercise them), and everything else in the packages — BC dataset parts,
 bodies, media, styles — is byte-identical to the capture.
 
 **Run the script whenever a new capture joins the corpus, before it is committed.**

@@ -120,7 +120,9 @@ index, and every row operation reasons through `gridBefore + Σ gridSpan + gridA
 **5. Real layouts ship with real defects.** Bindings pointing at a superseded or foreign report namespace,
 `storeItemID`s naming a part absent from the package, `prefixMappings` written as a bare URI with no
 `xmlns:` declaration, external `attachedTemplate` relationships pointing at a developer's desktop. Stock
-Microsoft layouts do all of this and BC prints them anyway. Validation must therefore distinguish "this
+Microsoft layouts do all of this and BC prints them anyway — except the `attachedTemplate` link, which BC
+began refusing on upload in 2026 (`UnsupportedExternalContentFields`, a BC 28 sandbox), so every tool that
+writes a layout now removes it and the validator reports one as an error. Validation must therefore distinguish "this
 layout is unusual" (warning) from "this edit broke something" (error) — see §6, principle 4.
 
 At runtime **BC — not Word — merges** the dataset into the layout and converts to the output format. The

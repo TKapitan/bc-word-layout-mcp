@@ -25,8 +25,8 @@ namespace BcWordLayout.Merge;
 /// <see cref="OpenXmlPartContainer"/> base a part does and exposes the identical API, so this costs nothing
 /// to cover) AND recursively across every part reachable from it — document.xml, headers/footers,
 /// <see cref="DocumentSettingsPart"/> (where <c>attachedTemplate</c> actually lives), glossary document,
-/// docProps, etc. (the same traversal shape <see cref="BcWordLayout.Domain.LayoutValidator"/>'s own
-/// attachedTemplate check uses for the part-tree portion, extended one level up to the package). This one
+/// docProps, etc. (the same traversal shape <see cref="BcWordLayout.Domain.AttachedTemplateLink"/> uses for the
+/// part-tree portion, extended one level up to the package). This one
 /// collection covers <c>attachedTemplate</c>, externally-linked images, linked OLE objects, and mail-merge/
 /// subDocument/movie references alike: the OpenXml SDK only asks a linked/external target to become a
 /// distinct C# type (<see cref="HyperlinkRelationship"/>) for hyperlinks (see KEEP SET below) — every other
@@ -106,7 +106,7 @@ internal static class ExternalRelationshipStripper
     /// <paramref name="depth"/> (0 at the package root's direct parts) enforces
     /// <see cref="ResourceLimits.MaxPartGraphDepth"/> (an uncatchable <see cref="StackOverflowException"/>
     /// would kill the server; a cap fails the call instead) — see
-    /// <c>BcWordLayout.Domain.LayoutValidator</c>'s own external-relationship walk for why the
+    /// <see cref="BcWordLayout.Domain.AttachedTemplateLink"/>'s own part walk for why the
     /// <paramref name="visited"/> cycle guard alone is not enough.
     /// </summary>
     private static void StripPart(OpenXmlPart part, HashSet<OpenXmlPart> visited, List<MergeWarning> warnings, int depth = 0)

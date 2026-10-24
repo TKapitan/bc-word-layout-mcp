@@ -866,23 +866,24 @@ public static class LayoutValidator
         }
     }
 
-    // 7. External attachedTemplate relationship → warning (stale developer template path is common).
+    // 7. External attachedTemplate relationship → ERROR: Business Central refuses to upload a layout linking one
+    //    (UnsupportedExternalContentFields; see AttachedTemplateLink). It was a warning while BC still accepted
+    //    it - Microsoft's own stock layouts carry one - until a BC 28 sandbox refused the upload (2026-10-24).
+    //    Every tool that writes a layout removes the link, so this fires for a layout no tool has saved yet.
     private static void CheckAttachedTemplate(MainDocumentPart main, List<ValidationFinding> findings)
     {
-        var visited = new HashSet<OpenXmlPart>();
-        foreach (var rel in AllExternalRelationships(main, visited))
+        foreach (var (_, rel) in AttachedTemplateLink.Find(main))
         {
-            if (rel.RelationshipType.EndsWith("attachedTemplate", StringComparison.Ordinal))
+            findings.Add(new ValidationFinding
             {
-                findings.Add(new ValidationFinding
-                {
-                    Check = "attached-template",
-                    Severity = FindingSeverity.Warning,
-                    Message = "Layout has an external attachedTemplate relationship. This often points at a "
-                              + "stale developer path and is harmless for BC rendering, but consider removing it.",
-                    Location = rel.Uri?.ToString(),
-                });
-            }
+                Check = "attached-template",
+                Severity = FindingSeverity.Error,
+                Message = $"The layout links an external attached template ({AttachedTemplateLink.Describe(rel.Uri)}). "
+                          + "Business Central refuses to upload such a layout (UnsupportedExternalContentFields: "
+                          + "'ExternalRelationship:attachedTemplate'). Every tool that writes the layout removes the "
+                          + "link; for a layout that needs no other edit, refresh_xml_part against its own schema.",
+                Location = rel.Uri?.ToString(),
+            });
         }
     }
 
@@ -1054,40 +1055,6 @@ public static class LayoutValidator
 
         var id = SdtInspector.ChildVal(pr, "id", OoxmlNames.W);
         return id is null ? "(sdt)" : $"id {id}";
-    }
-
-    /// <summary>
-    /// <paramref name="depth"/> (0 at the package root's direct parts) enforces
-    /// <see cref="ResourceLimits.MaxPartGraphDepth"/> (an uncatchable <see cref="StackOverflowException"/>
-    /// would kill the server; a cap fails the call instead): the
-    /// <paramref name="visited"/> set already rules out an infinite CYCLE, but a crafted package could still
-    /// chain many thousands of otherwise-acyclic parts, making this hand-rolled recursive walk itself
-    /// arbitrarily deep.
-    /// </summary>
-    private static IEnumerable<ExternalRelationship> AllExternalRelationships(OpenXmlPart part, HashSet<OpenXmlPart> visited, int depth = 0)
-    {
-        if (depth > ResourceLimits.MaxPartGraphDepth)
-        {
-            throw ResourceLimits.DepthExceeded("Package part graph", ResourceLimits.MaxPartGraphDepth);
-        }
-
-        if (!visited.Add(part))
-        {
-            yield break;
-        }
-
-        foreach (var rel in part.ExternalRelationships)
-        {
-            yield return rel;
-        }
-
-        foreach (var child in part.Parts)
-        {
-            foreach (var rel in AllExternalRelationships(child.OpenXmlPart, visited, depth + 1))
-            {
-                yield return rel;
-            }
-        }
     }
 
     private static bool GuidEquals(string a, string b) => SchemaProvider.SameItemId(a, b);

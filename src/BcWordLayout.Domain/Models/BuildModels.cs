@@ -37,6 +37,13 @@ public sealed class CreateResult
     public required bool ReplacedExistingBcPart { get; init; }
 
     /// <summary>
+    /// The external attached templates the template's settings linked, which the build unlinked because
+    /// Business Central refuses to upload a layout that links one (see
+    /// <see cref="BcWordLayout.Domain.AttachedTemplateLink"/>); empty for a blank build or a template with none.
+    /// </summary>
+    public IReadOnlyList<string> UnlinkedAttachedTemplates { get; init; } = [];
+
+    /// <summary>
     /// The result of running <see cref="BcWordLayout.Domain.LayoutValidator.Quick"/> against the built
     /// layout while the package was still open (before it was committed to <see cref="OutputPath"/>). A
     /// freshly created (non-template) layout always passes; the one case that used to reach this property
@@ -44,7 +51,7 @@ public sealed class CreateResult
     /// REPLACED — is now refused outright before <see cref="LayoutBuilder.Create"/> ever returns (see
     /// <see cref="BcWordLayout.Domain.TemplateNotUnboundException"/>). Still worth checking rather than
     /// assuming a successful call is fully clean: a template's pre-existing content can carry its own
-    /// WARNING-level finding (e.g. <c>attached-template</c>), and a template whose bound controls were never
+    /// WARNING-level finding (e.g. <c>table-style-resolves</c>), and a template whose bound controls were never
     /// matched to any BC part in the first place — no part existed for <see cref="LayoutBuilder"/> to
     /// replace, so <see cref="ReplacedExistingBcPart"/> is false and the refusal above does not key on it —
     /// is not covered by that refusal either.

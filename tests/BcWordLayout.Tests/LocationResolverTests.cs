@@ -969,7 +969,7 @@ public class LocationResolverTests
         // builds one, inserted into a REAL corpus layout's header via Location.Part=Header, survives a full
         // save/reopen round trip clean on both OpenXmlValidator and LayoutValidator.Quick, and LayoutReader
         // correctly attributes it to that header part (not document.xml).
-        var path = CopyOfCorpus(Corpus.SalesInvoice);
+        var path = Corpus.UnlinkedCopy(Corpus.SalesInvoice);
         try
         {
             string expectedPartName;
