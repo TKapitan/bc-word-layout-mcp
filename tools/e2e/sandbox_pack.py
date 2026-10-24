@@ -1259,7 +1259,7 @@ def p17_template(b: Build, out_dir: str) -> str:
            f"page kept), {removed} bound controls removed from its headers and footers (remove_control), a "
            "bold blue 'P17 TEMPLATE HEADER/FOOTER' line in each default and first-page part (insert_text), "
            "and the main part typed as a Word template (hand edit). Its settings, which a template keeps, "
-           "still name the stock layout's attached template: the one validation warning, harmless to BC")
+           "still link the stock quote's attached template; the pack unlinks it before upload (last change)")
     return template
 
 
@@ -1322,6 +1322,27 @@ def p17(b: Build):
 
 # ---------------------------------------------------------------- runner
 
+# Business Central refuses to upload a layout whose settings link an external attached template:
+# "UnsupportedExternalContentFields: ... ExternalRelationship:attachedTemplate" (a BC 28 sandbox, 2026-10-24).
+# Rounds 1 and 2 uploaded the same stock bases, link included, so the check is newer than they are. Four stock
+# captures carry one and no tool removes it yet, so every item is unlinked before it is validated.
+ATTACHED_TEMPLATE_REL = re.compile(r'<Relationship\b[^>]*/attachedTemplate"[^>]*/>')
+ATTACHED_TEMPLATE_SETTING = re.compile(r"<w:attachedTemplate\b[^>]*/>")
+
+
+def strip_attached_template(path: str) -> list[str]:
+    """Unlinks the external attached template of the layout at path: its settings.xml.rels relationship and the
+    w:attachedTemplate setting naming it. Returns the targets it unlinked, empty when there was none."""
+    rels_part = "word/_rels/settings.xml.rels"
+    with zipfile.ZipFile(path) as package:
+        rels = package.read(rels_part).decode("utf-8") if rels_part in package.namelist() else ""
+    targets = [re.search(r'Target="([^"]*)"', m.group(0)).group(1) for m in ATTACHED_TEMPLATE_REL.finditer(rels)]
+    if targets:
+        rewrite_parts(path, re.escape(rels_part), lambda xml: ATTACHED_TEMPLATE_REL.sub("", xml))
+        rewrite_parts(path, r"word/settings\.xml", lambda xml: ATTACHED_TEMPLATE_SETTING.sub("", xml))
+    return targets
+
+
 def build_item(entry: dict, out_dir: str) -> dict:
     os.makedirs(out_dir, exist_ok=True)
     name = entry["report"].split(" - ", 1)[-1].replace(" ", "")
@@ -1355,6 +1376,11 @@ def build_item(entry: dict, out_dir: str) -> dict:
                 create["templatePath"] = entry["template"](b, out_dir)
             b.tool("create_layout", create)
         entry["fn"](b)
+        unlinked = strip_attached_template(work)
+        if unlinked:
+            b.note(f"hand edit: unlinked the external attached template {', '.join(unlinked)} that the layout "
+                   "inherits from the stock layout it starts from - BC refuses to upload a layout linking one "
+                   "(UnsupportedExternalContentFields), and no tool removes it yet")
 
         validation = b.tool("validate_layout", {"layoutPath": work, "level": "full"})["data"]
         preview = b.tool("preview_layout", {"layoutPath": work, "sampleRows": PREVIEW_ROWS,
