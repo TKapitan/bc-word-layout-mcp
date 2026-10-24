@@ -165,11 +165,13 @@ ITEMS: list[dict] = []
 
 def item(id: str, title: str, report: str, base: str | None, purpose: str,
          asks: list[str], bc_steps: list[str], env: dict | None = None,
-         schema: str | None = None):
+         schema: str | None = None, template=None):
+    """template: for a from-scratch item (base None), a function (Build, out_dir) -> path that builds the
+    file create_layout gets as its templatePath."""
     def register(fn):
         ITEMS.append({"id": id, "title": title, "report": report, "base": base, "schema": schema,
                       "purpose": purpose, "asks": asks, "bc_steps": bc_steps, "env": env or {},
-                      "fn": fn})
+                      "template": template, "fn": fn})
         return fn
     return register
 
@@ -1097,6 +1099,227 @@ def p14(b: Build):
            f"/Header/WorkDescriptionLines (block repeater {wrapped['controlId']}, no group: a nested item)")
 
 
+
+# P15-P17 put what no round has rendered from the tools at all in front of BC: 1.1.0's totals rows inside a
+# lines table, page numbers and group subtotals - stock shapes, never printed from tool output - and
+# create_layout over a template, which 2.0 changed (#77).
+
+@item(
+    id="p15", title="Quote totals inside the lines table, with page numbers",
+    report="1304 - Standard Sales Quote", base=None, schema="StandardSalesQuote.docx",
+    purpose="Two 1.1.0 tools emit shapes copied from Microsoft's layouts that no sandbox round has printed: "
+            "insert_table_row, the static totals rows every stock document puts INSIDE its lines table, and "
+            "insert_page_number, the stock 'Page X / Y' field codes. This quote is built from scratch with both: "
+            "a lines table closed by a spacer row and a net / VAT / gross ladder (gross bold, under a rule), "
+            "'Page X / Y' in the header and the bare page number in the footer.",
+    asks=[
+        "The totals rows belong to the lines table, after its repeating row: do they print exactly ONCE, after "
+        "the last line - never between lines?",
+        "A quote long enough for two pages: does the table's header row repeat on page 2, and do the totals "
+        "print at the end only?",
+        "Header: 'Page  1 / 2', then 'Page  2 / 2' (caption, two spaces, page / pages). Footer: 'Page 1', then "
+        "'Page 2' (includeTotal=false). Do they count correctly on every page?",
+        "A one-page quote: 'Page  1 / 1' and 'Page 1'?",
+    ],
+    bc_steps=[
+        "Two quotes: the one-page quote P01/P05/P13/P14 use, and one with enough lines for two pages (about 30 "
+        "short lines; add lines to an open Cronus quote if none is that long).",
+        "Report Layouts > New layout for report 1304, upload this .docx, then Print both quotes with it.",
+    ],
+)
+def p15(b: Build):
+    for part, include_total, separator in (("header", True, "  "), ("footer", False, " ")):
+        caption = b.edit("insert_label", label="/Header/Page_Lbl", locationType="documentEnd",
+                         layoutPart=part)["data"]["controlId"]
+        b.edit("insert_page_number", locationType="afterControl", controlId=caption, includeTotal=include_total,
+               layoutPart=part)
+        b.edit("insert_text", text=separator, locationType="afterControl", controlId=caption, layoutPart=part)
+    b.note("HEADER: Page_Lbl, two spaces, PAGE / NUMPAGES (insert_page_number); FOOTER: Page_Lbl, a space and "
+           "PAGE alone (includeTotal=false) - each built right to left on the label")
+
+    lines = b.edit("insert_repeater_table", dataItem="/Header/Line", locationType="documentEnd",
+                   headerFromLabels=True,
+                   columns=[{"field": "/Header/Line/ItemNo_Line", "width": 1500},
+                            {"field": "/Header/Line/Description_Line"},
+                            {"field": "/Header/Line/Quantity_Line", "width": 1100, "alignment": "right"},
+                            {"field": "/Header/Line/UnitPrice", "width": 1400, "alignment": "right"},
+                            {"field": "/Header/Line/LineAmount_Line", "width": 1600, "alignment": "right"}])["data"]
+    table = lines["tableIndex"]
+    b.edit("insert_table_row", tableIndex=table, cells=[{"span": 5}])
+    ladder = [("TotalExcludingVATText", "TotalNetAmount"), ("TotalVATAmountText", "TotalVATAmount"),
+              ("TotalIncludingVATText", "TotalAmountIncludingVAT")]
+    for caption, amount in ladder:
+        b.edit("insert_table_row", tableIndex=table,
+               cells=[{"span": 2}, {"fields": [f"/Header/Totals/{caption}"], "span": 2},
+                      {"fields": [f"/Header/Totals/{amount}"], "alignment": "right"}],
+               **({"format": {"bold": True}} if amount == "TotalAmountIncludingVAT" else {}))
+    last_row = next(t for t in b.info()["tables"]
+                    if t["part"] == "document.xml" and t["tableIndex"] == table)["rowCount"] - 1
+    b.edit("set_cell_format", tableIndex=table, row=last_row, edges=["top"])
+    b.note(f"lines table over /Header/Line closed by insert_table_row x4 INSIDE it: a spacer row, net, VAT and "
+           f"gross totals (text field + amount), the gross row bold with a 1/2 pt rule above (row {last_row})")
+
+
+@item(
+    id="p16", title="Commission report with per-salesperson subtotals",
+    report="115 - Salesperson Commission", base=None, schema="SalespersonCommission.docx",
+    purpose="insert_subtotal_row (1.1.0) appends static rows at the END of a repeater's item - the stock "
+            "group-subtotal shape of this very report: a spacer row, then a bold row bound to the sibling "
+            "Subtotals item, once per salesperson after their ledger entries. No sandbox round has printed it "
+            "from tool output. This is P07's salesperson table with its nested entry rows, closed per group by "
+            "those two rows and, for the whole table, by a grand-total row under a rule.",
+    asks=[
+        "Each salesperson: their row (code, name, commission %, amounts), their ledger-entry rows, then an "
+        "empty spacer row and a bold subtotal row. Does the subtotal pair print ONCE per salesperson, after "
+        "their last entry - never per entry?",
+        "Do the subtotal amounts match that salesperson's entries (they come from the report's Subtotals item)?",
+        "A salesperson with no entries in the filter: is their subtotal pair printed (with zeros), or left out?",
+        "Does the bold grand-total row print once, at the very end, under a rule, and match the sum of the "
+        "subtotals?",
+    ],
+    bc_steps=[
+        "Search (Tell Me) for 'Salesperson Commission' (report 115) with a posting-date filter that catches "
+        "Cronus's posted sales for at least two salespeople (e.g. this fiscal year).",
+        "Report Layouts > New layout for report 115, upload this .docx, then run the report with it.",
+    ],
+)
+def p16(b: Build):
+    group = "/Salesperson_Purchaser"
+    rep = b.edit("insert_repeater_table", dataItem=group, locationType="documentEnd", headerFromLabels=True,
+                 columns=repeater_columns(
+                     group, ["Salesperson_Purchaser_Code", "Salesperson_Purchaser_Name",
+                             "Salesperson_Purchaser__Commission___", "SalesCommissionAmt", "AdjProfitCommissionAmt"],
+                     [1400, 3306, 1500, 2000, 2000], ["left", "left", "right", "right", "right"]))["data"]
+    b.edit("insert_repeater_row", parentControlId=rep["controlId"], dataItem=f"{group}/Cust_Ledger_Entry",
+           cells=[{}] + [{"fields": [f"{group}/Cust_Ledger_Entry/{name}"], "alignment": alignment}
+                         for name, alignment in [("Cust__Ledger_Entry__Posting_Date_", "left"),
+                                                 ("Cust__Ledger_Entry__Document_No__", "left"),
+                                                 ("SalesCommissionAmt_Control32", "right"),
+                                                 ("AdjProfitCommissionAmt_Control45", "right")]])
+    b.note(f"P07's shape: repeater over {group} (code, name, commission %, amounts) with a nested detail row "
+           "per customer ledger entry (posting date, document no., its two commission amounts)")
+
+    subtotals = f"{group}/Subtotals"
+    b.edit("insert_subtotal_row", parentControlId=rep["controlId"], cells=[{"span": 5}])
+    b.edit("insert_subtotal_row", parentControlId=rep["controlId"], format={"bold": True},
+           cells=[{"fields": [f"{subtotals}/Subtotals_Salesperson_Code"]},
+                  {"fields": ["/Labels/TotalsCaption"], "span": 2},
+                  {"fields": [f"{subtotals}/Subtotals_SalesCommission"], "alignment": "right"},
+                  {"fields": [f"{subtotals}/Subtotals_AdjProfitCommission"], "alignment": "right"}])
+    b.note(f"insert_subtotal_row x2 at the end of each {group} item: a spacer row, then a bold row with the "
+           f"salesperson code, the TotalsCaption label and {subtotals}' two commission totals")
+
+    b.edit("insert_table_row", tableIndex=rep["tableIndex"], format={"bold": True},
+           cells=[{"fields": ["/Labels/TotalsCaption"], "span": 3},
+                  {"fields": ["/Totals/Totals_SalesCommission"], "alignment": "right"},
+                  {"fields": ["/Totals/Totals_AdjProfitCommission"], "alignment": "right"}])
+    last_row = next(t for t in b.info()["tables"]
+                    if t["part"] == "document.xml" and t["tableIndex"] == rep["tableIndex"])["rowCount"] - 1
+    b.edit("set_cell_format", tableIndex=rep["tableIndex"], row=last_row, edges=["top"])
+    b.note("insert_table_row: a static bold grand-total row (TotalsCaption label, the /Totals commission "
+           "totals) after the repeater, with a 1/2 pt rule above")
+
+
+DOCUMENT_MAIN = "application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"
+TEMPLATE_MAIN = "application/vnd.openxmlformats-officedocument.wordprocessingml.template.main+xml"
+
+
+def p17_template(b: Build, out_dir: str) -> str:
+    """A branded .dotx made from the stock quote the way a designer would: the body emptied (its page setup and
+    distinct first page kept), every bound control stripped out of the headers and footers, a blue marker line
+    added to each header and footer part, and the package typed as a Word template."""
+    shell = os.path.join(out_dir, "template-source.docx")
+    shutil.copy2(os.path.join(CORPUS_DIR, "StandardSalesQuote.docx"), shell)
+
+    def empty_body(xml: str) -> str:
+        start = xml.index("<w:body>") + len("<w:body>")
+        return xml[:start] + xml[xml.rindex("<w:sectPr"):]
+
+    rewrite_parts(shell, r"word/document\.xml", empty_body)
+    removed = 0
+    while True:
+        info = b.tool("get_layout_info", {"layoutPath": shell})["data"]
+        bound = [c for c in info["controls"] if c["kind"] != "Unbound"]
+        if not bound:
+            break
+        b.tool("remove_control", {"layoutPath": shell, "controlId": bound[0]["sdtId"]})
+        removed += 1
+    for part in info["partDetails"]:
+        if part["kind"] in ("header", "footer") and part.get("role") in ("default", "first"):
+            b.tool("insert_text", {"layoutPath": shell, "text": f"P17 TEMPLATE {part['kind'].upper()}",
+                                   "locationType": "documentEnd", "layoutPart": part["kind"],
+                                   "partName": part["name"], "format": {"bold": True, "color": "0070C0"}})
+
+    template = os.path.join(out_dir, "template.dotx")
+    shutil.move(shell, template)
+    typed = rewrite_parts(template, r"\[Content_Types\]\.xml", lambda xml: xml.replace(DOCUMENT_MAIN, TEMPLATE_MAIN))
+    if not typed:
+        raise ItemFailure("the template's [Content_Types].xml was not rewritten")
+    b.note(f"template.dotx, made from the stock quote: body emptied (hand edit; page setup and distinct first "
+           f"page kept), {removed} bound controls removed from its headers and footers (remove_control), a "
+           "bold blue 'P17 TEMPLATE HEADER/FOOTER' line in each default and first-page part (insert_text), "
+           "and the main part typed as a Word template (hand edit). Its settings, which a template keeps, "
+           "still name the stock layout's attached template: the one validation warning, harmless to BC")
+    return template
+
+
+@item(
+    id="p17", title="Quote created over a branded .dotx template",
+    report="1304 - Standard Sales Quote", base=None, schema="StandardSalesQuote.docx", template=p17_template,
+    purpose="create_layout's templatePath builds a layout over an unbound branded shell, keeping its headers, "
+            "footers, styles and settings. The from-design skill relies on that route, but only mock renders have "
+            "checked it, and 2.0 changed it: a .dotx template is now converted to a .docx (#77), where it used to "
+            "keep the template content type Word refuses to open. The template here is made from the stock quote "
+            "(see template.dotx in this folder); create_layout builds over it, then the tools add the document "
+            "title and number to both of its headers and author a plain body.",
+    asks=[
+        "Does BC accept a layout create_layout built over a .dotx template?",
+        "Is the template's look kept: the blue 'P17 TEMPLATE HEADER' and 'P17 TEMPLATE FOOTER' lines on every "
+        "page (page 1 from the template's first-page parts, as its distinct first page says), and the page "
+        "numbers left in the stock header table counting correctly?",
+        "Does the document title and number the tools added show in the header on page 1 AND on page 2 (one in "
+        "each of the template's two headers)?",
+        "Does the body the tools added match the mock's typeface and sizes (the template's own styles part)?",
+    ],
+    bc_steps=[
+        "Use the SAME sales quote as P01/P05/P13/P14; a second page (P15's long quote) shows the default header.",
+        "Report Layouts > New layout for report 1304, upload this .docx (not template.dotx), then Print the "
+        "quote with it.",
+    ],
+)
+def p17(b: Build):
+    info = b.info()
+    for part in info["partDetails"]:
+        if part["kind"] == "header" and part.get("role") in ("default", "first"):
+            where = {"layoutPart": "header", "partName": part["name"]}
+            title = b.edit("insert_label", label="/Header/DocumentTitle_Lbl", locationType="documentEnd",
+                           format={"bold": True}, **where)["data"]["controlId"]
+            b.edit("insert_field", field="/Header/DocumentNo", locationType="afterControl", controlId=title, **where)
+            b.edit("insert_text", text=" ", locationType="afterControl", controlId=title, **where)
+            b.note(f"{part['name']} ({part['role']} header): DocumentTitle_Lbl, a space and DocumentNo, bold")
+
+    addr = b.edit("insert_table", rowCount=4, columns=widths_and_alignments([4600, 4600]),
+                  locationType="documentEnd")["data"]
+    for row in range(4):
+        b.edit("insert_field", field=f"/Header/CompanyAddress{row + 1}", locationType="tableCell",
+               tableIndex=addr["tableIndex"], row=row, col=0)
+        b.edit("insert_field", field=f"/Header/CustomerAddress{row + 1}", locationType="tableCell",
+               tableIndex=addr["tableIndex"], row=row, col=1)
+    b.edit("insert_repeater_table", dataItem="/Header/Line", locationType="documentEnd", headerFromLabels=True,
+           columns=repeater_columns(
+               "/Header/Line", ["ItemNo_Line", "Description_Line", "Quantity_Line", "UnitPrice", "LineAmount_Line"],
+               [1600, 4000, 1100, 1400, 1600], ["left", "left", "right", "right", "right"]))
+    totals = b.edit("insert_table", rowCount=1, columns=widths_and_alignments([6200, 2400], ["right", "right"]),
+                    locationType="documentEnd")["data"]
+    b.edit("insert_field", field="/Header/Totals/TotalIncludingVATText", locationType="tableCell",
+           tableIndex=totals["tableIndex"], row=0, col=0)
+    b.edit("insert_field", field="/Header/Totals/TotalAmountIncludingVAT", locationType="tableCell",
+           tableIndex=totals["tableIndex"], row=0, col=1, format={"bold": True})
+    b.edit("set_cell_format", tableIndex=totals["tableIndex"], row=0, edges=["top"])
+    b.note("body under create_layout's heading: a 2x4 address table, the /Header/Line repeater table and a "
+           "1x2 totals block with a rule above - P01's recipe, here over the template")
+
+
 # ---------------------------------------------------------------- runner
 
 def build_item(entry: dict, out_dir: str) -> dict:
@@ -1106,7 +1329,8 @@ def build_item(entry: dict, out_dir: str) -> dict:
     server = McpServer(env=entry["env"] or None)
     record: dict = {"id": entry["id"], "title": entry["title"], "report": entry["report"],
                     "purpose": entry["purpose"], "asks": entry["asks"], "bcSteps": entry["bc_steps"],
-                    "env": entry["env"], "base": entry["base"] or f"(created from {entry['schema']})"}
+                    "env": entry["env"], "base": entry["base"] or f"(created from {entry['schema']}"
+                    + (", over the template.dotx in this folder)" if entry["template"] else ")")}
     try:
         b = Build(server, work)
         if entry["base"]:
@@ -1125,9 +1349,11 @@ def build_item(entry: dict, out_dir: str) -> dict:
             base_sigs = set()
             # The heading lands on the printed document, so it reads as the business document it is,
             # not as the name of a test item.
-            b.tool("create_layout", {"schemaSource": os.path.join(CORPUS_DIR, entry["schema"]),
-                                     "outputPath": work,
-                                     "headingText": entry["report"].split(" - ", 1)[-1].upper()})
+            create = {"schemaSource": os.path.join(CORPUS_DIR, entry["schema"]), "outputPath": work,
+                      "headingText": entry["report"].split(" - ", 1)[-1].upper()}
+            if entry["template"]:
+                create["templatePath"] = entry["template"](b, out_dir)
+            b.tool("create_layout", create)
         entry["fn"](b)
 
         validation = b.tool("validate_layout", {"layoutPath": work, "level": "full"})["data"]
@@ -1237,7 +1463,8 @@ sandbox, this tool's own offline mock render of it, and a README saying what to 
 **Why:** only the real BC report engine can prove what this tool emits renders correctly. Rounds 1
 (2026-08-01, five items) and 2 (2026-08-02, seven items, typography) passed and are recorded in
 `docs/FIDELITY-CHECKLIST.md`; re-running P01-P07 whenever the tool surface changes is standing
-verification debt (GitHub issue #14).
+verification debt (GitHub issue #14). 2.0 changed how several of the tools they use write (insert_column's
+rows and widths, inserts taking the formatting around them), so this round re-runs them too.
 
 **Round 3 adds four research probes, P08-P11.** They don't check a capability: each settles an open
 issue that is blocked on what BC does - #102 (P08), #123 (P09, P10) and #11 (P11). For these, a
@@ -1246,6 +1473,8 @@ REJECTED upload or a missing row is an answer, not a failure: write down exactly
 `wrap_in_repeater` (P12), the formatting tools #15 added, including direct italic, which no stock layout
 carries (P13), and the reworked table tools - tables in the header and footer, the three `borders`
 looks, a rule under every line - with the work description repeated per line (P14).
+**P15-P17** print what no round has printed from the tools at all: totals rows inside a lines table and
+page numbers (P15), per-group subtotals (P16), and a layout created over a branded `.dotx` template (P17).
 
 ## The layouts
 

@@ -47,7 +47,7 @@ harness below (Deliverable 2) repeats it in every artifact it writes.
 
 ## The sandbox pack (the prepared version of the manual procedure)
 
-`python tools/e2e/sandbox_pack.py` builds fourteen layouts into `preview-output/sandbox-pack/` (gitignored)
+`python tools/e2e/sandbox_pack.py` builds seventeen layouts into `preview-output/sandbox-pack/` (gitignored)
 for uploading to a real BC sandbox: three authored entirely by the tools (P01, P06, P07 — every one a
 `create_layout` blank build, so all three carry the scaffolded default typography whose BC-side
 verification rides this pack), four exercising a distinct editing capability against stock
@@ -55,8 +55,8 @@ base-app layouts (P02–P05), four research probes (P08–P11) that answer open 
 behaviour rather than check a capability — storeItemIDs naming no part
 ([#102](https://github.com/TKapitan/bc-word-layout-mcp/issues/102)), the add-in's hide-if-empty semantics
 ([#123](https://github.com/TKapitan/bc-word-layout-mcp/issues/123)) and last-page-only footer content
-([#11](https://github.com/TKapitan/bc-word-layout-mcp/issues/11)) — and three capability checks of what
-2.0 writes:
+([#11](https://github.com/TKapitan/bc-word-layout-mcp/issues/11)) — and six capability checks of what no
+round has printed from the tools:
 
 - **P12**, a statement repeated per customer by `wrap_in_repeater`
   ([#31](https://github.com/TKapitan/bc-word-layout-mcp/issues/31)) — no tool-written block repeater,
@@ -68,7 +68,15 @@ behaviour rather than check a capability — storeItemIDs naming no part
   ([#131](https://github.com/TKapitan/bc-word-layout-mcp/issues/131)–[#133](https://github.com/TKapitan/bc-word-layout-mcp/issues/133)):
   tables in a header and a footer, `borders="headerRule"` on a plain table and `"grid"` on a totals
   block, a rule under every repeated line, a column that takes what the others leave, and the work
-  description repeated per line (the nested-item block repeater).
+  description repeated per line (the nested-item block repeater);
+- **P15**, the totals rows every stock document keeps inside its lines table (`insert_table_row`) and the
+  stock "Page X / Y" field codes (`insert_page_number`), shapes copied from Microsoft's layouts that
+  no round has printed from tool output;
+- **P16**, the stock group-subtotal rows (`insert_subtotal_row`): a spacer and a bold `Subtotals` row
+  after every salesperson's entries, then a grand-total row;
+- **P17**, `create_layout` over a branded `.dotx` template
+  ([#77](https://github.com/TKapitan/bc-word-layout-mcp/issues/77)), made from the stock quote: its
+  headers, footers and styles kept, the document number added to both of its headers.
 
 Each item folder carries the `.docx` to upload, this
 tool's own mock render of it, a README naming the questions that item's BC render answers, and the full
