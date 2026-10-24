@@ -59,8 +59,8 @@ behaviour rather than check a capability — storeItemIDs naming no part
 2.0 writes:
 
 - **P12**, a statement repeated per customer by `wrap_in_repeater`
-  ([#31](https://github.com/TKapitan/bc-word-layout-mcp/issues/31)) — the first tool-written block
-  repeater, `w:group` included, that BC renders;
+  ([#31](https://github.com/TKapitan/bc-word-layout-mcp/issues/31)) — no tool-written block repeater,
+  `w:group` included, has been rendered by BC before;
 - **P13**, the formatting tools ([#15](https://github.com/TKapitan/bc-word-layout-mcp/issues/15)):
   direct italic (a shape no stock layout carries), colour, underline, a character style, a font that
   exists nowhere, a cell fill, and restyled stock content;
