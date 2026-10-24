@@ -89,7 +89,8 @@ printed filter expressions) in the running header part. That grouped shape is bu
 all-spacer row (`cells=[{"span": 9}]` on a 9-column grid), then the bold subtotal row binding the
 dataset's per-group totals (in 115, a sibling non-repeating `Subtotals` item), amounts
 right-aligned. Grand totals close the table as a static `insert_table_row` (or the separate
-totals table, which is the BC-verified simpler shape [verified: P07]).
+totals table, which is the BC-verified simpler shape [verified: P07]). The tool-built grouped shape has
+no BC render yet — sandbox pack item P16 asks.
 
 ## 4. Per-element conventions
 
@@ -150,7 +151,8 @@ totals table, which is the BC-verified simpler shape [verified: P07]).
   amount cell right-aligned, `format={"bold": true}`; then `set_cell_format` on the new row for the rule.
   Example on an 8-column stock lines table:
   `cells=[{"span": 4}, {"fields": ["/Header/Totals/TotalIncludingVATText"], "span": 3}, {"fields": ["/Header/Totals/TotalAmountIncludingVAT"], "alignment": "right"}]`.
-  A spacer row before it (`cells=[{"span": 8}]`) is the stock spacing.
+  A spacer row before it (`cells=[{"span": 8}]`) is the stock spacing. Built by the tools, it has no
+  BC render yet — sandbox pack item P15 asks.
 - A totals *ladder* (excl. VAT / VAT / incl. VAT [stock: 1322]) is repeated `insert_table_row`
   calls: amounts share the right column, the grand-total row gets the bold + rule treatment.
 - The **separate** borderless 1×2 totals table directly after the line table remains BC-verified
@@ -172,7 +174,7 @@ totals table, which is the BC-verified simpler shape [verified: P07]).
   [stock: 1304, 1322, 1306, 115 — identical construct in all four]. Buildable: `insert_label` the
   `Page_Lbl`, then `insert_page_number` (`afterControl` on the label), then `insert_text` `"  "`
   (`afterControl` on the label again) — it emits the exact stock field construct (`X / Y` by default;
-  `includeTotal=false` for the bare page number).
+  `includeTotal=false` for the bare page number). P15 asks BC to print it.
 - Inline sequences anywhere: insert the first control, then the rest **right to left**, each with
   `locationType="afterControl"` anchored on that first control — every such insert lands directly
   after the anchor, so for `Label: Value` insert the label, then the value, then the `": "` text.
