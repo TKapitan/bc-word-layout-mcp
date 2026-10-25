@@ -1530,8 +1530,9 @@ P20_TO_P22_STEPS = [
 ]
 
 
-def hide_inside_invoice_line(b: Build, caption: str, path: str):
-    """One row under each invoice line: caption, then the cell bound to path in 'Hide Table Row If Empty'."""
+def hide_inside_invoice_line(b: Build, caption: str, path: str, wrapper=HIDE_ROW_WRAPPER):
+    """One row under each invoice line: caption, then the cell bound to path in the hide-if-empty wrapper
+    (the row variant unless told otherwise)."""
     # P08's repair first: the stock capture's title and number bindings name a foreign namespace BC rejects.
     b.edit("refresh_xml_part",
            newSchemaSource=os.path.join(CORPUS_DIR, "StandardSalesInvoiceVatSpec.docx"))
@@ -1557,9 +1558,9 @@ def hide_inside_invoice_line(b: Build, caption: str, path: str):
     b.note(f"insert_subtotal_row on the /Header/Line repeater (+ set_cell_text): a row '{caption}' under each "
            f"invoice line, binding {path}")
 
-    wrapper_id = wrap_in_hide_if_empty(b, *HIDE_ROW_WRAPPER, control_id=added[0]["sdtId"], lift=True)
-    b.note(f"hand edit: that cell turned into a cell-level control and wrapped in a 'Hide Table Row If Empty' "
-           f"control (id {wrapper_id}), the shape captured in Salesperson Commission")
+    wrapper_id = wrap_in_hide_if_empty(b, *wrapper, control_id=added[0]["sdtId"], lift=True)
+    b.note(f"hand edit: that cell turned into a cell-level control and wrapped in a '{wrapper[0]}' control "
+           f"(id {wrapper_id}), the shape the add-in writes")
 
 
 @item(
@@ -1610,6 +1611,45 @@ def p21(b: Build):
 )
 def p22(b: Build):
     hide_inside_invoice_line(b, "P22 - description (has a value):", "/Header/Line/Description_Line")
+
+
+# P23/P24: the TABLE variant inside a repeater. Its one capture, in Subcontractor Dispatch List, sits in a row of the
+# production-order-line item around a cell bound to the CHILD component item's caption: a "components needed"
+# heading over components a line may not have. P20's cell (the line's first assembly line) is the invoice's
+# analogue.
+@item(
+    id="p23", title="Hide Table If Empty in a line, missing record",
+    report="1306 - Standard Sales Invoice", base="StandardSalesInvoiceVatSpec.docx",
+    purpose="GitHub issue #123, the TABLE variant inside a repeater. P20-P22 showed that the ROW variant hides the "
+            "whole repeated item (the invoice line with every row in it) when its cell is empty. This is P20 with "
+            "the 'Hide Table If Empty' wrapper instead, around the cell bound to the line's first assembly line - a "
+            "missing record, the analogue of the variant's one capture (a components heading over components a "
+            "production order line may not have). Read it with P24, its filled-value control.",
+    asks=[
+        "What is left out: nothing, only the 'P23' rows, every invoice line (as P20's row variant), or the whole "
+        "lines table - its caption row and the total under it included?",
+    ],
+    bc_steps=P20_TO_P22_STEPS,
+)
+def p23(b: Build):
+    hide_inside_invoice_line(b, "P23 - first assembly line (no record), table variant:",
+                             "/Header/Line/AssemblyLine/Description_AssemblyLine", HIDE_TABLE_WRAPPER)
+
+
+@item(
+    id="p24", title="Hide Table If Empty in a line, filled value",
+    report="1306 - Standard Sales Invoice", base="StandardSalesInvoiceVatSpec.docx",
+    purpose="GitHub issue #123: the CONTROL for P23. The 'Hide Table If Empty' wrapper around the cell bound to "
+            "the line's description, never empty, so nothing should be hidden.",
+    asks=[
+        "Is the whole invoice printed as usual, every line with its 'P24' row showing the description? It must "
+        "be; if anything is missing, the table variant hides whatever the value.",
+    ],
+    bc_steps=P20_TO_P22_STEPS,
+)
+def p24(b: Build):
+    hide_inside_invoice_line(b, "P24 - description (has a value), table variant:", "/Header/Line/Description_Line",
+                             HIDE_TABLE_WRAPPER)
 
 
 # ---------------------------------------------------------------- runner
@@ -1819,6 +1859,7 @@ with `wrap_in_repeater`'s new block-level form, and P18 prints the old inline fo
 the cause. P09/P10 showed that neither hide-if-empty wrapper acts on a row outside a repeater whose bound record
 is missing; P19 tries a value that exists but is empty, and P20-P22 the captured shape inside a repeater (#123),
 one wrapped cell each under the lines of the invoice P08 prints: a missing record, an empty value, a filled one.
+P23/P24 do the same with the TABLE variant: a missing record, and a filled value as the control.
 
 ## The layouts
 

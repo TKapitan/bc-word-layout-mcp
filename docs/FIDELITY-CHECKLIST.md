@@ -47,7 +47,7 @@ harness below (Deliverable 2) repeats it in every artifact it writes.
 
 ## The sandbox pack (the prepared version of the manual procedure)
 
-`python tools/e2e/sandbox_pack.py` builds twenty-two layouts into `preview-output/sandbox-pack/` (gitignored)
+`python tools/e2e/sandbox_pack.py` builds twenty-four layouts into `preview-output/sandbox-pack/` (gitignored)
 for uploading to a real BC sandbox: three authored entirely by the tools (P01, P06, P07 — every one a
 `create_layout` blank build, so all three carry the scaffolded default typography whose BC-side
 verification rides this pack), four exercising a distinct editing capability against stock
@@ -78,10 +78,11 @@ round has printed from the tools:
   ([#77](https://github.com/TKapitan/bc-word-layout-mcp/issues/77)), made from the stock quote: its
   headers, footers and styles kept, the document number added to both of its headers.
 
-Five probes follow round 3's re-run: **P18** checked why a work description `wrap_in_repeater` repeated
-did not print, and **P19**–**P22** carry #123 on: an existing but empty value outside a repeater (P19), and
+Seven probes follow round 3's re-run: **P18** checked why a work description `wrap_in_repeater` repeated
+did not print, and **P19**–**P24** carry #123 on: an existing but empty value outside a repeater (P19), and
 inside one, under the lines of the invoice P08 prints, a missing record, an empty value and a filled one
-(P20–P22, one wrapped cell each; no new demo data needed).
+for the row variant (P20–P22) and a missing record and a filled one for the table variant (P23/P24), one
+wrapped cell each; no new demo data needed.
 
 Each item folder carries the `.docx` to upload, this
 tool's own mock render of it, a README naming the questions that item's BC render answers, and the full
@@ -205,7 +206,7 @@ but one: P14's work description, a new finding below.
   cell bound to a filled value (the description, P22) every line printed with its row. So it is the item -
   the line and every row in it - that goes, not only the wrapper's own row, and both kinds of empty count:
   the captured use, where it hides a salesperson with no entries, group and all. The table variant inside a
-  repeater is untested.
+  repeater is P23/P24's question.
 - **Capability checks printed as the mock showed:** a block repeater written by `wrap_in_repeater` (P12,
   the first BC render of one: each customer on its own page with its own data, no blank first page);
   direct italic, underline, colour, a character style, another installed font and a cell fill (P13);
