@@ -33,6 +33,7 @@ import os
 import re
 import shutil
 import sys
+import time
 import traceback
 import zipfile
 
@@ -698,7 +699,7 @@ def p07(b: Build):
 
 def rewrite_parts(path: str, pattern: str, transform) -> list[str]:
     """Rewrites every package part whose name matches `pattern` through `transform(xml) -> xml`, for the
-    probes whose shape no tool emits (P09-P11). Returns the rewritten part names."""
+    probes whose shape no tool emits (P09-P11, P18-P20). Returns the rewritten part names."""
     rewritten = []
     tmp = path + ".tmp"
     with zipfile.ZipFile(path) as zin, zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as zout:
@@ -708,7 +709,16 @@ def rewrite_parts(path: str, pattern: str, transform) -> list[str]:
                 data = transform(data.decode("utf-8")).encode("utf-8")
                 rewritten.append(info.filename)
             zout.writestr(info, data)
-    os.replace(tmp, path)
+    # A virus scan can hold a freshly written .docx for a moment ("Access is denied"), as the server's own
+    # commit allows for (TransientFileRetry).
+    for attempt in range(5):
+        try:
+            os.replace(tmp, path)
+            break
+        except PermissionError:
+            if attempt == 4:
+                raise
+            time.sleep(0.2 * (attempt + 1))
     return rewritten
 
 
@@ -754,45 +764,103 @@ HIDE_TABLE_WRAPPER = ("Hide Table If Empty", "#BC:HideTableIfEmpty")
 HIDDEN_CAPTION_XPATH = "/ns0:NavWordReportXmlPart[1]/ns0:Header[1]/ns0:Line[1]/ns0:ItemNo_Line_Lbl[1]"
 
 
-def sdt_end(xml: str, start: int) -> int:
-    """The index just past the w:sdt element that opens at start, counting the w:sdt elements nested in it."""
+def element_end(xml: str, start: int, tag: str) -> int:
+    """The index just past the w:<tag> element that opens at start, counting the ones nested in it."""
     depth = 0
-    for m in re.finditer(r"<w:sdt[ >]|</w:sdt>", xml[start:]):
-        depth += -1 if m.group(0) == "</w:sdt>" else 1
+    for m in re.compile(rf"<w:{tag}(?=[\s>/])[^>]*?(/)?>|</w:{tag}>").finditer(xml, start):
+        if m.group(0).startswith("</"):
+            depth -= 1
+        elif m.group(1) != "/":
+            depth += 1
         if depth == 0:
-            return start + m.end()
-    raise ItemFailure("unbalanced w:sdt in document.xml")
+            return m.end()
+    raise ItemFailure(f"unbalanced w:{tag} in document.xml")
 
 
-def wrap_caption_in_hide_if_empty(b: Build, alias: str, tag: str):
-    """Wraps the quote's ItemNo_Line_Lbl caption cell in the add-in's hide-if-empty control, in the captured shape.
+def enclosing_start(xml: str, pos: int, tag: str) -> int:
+    """Where the innermost w:<tag> element holding position pos opens."""
+    for m in reversed(list(re.compile(rf"<w:{tag}(?=[\s>/])").finditer(xml, 0, pos))):
+        if element_end(xml, m.start(), tag) > pos:
+            return m.start()
+    raise ItemFailure(f"no w:{tag} around the control")
 
-    The wrapper reuses the caption control's own placeholder entry and takes an id no control in the package
-    has. No tool writes this control, so it is a hand edit.
-    """
+
+def control_start(xml: str, xpath: str | None = None, control_id: int | None = None) -> int:
+    """Where the one control bound to xpath, or carrying w:id control_id, opens."""
+    if xpath is not None:
+        binding = f'w:xpath="{xpath}"'
+        if xml.count(binding) != 1:
+            raise ItemFailure(f"expected one control bound to {xpath}, found {xml.count(binding)}")
+        return xml.rfind("<w:sdt>", 0, xml.index(binding))
+    ids = list(re.finditer(rf'<w:id w:val="{control_id}"\s*/>', xml))
+    if len(ids) != 1:
+        raise ItemFailure(f"expected one control with id {control_id}, found {len(ids)}")
+    return xml.rfind("<w:sdt>", 0, ids[0].start())
+
+
+def lift_inline_field_to_cell(xml: str, start: int) -> str:
+    """The inline field opening at start, alone in its cell's one paragraph, becomes a CELL-level control around
+    the w:tc - the shape the add-in's hide-if-empty wrapper encloses (no tool writes it)."""
+    field = xml[start:element_end(xml, start, "sdt")]
+    tc_start = enclosing_start(xml, start, "tc")
+    tc_stop = element_end(xml, tc_start, "tc")
+    p_start = enclosing_start(xml, start, "p")
+    if p_start < tc_start:
+        raise ItemFailure("the field is not in a table cell")
+    paragraph = xml[p_start:element_end(xml, p_start, "p")]
+    tc = xml[tc_start:tc_stop]
+    tc_open = re.match(r"<w:tc\b[^>]*>", tc).group(0)
+    tc_pr = (re.match(r"<w:tcPr>.*?</w:tcPr>|<w:tcPr/>", tc[len(tc_open):], re.S) or re.match("", "")).group(0)
+    if tc[len(tc_open) + len(tc_pr):-len("</w:tc>")] != paragraph:
+        raise ItemFailure("the cell holds more than the field's paragraph")
+    p_open = re.match(r"<w:p\b[^>]*>", paragraph).group(0)
+    p_pr = (re.match(r"<w:pPr>.*?</w:pPr>|<w:pPr/>", paragraph[len(p_open):], re.S) or re.match("", "")).group(0)
+    if paragraph[len(p_open) + len(p_pr):-len("</w:p>")] != field:
+        raise ItemFailure("the paragraph holds more than the field")
+    parts = re.fullmatch(r"<w:sdt>(<w:sdtPr>.*?</w:sdtPr>)(<w:sdtEndPr>.*?</w:sdtEndPr>)?<w:sdtContent>(.*)"
+                         r"</w:sdtContent></w:sdt>", field, re.S)
+    if parts is None:
+        raise ItemFailure("unexpected field shape")
+    sdt_pr, end_pr, runs = parts.groups()
+    cell_control = (f"<w:sdt>{sdt_pr}{end_pr or ''}<w:sdtContent>{tc_open}{tc_pr}{p_open}{p_pr}{runs}</w:p></w:tc>"
+                    "</w:sdtContent></w:sdt>")
+    return xml[:tc_start] + cell_control + xml[tc_stop:]
+
+
+def wrap_in_hide_if_empty(b: Build, alias: str, tag: str, *, xpath: str | None = None,
+                          control_id: int | None = None, lift: bool = False) -> int:
+    """Wraps a cell-level control in the add-in's hide-if-empty control, in the captured shape: a cell-level w:sdt
+    with no binding and w15:color FFA500, reusing the wrapped control's placeholder entry, with an id no control in
+    the package has. lift first turns an inline field alone in its cell into that cell-level control. No tool
+    writes either, so it is a hand edit. Returns the wrapper's id."""
     with zipfile.ZipFile(b.work) as package:
         xml_parts = "".join(package.read(n).decode("utf-8", "replace") for n in package.namelist()
                             if n.startswith("word/") and n.endswith(".xml"))
     used = set(re.findall(r'<w:id w:val="(-?\d+)"', xml_parts))
-    wrapper_id = next(str(n) for n in range(1_230_000_001, 1_230_100_000) if str(n) not in used)
+    wrapper_id = next(n for n in range(1_230_000_001, 1_230_100_000) if str(n) not in used)
 
     def wrap(xml: str) -> str:
-        binding = f'w:xpath="{HIDDEN_CAPTION_XPATH}"'
-        if xml.count(binding) != 1:
-            raise ItemFailure(f"expected one control bound to {HIDDEN_CAPTION_XPATH}, found {xml.count(binding)}")
-        start = xml.rfind("<w:sdt>", 0, xml.index(binding))
-        end = sdt_end(xml, start)
+        if lift:
+            xml = lift_inline_field_to_cell(xml, control_start(xml, xpath, control_id))
+        start = control_start(xml, xpath, control_id)
+        end = element_end(xml, start, "sdt")
         control = xml[start:end]
-        if "<w:sdtContent><w:tc>" not in control:
-            raise ItemFailure("the ItemNo_Line_Lbl caption is not a cell-level control any more")
+        if "<w:sdtContent><w:tc>" not in control and not re.search(r"<w:sdtContent><w:tc\b", control):
+            raise ItemFailure("the wrapped control is not a cell-level control")
         doc_part = re.search(r'<w:docPart w:val="([^"]+)"\s*/>', control).group(1)
         wrapper = (f'<w:sdt><w:sdtPr><w:alias w:val="{alias}"/><w:tag w:val="{tag}"/><w:id w:val="{wrapper_id}"/>'
                    f'<w:placeholder><w:docPart w:val="{doc_part}"/></w:placeholder><w15:color w:val="FFA500"/>'
                    f"</w:sdtPr><w:sdtContent>{control}</w:sdtContent></w:sdt>")
         return xml[:start] + wrapper + xml[end:]
 
-    parts = rewrite_parts(b.work, r"word/document\.xml", wrap)
-    b.note(f"hand edit in {', '.join(parts)}: the lines table's caption cell bound to /Header/Line/ItemNo_Line_Lbl "
+    rewrite_parts(b.work, r"word/document\.xml", wrap)
+    return wrapper_id
+
+
+def wrap_caption_in_hide_if_empty(b: Build, alias: str, tag: str):
+    """P09/P10: the quote's ItemNo_Line_Lbl caption cell, already a cell-level control, in the wrapper."""
+    wrapper_id = wrap_in_hide_if_empty(b, alias, tag, xpath=HIDDEN_CAPTION_XPATH)
+    b.note(f"hand edit in word/document.xml: the lines table's caption cell bound to /Header/Line/ItemNo_Line_Lbl "
            f"wrapped in a '{alias}' control ({tag}, id {wrapper_id}), in the shape the add-in writes - as captured "
            "in Salesperson Commission")
 
@@ -1059,7 +1127,10 @@ def p13(b: Build):
             "the title and number in a header table, the company details in a footer table under a rule, a "
             "caption-over-value info grid with a header rule, a lines table with a rule under every line, a "
             "gridded totals block, and the work description repeated per line by wrap_in_repeater (issue "
-            "#31, the nested-item shape).",
+            "#31, the nested-item shape). The first re-run printed no work description although the quote had "
+            "one: the repeater held the field INLINE in a paragraph, a shape no stock layout has. wrap_in_repeater "
+            "now writes it as a block-level control around the paragraph, the stock quote's shape (P18 checks "
+            "the old shape on the stock layout).",
     asks=[
         "HEADER AND FOOTER TABLES: on every page, is the logo beside 'Sales Quote <number>' at the top, and "
         "are the three company-address lines at the bottom, under a thin rule?",
@@ -1070,7 +1141,7 @@ def p13(b: Build):
         "TOTALS: is the totals block gridded on every edge and between its cells (borders='grid' writes "
         "explicit table borders, which no sandbox round has rendered)?",
         "WORK DESCRIPTION: with a work description of two or more lines, does each line print as its own "
-        "paragraph, in order, below the totals?",
+        "paragraph, in order, below the totals? (The first re-run printed none.)",
     ],
     bc_steps=[
         "Use the SAME sales quote as P01/P05/P13, and give it a Work Description of two or three lines "
@@ -1369,6 +1440,131 @@ def p17(b: Build):
            "1x2 totals block with a rule above - P01's recipe, here over the template")
 
 
+# P18-P20 follow the round-3 re-run (2026-10-25): P18 checks why P14 printed no work description, and P19/P20
+# carry #123 on after P09/P10 showed that neither hide-if-empty wrapper acts on a row outside a repeater whose
+# bound record is missing.
+
+def inline_work_description_field(xml: str) -> str:
+    """The stock quote's work-description field, a BLOCK-level control around its paragraph, becomes the INLINE
+    form P14 had: the paragraph outside, the field inside it (no tool writes that form any more)."""
+    start = control_start(xml, xpath=WORK_DESCRIPTION_LINE_XPATH)
+    end = element_end(xml, start, "sdt")
+    parts = re.fullmatch(r"<w:sdt>(<w:sdtPr>.*?</w:sdtPr>)(<w:sdtEndPr>.*?</w:sdtEndPr>)?<w:sdtContent>"
+                         r"(<w:p\b[^>]*>)((?:<w:pPr>.*?</w:pPr>|<w:pPr/>)?)(.*)</w:p></w:sdtContent></w:sdt>",
+                         xml[start:end], re.S)
+    if parts is None:
+        raise ItemFailure("the stock work-description field is not a block-level control around one paragraph")
+    sdt_pr, end_pr, p_open, p_pr, runs = parts.groups()
+    inline = f"{p_open}{p_pr}<w:sdt>{sdt_pr}{end_pr or ''}<w:sdtContent>{runs}</w:sdtContent></w:sdt></w:p>"
+    return xml[:start] + inline + xml[end:]
+
+
+WORK_DESCRIPTION_LINE_XPATH = ("/ns0:NavWordReportXmlPart[1]/ns0:Header[1]/ns0:WorkDescriptionLines[1]/"
+                               "ns0:WorkDescriptionLine[1]")
+YOUR_REFERENCE_XPATH = "/ns0:NavWordReportXmlPart[1]/ns0:Header[1]/ns0:YourReference[1]"
+
+
+@item(
+    id="p18", title="Work description held inline on the stock quote",
+    report="1304 - Standard Sales Quote", base="StandardSalesQuote.docx",
+    purpose="The first re-run printed no work description from P14, although the quote had one and Word's mock "
+            "printed every line. P14's work-description repeater held its field INLINE in a paragraph; the stock "
+            "quote's own holds a BLOCK-level field around the paragraph, as every nested block repeater in "
+            "Microsoft's layouts does. This is the stock quote with only that field turned into the inline form - "
+            "the control experiment. If the built-in layout prints the work description and this one does not, "
+            "the inline form was the cause, and wrap_in_repeater's new block form (rebuilt P14) is the fix.",
+    asks=[
+        "Quote 1003 with its work description: does THIS layout print the work description (between the info "
+        "grid and the lines table), as the built-in layout does?",
+        "P14, rebuilt: does it print the work description below its totals now?",
+    ],
+    bc_steps=[
+        "Keep the work description on quote 1003 (two or three lines).",
+        "Report Layouts > New layout for report 1304, upload this .docx and the rebuilt P14.",
+        "Print quote 1003 three times: with the BUILT-IN layout (the reference), with this layout, and with P14.",
+    ],
+)
+def p18(b: Build):
+    b.drop_broken_abn_control()
+    parts = rewrite_parts(b.work, r"word/document\.xml", inline_work_description_field)
+    b.note(f"hand edit in {', '.join(parts)}: the work-description repeater's field "
+           "(/Header/WorkDescriptionLines/WorkDescriptionLine) turned from a block-level control around its paragraph "
+           "into an inline control inside it - the form P14 printed nothing with; nothing else changed")
+
+
+@item(
+    id="p19", title="Hide Table Row If Empty around an empty value",
+    report="1304 - Standard Sales Quote", base="StandardSalesQuote.docx",
+    purpose="GitHub issue #123. P09 and P10 showed that BC 28 acts on neither hide-if-empty wrapper around a row "
+            "outside a repeater whose bound record is MISSING (a quote with no lines). This asks about a value that "
+            "EXISTS but is empty: the 'Hide Table Row If Empty' wrapper goes around the info grid's Your Reference "
+            "value, empty on most Cronus quotes. In the stock layout that value is an inline field in a plain cell, "
+            "so it is first turned into a cell-level control, the shape the captured wrapper encloses.",
+    asks=[
+        "Your Reference EMPTY: is the info grid's value row (the salesperson, payment terms and the other values) "
+        "left out, while its caption row still prints?",
+        "Your Reference filled in: is the value row printed normally?",
+    ],
+    bc_steps=[
+        "Report Layouts > New layout for report 1304, upload this .docx.",
+        "Print quote 1003 with it as it is (Your Reference empty), then fill in Your Reference on the quote and "
+        "print it again.",
+    ],
+)
+def p19(b: Build):
+    b.drop_broken_abn_control()
+    wrapper_id = wrap_in_hide_if_empty(b, *HIDE_ROW_WRAPPER, xpath=YOUR_REFERENCE_XPATH, lift=True)
+    b.note(f"hand edit in word/document.xml: the info grid's Your Reference value (/Header/YourReference) turned into "
+           f"a cell-level control and wrapped in a 'Hide Table Row If Empty' control (id {wrapper_id}), the captured "
+           "shape")
+
+
+@item(
+    id="p20", title="Hide Table Row If Empty inside a repeater",
+    report="1016 - Job Quote", base="JobQuote.docx",
+    purpose="GitHub issue #123, the captured shape itself: Salesperson Commission wraps a cell of the PARENT "
+            "repeater's row bound to a column of the CHILD item's first record, but report 115 prints only "
+            "salespeople with entries, so it never had an empty case. Job Quote prints the job's tasks, and a task "
+            "can have no planning lines. insert_subtotal_row adds a row to each task (task no., description, and the "
+            "type of its FIRST planning line), and the type cell is wrapped in the add-in's 'Hide Table Row If "
+            "Empty' control - first turned into a cell-level control, the shape the wrapper encloses. A task without "
+            "planning lines leaves that cell empty. The row takes the stock rows' Segoe UI 8 pt by itself (the row "
+            "tools copy the row above).",
+    asks=[
+        "A task WITHOUT planning lines: is its added row (task no., description) left out? (Without the wrapper "
+        "it would print with an empty type.)",
+        "A task WITH planning lines: does its row print after its lines, with the first line's type?",
+        "Is anything else hidden?",
+    ],
+    bc_steps=[
+        "A job with at least one task that has planning lines and one that has none (a heading or total task, or "
+        "add a task with no lines).",
+        "Report Layouts > New layout for report 1016, upload this .docx, then run Job Quote for that job.",
+    ],
+)
+def p20(b: Build):
+    info = b.info()
+    task = Build.repeater(info, "/Job/Job_Task")
+    grid = next(t for t in info["tables"]
+                if t["tableIndex"] == task["tableIndex"] and t["part"] == task["part"])["columnCount"]
+    paths = Build.paths(b.dataset())
+    before = {c["sdtId"] for c in info["controls"]}
+    first_type = "/Job/Job_Task/Job_Planning_Line/Type"
+    b.edit("insert_subtotal_row", parentControlId=task["sdtId"],
+           cells=[{"fields": [Build.pick(paths, "/Job/Job_Task/JobTaskNo_JobTask")]},
+                  {"fields": [Build.pick(paths, "/Job/Job_Task/Description_Job")]},
+                  {"fields": [first_type]},
+                  {"span": grid - 3}])
+    added = [c for c in b.info()["controls"]
+             if c["sdtId"] not in before and str(c.get("alias", "")).endswith(first_type)]
+    if len(added) != 1:
+        raise ItemFailure(f"expected one new control bound to {first_type}, found {len(added)}")
+    wrapper_id = wrap_in_hide_if_empty(b, *HIDE_ROW_WRAPPER, control_id=added[0]["sdtId"], lift=True)
+    b.note(f"insert_subtotal_row on the Job_Task repeater: a row per task with its no., description and the type of "
+           f"its first planning line, then (hand edit) that type cell turned into a cell-level control and wrapped in "
+           f"a 'Hide Table Row If Empty' control (id {wrapper_id}), the shape captured in Salesperson Commission")
+
+
 # ---------------------------------------------------------------- runner
 
 # Business Central refuses to upload a layout whose settings link an external attached template:
@@ -1557,6 +1753,11 @@ page numbers (P15), per-group subtotals (P16), and a layout created over a brand
 P09/P10 moved to the stock quote, where a quote with no lines gives the hide-if-empty wrappers an empty case.
 P11, P14 and P15 are unchanged, but their round-3 prints missed a case each: a one-page order (P11), a quote
 with a work description (P14) and a quote long enough for two pages (P15).
+
+**P18-P20 follow that re-run.** P14 printed no work description although the quote had one, so it is rebuilt
+with `wrap_in_repeater`'s new block-level form, and P18 prints the old inline form on the stock quote to confirm
+the cause. P09/P10 showed that neither hide-if-empty wrapper acts on a row outside a repeater whose bound record
+is missing; P19 tries a value that exists but is empty, and P20 the captured shape inside a repeater (#123).
 
 ## The layouts
 

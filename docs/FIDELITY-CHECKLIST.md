@@ -42,12 +42,12 @@ harness below (Deliverable 2) repeats it in every artifact it writes.
 | Pagination / page breaks / "different first page" headers | **[Manual]** | Word/LibreOffice's pagination engine is not BC's report engine. Measured once (2026-08-01, a 2-page purchase order): same page count, same first-page→default header/footer switch at page 2, page break within ONE row. Re-measured 2026-08-02 (a 6-page report): header/footer parts repeat identically both sides; repeated table header rows (`w:tblHeader`) were a mock-only gap — Word fragmented the table at the merged copy's flattened row-SDT wrappers, so the mock lost the every-page header repetition BC renders — **fixed** by unwrapping row-level sdt shells in the render flatten ([#19](https://github.com/TKapitan/bc-word-layout-mcp/issues/19), `MergeEngine.UnwrapRowLevelSdts`; the layout itself was always correct). Still manual — one document is not a guarantee. Note that BC honours the Word first/default/even part model exactly, so a layout with `w:titlePg` renders its FIRST-page parts on page 1. |
 | Picture rendering (placeholder vs. real image) | **[Automated for Word path]** / **[Manual for LibreOffice + real image]** | `MergeEngineTests.Corpus_picture_controls_are_filled_with_a_valid_placeholder_png` asserts the placeholder PNG fill itself; `FidelityHarnessTests`/`PdfConverterTests` render it end-to-end via Word COM. The LibreOffice path is unverified — LibreOffice was never installed on the reference dev machine, so whether it accepts the placeholder image part's package-root/absolute relationship target is still open (see [#7](https://github.com/TKapitan/bc-word-layout-mcp/issues/7)). What a genuine (non-placeholder) picture looks like is manual either way — the mock always substitutes a placeholder, by design. |
 | Number/date/locale formatting | **[Automated determinism]** / **[Manual vs BC locale]** | `SampleDataGeneratorTests` locks down the generator's own deterministic, type-aware output run over run. Whether it matches BC's locale-aware formatting is manual, and it will not: the sandbox rendered `31. März 2025` / `1.800,00` from its own regional settings. With a real exported dataset the values come from BC itself — including raw-number columns: each `decimalformatter` attribute the export carries is applied with the export's own `formatRegion` culture ([#4](https://github.com/TKapitan/bc-word-layout-mcp/issues/4), fixed; `ReportDataSetConverter`, guarded by `SampleDataGeneratorTests`' export-shape tests), so `100` renders `100.00` as BC prints it. One caveat stays manual: the separator GLYPHS come from `formatRegion`, while a BC user whose personal regional settings differ from the report's format region may see different ones. |
-| Hide-if-empty conditional controls | **[Deferred]** | Not implemented in `MergeEngine`, and there is no `set_hide_if_empty` editing tool. Two corpus layouts carry the captured controls: SalespersonCommission (*Hide Empty Table Row*) and SubcontractorDispatchList (*Hide Empty Table*). Their mock previews ignore the wrapper and show the row or table regardless, so compare those two against a BC render with care. What BC treats as empty is the open question ([#123](https://github.com/TKapitan/bc-word-layout-mcp/issues/123)): round 3 could not answer it, because report 115 prints only salespeople with entries, so the pack's P09/P10 now wrap the stock quote's caption row, which is empty for a quote with no lines; *Hide Field if Zero* and layout comments are uncaptured ([#8](https://github.com/TKapitan/bc-word-layout-mcp/issues/8)). |
+| Hide-if-empty conditional controls | **[Deferred]** | Not implemented in `MergeEngine`, and there is no `set_hide_if_empty` editing tool. Two corpus layouts carry the captured controls: SalespersonCommission (*Hide Empty Table Row*) and SubcontractorDispatchList (*Hide Empty Table*). Their mock previews ignore the wrapper and show the row or table regardless, so compare those two against a BC render with care. What BC treats as empty is the open question ([#123](https://github.com/TKapitan/bc-word-layout-mcp/issues/123)): round 3 found that BC 28 does not act on either wrapper around a row outside a repeater whose bound first child record is missing (P09/P10 on a quote with no lines); the captured shape inside a repeater is untested, because report 115 prints only salespeople with entries; *Hide Field if Zero* and layout comments are uncaptured ([#8](https://github.com/TKapitan/bc-word-layout-mcp/issues/8)). |
 | Report limits / large datasets | **[Manual]** | `MergeOptions.MaxRowsPerRepeater` (default 100) bounds the MOCK preview's own row count for robustness — a safeguard against the mock blowing up, not a statement about BC's real limits. Actual BC report performance/limits at production data volumes are sandbox-only. |
 
 ## The sandbox pack (the prepared version of the manual procedure)
 
-`python tools/e2e/sandbox_pack.py` builds seventeen layouts into `preview-output/sandbox-pack/` (gitignored)
+`python tools/e2e/sandbox_pack.py` builds twenty layouts into `preview-output/sandbox-pack/` (gitignored)
 for uploading to a real BC sandbox: three authored entirely by the tools (P01, P06, P07 — every one a
 `create_layout` blank build, so all three carry the scaffolded default typography whose BC-side
 verification rides this pack), four exercising a distinct editing capability against stock
@@ -77,6 +77,10 @@ round has printed from the tools:
 - **P17**, `create_layout` over a branded `.dotx` template
   ([#77](https://github.com/TKapitan/bc-word-layout-mcp/issues/77)), made from the stock quote: its
   headers, footers and styles kept, the document number added to both of its headers.
+
+Three probes follow round 3's re-run: **P18** checks why a work description `wrap_in_repeater` repeated
+did not print, and **P19**/**P20** carry #123 on, with an existing but empty value and with the captured
+shape inside a repeater.
 
 Each item folder carries the `.docx` to upload, this
 tool's own mock render of it, a README naming the questions that item's BC render answers, and the full
@@ -158,8 +162,9 @@ passed**; the filled comparison sheet lives with the round's pack output.
 
 All seventeen items printed once two of them were repaired, and three research probes answered their
 questions. Every capability check printed what the mock showed. The round found one tool gap, two mistakes
-in the pack's own items, and three mock-data gaps, all fixed for 2.0.0-rc.2, whose re-run covers the items
-they touched.
+in the pack's own items, and three mock-data gaps, all fixed for 2.0.0-rc.2. Its re-run (2026-10-25,
+P04, P06, P08–P11, P14, P15) printed the fixes as intended and filled in the cases the first prints missed,
+but one: P14's work description, a new finding below.
 
 - **BC now refuses a layout that links an external attached template.** P02's upload failed with
   `UnsupportedExternalContentFields: The Word layout contains unsupported fields or external references:
@@ -179,34 +184,44 @@ they touched.
   [#102](https://github.com/TKapitan/bc-word-layout-mcp/issues/102)). BC accepted Microsoft's own
   StandardSalesInvoiceVatSpec bindings of that kind and printed both with their data, so `validate_layout`
   reports the case as a warning now (an ID naming another part stays an error), and `refresh_xml_part`
-  re-points such bindings at the BC part.
+  re-points such bindings at the BC part. The re-run printed the re-pointed layout the same way.
 - **BC evaluates `IF PAGE = NUMPAGES` per page** (P11,
   [#11](https://github.com/TKapitan/bc-word-layout-mcp/issues/11)). On a two-page order the footer text
-  printed on the last page only, and the header's page numbers counted correctly. A one-page order was not
-  printed.
+  printed on the last page only, and the header's page numbers counted correctly; in the re-run, a one-page
+  order printed it on its only page.
 - **Hide-if-empty stays open** (P09, P10,
   [#123](https://github.com/TKapitan/bc-word-layout-mcp/issues/123)). Report 115 prints only salespeople
   with entries in the filter, so neither wrapper had an empty case to act on, and the two renders were
-  identical. The re-run moves both wrappers to the stock quote's caption row, which is empty for a quote
-  with no lines.
+  identical. The re-run put both wrappers around the stock quote's caption cell bound to the first line's
+  `ItemNo_Line_Lbl`, outside any repeater. On a quote with no lines **neither variant hid anything**: the
+  caption row printed with its captions blank and its rule visible, and the table stayed. So in BC 28 they do
+  not act on a row outside a repeater whose bound first child record is missing. Untested: an existing but
+  empty value, and the captured shape itself, inside a repeater whose child item is empty for some rows.
 - **Capability checks printed as the mock showed:** a block repeater written by `wrap_in_repeater` (P12,
   the first BC render of one: each customer on its own page with its own data, no blank first page);
   direct italic, underline, colour, a character style, another installed font and a cell fill (P13);
   tables in a header and a footer, the three `borders` looks and a rule under every line (P14); totals rows
   inside a lines table and page numbers (P15); per-group subtotal rows that sum to the grand total (P16).
-  P01–P03, P05 and P07 printed as in round 2. Not exercised: a quote with a work description (P14) and a
-  quote long enough for two pages (P15).
+  P01–P03, P05 and P07 printed as in round 2. In the re-run, a two-page quote repeated its caption row,
+  counted `Page 1 / 2` and `2 / 2`, and printed the totals rows once, at the end (P15).
+- **A work description repeated by `wrap_in_repeater` did not print** (P14, re-run). The quote had a
+  work description and Word's mock printed every line, but BC printed nothing below the totals. The
+  repeater's item held the field inline in a paragraph, a shape no stock layout has: every nested block
+  repeater in Microsoft's layouts holds block-level fields around their paragraphs. `wrap_in_repeater` now
+  writes that shape, and P18 prints the inline shape on the stock quote to confirm the cause.
 - **A font Business Central online does not have prints in a substitute** (P13): a serif face, as in
   Word's mock. `validate_layout` now warns about such a font (`font-installed`), checked against
   Microsoft's list of the fonts BC online has.
 - **Tool gap: a row the row tools build did not match the rows around it** (P04). The detail row
   `insert_repeater_row` rebuilt in Job Quote printed at 11 pt between Segoe UI 8 pt rows, and its values
   wrapped. The row tools now give each new cell the formatting of the row beside it, column by column, and
-  `insert_repeater_row` takes `format`, which P04's emptied task item needs.
+  `insert_repeater_row` takes `format`, which P04's emptied task item needs. In the re-run the rebuilt row
+  printed like the stock one: the same columns in the same order, Segoe UI 8 pt, and the same values as the
+  stock layout's print of the same job.
 - **Two pack mistakes:** P04 laid its detail columns out in another order than the stock row and left one
   out, and P06 bound the vendor address an order leaves empty (`VendAddr1`–`6`) instead of the buy-from
-  address the stock layout prints (`BuyFromAddr1`–`8`). Both are corrected; the mock could not show the
-  second, because generated data fills every field.
+  address the stock layout prints (`BuyFromAddr1`–`8`). Both are corrected and printed correctly in the
+  re-run; the mock could not show the second, because generated data fills every field.
 - **Three mock-data gaps made tables far taller than BC's:** a percent formatted as text sampled as a
   caption that wrapped to five lines per row, `Capt`-suffixed captions sampled as codes, and name-echo
   text that repeated the data item's name. All three are fixed (see the *Caption text* row).
