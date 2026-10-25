@@ -114,8 +114,8 @@ Copy the design `.docx`; keep its styles, fonts, footer and section setup; remov
   dataset part with a fresh `storeItemID` and the glossary part, and keeps the design's body, headers,
   footers, styles and settings as they are. It does not set the compatibility mode: check that the
   design's `settings.xml` declares `compatibilityMode` 15 (`validate_layout` warns once the layout holds a
-  repeater and it does not). Read the `storeItemId` back with `get_layout_info`. [mock; sandbox pack item
-  P17 asks BC]
+  repeater and it does not). Read the `storeItemId` back with `get_layout_info`. [verified: sandbox pack
+  item P17, which printed with the template's headers and footers]
 - Or copy the empty layout's `customXml/item*.xml` (the `urn:microsoft-dynamics-nav/reports/…` part)
   into the package with an `itemProps` part declaring a new `storeItemID`, and set
   `compatibilityMode` 15 in `settings.xml`. [verified]

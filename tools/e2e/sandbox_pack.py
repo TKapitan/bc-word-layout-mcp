@@ -157,6 +157,19 @@ class Build:
             raise ItemFailure("repeater is not in a table")
         return idx
 
+    def drop_broken_abn_control(self):
+        """Removes the stock quote capture's CompanyABNNumber control, bound to a foreign store item.
+
+        validate_layout flags it as 3 errors before anything is edited, and BC rejected round 1's P05 for it
+        on upload ('UnknownDataBinding'). Removing it is the repair the tool's own finding text prescribes.
+        """
+        stray = [c for c in self.info()["controls"] if "CompanyABNNumber" in str(c.get("alias", ""))]
+        for c in stray:
+            self.edit("remove_control", controlId=c["sdtId"])
+        if stray:
+            self.note(f"remove_control: dropped {len(stray)} broken CompanyABNNumber control(s) the stock "
+                      "layout shipped with - the binding BC rejected the upload for")
+
 
 # ---------------------------------------------------------------- pack items
 
@@ -265,9 +278,9 @@ def p01(b: Build):
         "insert_column binds a header with an INLINE (paragraph-level) control, where the stock header "
         "cells use CELL-level controls. Both are valid OOXML; does BC treat them the same? Compare the "
         "added column's data cells against the stock ones.",
-        "insert_column adds a bound cell to EVERY row, including rows outside the repeating section - "
-        "the mock reports 3 'xpath-fallback' warnings for exactly that. What does BC put in those "
-        "non-repeating rows: the first line's value, blank, or an error?",
+        "insert_column binds the new column in the header and in the repeating line row only; every other "
+        "row of the table (the totals rows) gets an empty cell or a wider trailing cell. Do those rows "
+        "print with nothing in the new column, as the mock shows?",
     ],
     bc_steps=[
         "Posted sales invoice: Sales > Posted Sales Invoices, pick one with several lines.",
@@ -386,7 +399,10 @@ def p03(b: Build):
             "data, our OOXML.",
     asks=[
         "Does the rebuilt detail row repeat once per planning line under each task, as the stock layout does?",
-        "Do the detail cells line up with the parent grid (spans), or does the row drift?",
+        "Do the detail cells line up with the parent grid (spans), under the same captions as the stock row "
+        "(Type, No., Quantity, Unit Price, Line Discount %, Line Discount Amount, Total Price)?",
+        "Is the rebuilt row Segoe UI 8 pt like the stock rows, with no value wrapping (insert_repeater_row's "
+        "format; round 3 printed it at 11 pt)?",
         "Compare against a run of the SAME job with the STOCK layout - any difference is ours.",
     ],
     bc_steps=[
@@ -407,7 +423,8 @@ def p04(b: Build):
     # whatever slack is left.
     grid = next(t for t in info["tables"]
                 if t["tableIndex"] == outer["tableIndex"] and t["part"] == outer["part"])["columnCount"]
-    detail = ["Number", "Type", "Quantity", "UnitPrice", "LineDiscountPct", "TotalPrice"]
+    # The stock row's own order, after its task-number and description cells.
+    detail = ["Type", "Number", "Quantity", "UnitPrice", "LineDiscountPct", "LineDiscountAmount", "TotalPrice"]
     spacer = 2
     slack = grid - spacer - len(detail)
     if slack < 0:
@@ -419,9 +436,13 @@ def p04(b: Build):
         {"fields": [f"{item}/{name}"], "alignment": alignment}
         | ({"span": slack + 1} if i == len(detail) - 1 else {})
         for i, (name, alignment) in enumerate(zip(detail, alignments))]
-    b.edit("insert_repeater_row", parentControlId=outer["sdtId"], dataItem=item, cells=cells)
+    # With its only row removed, the task item has no row to take formatting from, so the stock row's
+    # Segoe UI 8 pt is passed explicitly.
+    b.edit("insert_repeater_row", parentControlId=outer["sdtId"], dataItem=item, cells=cells,
+           format={"fontName": "Segoe UI", "fontSizePoints": 8})
     b.note(f"rebuilt it with insert_repeater_row: an indented detail row spanning the parent's "
-           f"{grid}-column grid as a {spacer}-column spacer then {', '.join(detail)}")
+           f"{grid}-column grid as a {spacer}-column spacer then {', '.join(detail)}, in the stock row's "
+           "Segoe UI 8 pt (format)")
 
 
 @item(
@@ -447,17 +468,7 @@ def p04(b: Build):
     ],
 )
 def p05(b: Build):
-    # The stock capture carries a CompanyABNNumber control bound to a foreign store item, which
-    # validate_layout flags as 3 errors before anything is edited - and which BC rejected the layout
-    # for on upload ('UnknownDataBinding'). Removing it is exactly the repair the tool's own finding
-    # text prescribes, and makes this item uploadable.
-    info = b.info()
-    stray = [c for c in info["controls"] if "CompanyABNNumber" in str(c.get("alias", ""))]
-    for c in stray:
-        b.edit("remove_control", controlId=c["sdtId"])
-    if stray:
-        b.note(f"remove_control: dropped {len(stray)} broken CompanyABNNumber control(s) the stock "
-               f"layout shipped with - the binding BC rejected the upload for")
+    b.drop_broken_abn_control()
 
     info = b.info()
     rep = Build.repeater(info, "/Header/Line")
@@ -534,9 +545,10 @@ def p06(b: Build):
     for row in range(6):
         b.edit("insert_field", field=f"/Purchase_Header/CompanyAddress{row + 1}",
                locationType="tableCell", tableIndex=addr_idx, row=row, col=0)
-        b.edit("insert_field", field=f"/Purchase_Header/VendAddr{row + 1}",
+        b.edit("insert_field", field=f"/Purchase_Header/BuyFromAddr{row + 1}",
                locationType="tableCell", tableIndex=addr_idx, row=row, col=1)
-    b.note("2x6 unbound table filled with CompanyAddress1-6 / VendAddr1-6 FIELD controls")
+    b.note("2x6 unbound table filled with CompanyAddress1-6 / BuyFromAddr1-6 FIELD controls (VendAddr1-6, "
+           "which round 3 used, printed empty: the stock order layout prints the buy-from address)")
 
     # Document info: label/value pairs in a small borderless grid.
     info_tbl = b.edit("insert_table", rowCount=3, columns=widths_and_alignments([2800, 3000]),
@@ -686,7 +698,7 @@ def p07(b: Build):
 
 def rewrite_parts(path: str, pattern: str, transform) -> list[str]:
     """Rewrites every package part whose name matches `pattern` through `transform(xml) -> xml`, for the
-    one probe whose shape no tool emits (P11). Returns the rewritten part names."""
+    probes whose shape no tool emits (P09-P11). Returns the rewritten part names."""
     rewritten = []
     tmp = path + ".tmp"
     with zipfile.ZipFile(path) as zin, zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as zout:
@@ -703,19 +715,16 @@ def rewrite_parts(path: str, pattern: str, transform) -> list[str]:
 @item(
     id="p08", title="Bindings whose storeItemID names no part",
     report="1306 - Standard Sales Invoice", base="StandardSalesInvoiceVatSpec.docx",
-    purpose="GitHub issue #102. validate_layout raises the same store-item-id ERROR whether a binding's "
-            "storeItemID names no part at all (Word re-binds it to the BC part) or names a different "
-            "existing part (genuinely broken). Microsoft's own StandardSalesInvoiceVatSpec ships two "
-            "bindings of the first kind (DocumentTitle_Lbl, DocumentNo) while its BC part HAS itemProps - "
-            "the case no sandbox round has tested. refresh_xml_part repairs their other defect (a foreign "
-            "Mini_Sales_Invoice namespace, which BC rejects on upload), so after it the ONLY finding left "
-            "is the two storeItemIDs.",
+    purpose="GitHub issue #102, now a regression check. Microsoft's own StandardSalesInvoiceVatSpec ships two "
+            "bindings (DocumentTitle_Lbl, DocumentNo) whose storeItemID names no part in the package. Round 3 "
+            "printed them with their data, so validate_layout now reports that case as a warning, and "
+            "refresh_xml_part re-points such bindings at the BC part. This item runs refresh_xml_part against "
+            "the layout's own schema, which also repairs their foreign Mini_Sales_Invoice namespace (BC rejects "
+            "that on upload), so both bindings name the BC part again.",
     asks=[
-        "Does BC ACCEPT the upload? validate_layout still reports two store-item-id errors - if BC takes "
-        "it, a storeItemID that names no part is a warning, not an error (#102's suggested fix).",
-        "Do the two affected controls - the document title (DocumentTitle_Lbl) and the invoice number "
-        "(DocumentNo), top of page 1 - render WITH data?",
-        "If BC rejects the upload: the exact message, word for word.",
+        "Does BC accept the upload, as it did in round 3?",
+        "Do the document title (DocumentTitle_Lbl) and the invoice number (DocumentNo), top of page 1, still "
+        "render WITH data now that refresh_xml_part re-pointed them?",
     ],
     bc_steps=[
         "Posted sales invoice: Sales > Posted Sales Invoices, pick any.",
@@ -727,85 +736,114 @@ def p08(b: Build):
     refresh = b.edit("refresh_xml_part",
                      newSchemaSource=os.path.join(CORPUS_DIR, "StandardSalesInvoiceVatSpec.docx"))["data"]
     repointed = [f"{x['alias']} ({x['previousNamespace']})" for x in refresh["repointedForeignBindings"]]
-    b.note("refresh_xml_part against the layout's own schema: re-pointed the foreign-namespace "
-           f"bindings {', '.join(repointed) or '(none)'}; their storeItemIDs still name no part")
+    stores = [str(x["alias"]) for x in refresh["repointedStoreItemIds"]]
+    if not stores:
+        raise ItemFailure("refresh_xml_part re-pointed no storeItemID; the item no longer tests #102")
+    b.note("refresh_xml_part against the layout's own schema: re-pointed the foreign-namespace bindings "
+           f"{', '.join(repointed) or '(none)'}, and the storeItemIDs naming no part of {', '.join(stores)}")
+
+
+# The add-in's two hide-if-empty wrappers differ only in their alias and tag: a cell-level w:sdt with no binding
+# and w15:color FFA500, around a cell bound to a column of a CHILD repeating item (captured in
+# SalespersonCommission and SubcontractorDispatchList). Round 3 ran them on report 115, which prints only
+# salespeople with ledger entries, so neither wrapper had an empty case to act on. Round 3's re-run puts the same
+# wrapper around the stock quote's caption cell bound to the FIRST line's ItemNo_Line_Lbl, which is empty exactly
+# when the quote has no lines - a case any sandbox can produce.
+HIDE_ROW_WRAPPER = ("Hide Table Row If Empty", "#BC:HideTableRowIfEmpty")
+HIDE_TABLE_WRAPPER = ("Hide Table If Empty", "#BC:HideTableIfEmpty")
+HIDDEN_CAPTION_XPATH = "/ns0:NavWordReportXmlPart[1]/ns0:Header[1]/ns0:Line[1]/ns0:ItemNo_Line_Lbl[1]"
+
+
+def sdt_end(xml: str, start: int) -> int:
+    """The index just past the w:sdt element that opens at start, counting the w:sdt elements nested in it."""
+    depth = 0
+    for m in re.finditer(r"<w:sdt[ >]|</w:sdt>", xml[start:]):
+        depth += -1 if m.group(0) == "</w:sdt>" else 1
+        if depth == 0:
+            return start + m.end()
+    raise ItemFailure("unbalanced w:sdt in document.xml")
+
+
+def wrap_caption_in_hide_if_empty(b: Build, alias: str, tag: str):
+    """Wraps the quote's ItemNo_Line_Lbl caption cell in the add-in's hide-if-empty control, in the captured shape.
+
+    The wrapper reuses the caption control's own placeholder entry and takes an id no control in the package
+    has. No tool writes this control, so it is a hand edit.
+    """
+    with zipfile.ZipFile(b.work) as package:
+        xml_parts = "".join(package.read(n).decode("utf-8", "replace") for n in package.namelist()
+                            if n.startswith("word/") and n.endswith(".xml"))
+    used = set(re.findall(r'<w:id w:val="(-?\d+)"', xml_parts))
+    wrapper_id = next(str(n) for n in range(1_230_000_001, 1_230_100_000) if str(n) not in used)
+
+    def wrap(xml: str) -> str:
+        binding = f'w:xpath="{HIDDEN_CAPTION_XPATH}"'
+        if xml.count(binding) != 1:
+            raise ItemFailure(f"expected one control bound to {HIDDEN_CAPTION_XPATH}, found {xml.count(binding)}")
+        start = xml.rfind("<w:sdt>", 0, xml.index(binding))
+        end = sdt_end(xml, start)
+        control = xml[start:end]
+        if "<w:sdtContent><w:tc>" not in control:
+            raise ItemFailure("the ItemNo_Line_Lbl caption is not a cell-level control any more")
+        doc_part = re.search(r'<w:docPart w:val="([^"]+)"\s*/>', control).group(1)
+        wrapper = (f'<w:sdt><w:sdtPr><w:alias w:val="{alias}"/><w:tag w:val="{tag}"/><w:id w:val="{wrapper_id}"/>'
+                   f'<w:placeholder><w:docPart w:val="{doc_part}"/></w:placeholder><w15:color w:val="FFA500"/>'
+                   f"</w:sdtPr><w:sdtContent>{control}</w:sdtContent></w:sdt>")
+        return xml[:start] + wrapper + xml[end:]
+
+    parts = rewrite_parts(b.work, r"word/document\.xml", wrap)
+    b.note(f"hand edit in {', '.join(parts)}: the lines table's caption cell bound to /Header/Line/ItemNo_Line_Lbl "
+           f"wrapped in a '{alias}' control ({tag}, id {wrapper_id}), in the shape the add-in writes - as captured "
+           "in Salesperson Commission")
 
 
 @item(
-    id="p09", title="Hide Empty Table Row as Microsoft ships it",
-    report="115 - Salesperson Commission", base="SalespersonCommission.docx",
-    purpose="GitHub issue #123: the BC add-in's 'Hide Table Row If Empty' control is captured (a "
-            "cell-level wrapper tagged #BC:HideTableRowIfEmpty), but not what BC treats as EMPTY. This is "
-            "the stock layout, unedited. The wrapper sits in each salesperson's group-header row, around "
-            "the cell bound to /Salesperson_Purchaser/Cust_Ledger_Entry/SalespersonPurchaser_Code - a "
-            "column of the salesperson's FIRST ledger entry, so it is empty exactly when that salesperson "
-            "has no entries in the filter.",
+    id="p09", title="Hide Table Row If Empty on a quote's caption row",
+    report="1304 - Standard Sales Quote", base="StandardSalesQuote.docx",
+    purpose="GitHub issue #123: the BC add-in's 'Hide Table Row If Empty' control is captured (a cell-level "
+            "wrapper tagged #BC:HideTableRowIfEmpty, in Salesperson Commission) but not what BC treats as EMPTY. "
+            "Round 3 ran the stock commission layout, and report 115 prints only salespeople with ledger entries, "
+            "so the empty case never came up. Here the same wrapper, hand-made in the captured shape, goes around "
+            "the stock quote's caption cell bound to /Header/Line/ItemNo_Line_Lbl: a column of the FIRST quote "
+            "line, as the captured one binds a column of the first ledger entry, so it is empty exactly when the "
+            "quote has no lines.",
     asks=[
-        "A salesperson with NO customer ledger entries in the filter: is their group-header row "
-        "(code, name, commission %) left out? Is anything else of their group printed?",
-        "A salesperson WITH entries: is the header row printed normally, code included?",
-        "Are any OTHER rows hidden - e.g. ledger-entry rows with blank cells? (Tells us whether the "
-        "test is on the wrapped cell only.)",
+        "A quote with NO lines: is the lines table's caption row (No., Description, Quantity, ...) left out? Is "
+        "anything else missing, such as the totals rows or the whole table?",
+        "A quote WITH lines: is the caption row printed normally, 'No.' included, and nothing else hidden?",
     ],
     bc_steps=[
-        "Search (Tell Me) for 'Salesperson Commission' (report 115). Filter Salesperson/Purchaser to "
-        "include at least one salesperson who HAS posted sales and one who has NONE in the posting-date "
-        "filter (any Cronus purchaser code works for the second).",
-        "Report Layouts > New layout for report 115, upload this .docx (it is the stock Word layout, "
-        "uploaded so the run is unambiguous), then run the report with it.",
+        "Two quotes: the one P01/P05/P13 use (several lines), and a new quote for any customer with NO lines.",
+        "Report Layouts > New layout for report 1304, upload this .docx, then Print both quotes with it.",
     ],
 )
 def p09(b: Build):
-    b.note("no edits: the stock layout with its #BC:HideTableRowIfEmpty wrapper, as Microsoft ships it")
-
-
-# The add-in's two hide-if-empty wrappers differ only in their alias and tag: the same cell-level w:sdt, the same
-# w15:color, around a cell of the parent repeater's row bound to a column of a CHILD repeating item (captured in
-# SalespersonCommission and SubcontractorDispatchList).
-HIDE_ROW_WRAPPER = ('<w:alias w:val="Hide Table Row If Empty" />', '<w:tag w:val="#BC:HideTableRowIfEmpty" />')
-HIDE_TABLE_WRAPPER = ('<w:alias w:val="Hide Table If Empty" />', '<w:tag w:val="#BC:HideTableIfEmpty" />')
-
-
-def retag_hide_row_as_hide_table(xml: str) -> str:
-    """P09's one Hide Table Row If Empty wrapper becomes the Hide Table If Empty variant, alias and tag alone."""
-    for row, table in zip(HIDE_ROW_WRAPPER, HIDE_TABLE_WRAPPER):
-        if xml.count(row) != 1:
-            raise ItemFailure(f"expected exactly one {row!r} in the stock commission layout, found {xml.count(row)}")
-        xml = xml.replace(row, table)
-    return xml
+    b.drop_broken_abn_control()
+    wrap_caption_in_hide_if_empty(b, *HIDE_ROW_WRAPPER)
 
 
 @item(
-    id="p10", title="Hide Empty Table on the commission report",
-    report="115 - Salesperson Commission", base="SalespersonCommission.docx",
-    purpose="GitHub issue #123: the BC add-in's 'Hide Table If Empty' control is captured (tag "
-            "#BC:HideTableIfEmpty) but not what BC treats as empty. Its one capture is in the Subcontractor "
-            "Dispatch List, whose test data needs a subcontracted production order, and its wrapper is shaped "
-            "exactly like P09's 'Hide Table Row If Empty' one: the same cell-level control, around a cell of the "
-            "parent row bound to a column of the CHILD repeating item, differing only in alias and tag. So this "
-            "is P09's stock layout with that one wrapper re-tagged to the table variant (a hand edit): same "
-            "report, same data, and the two renders side by side show what each variant hides.",
+    id="p10", title="Hide Table If Empty on a quote's lines table",
+    report="1304 - Standard Sales Quote", base="StandardSalesQuote.docx",
+    purpose="GitHub issue #123, the table variant: 'Hide Table If Empty' (#BC:HideTableIfEmpty) is captured in the "
+            "Subcontractor Dispatch List, shaped exactly like P09's row variant but for its alias and tag. This is "
+            "P09's quote with that wrapper instead, around the same caption cell, so the renders of the same two "
+            "quotes side by side show what each variant hides.",
     asks=[
-        "A salesperson with NO customer ledger entries in the filter: what is left out - their group-header "
-        "row (code, name, commission %), their entry rows, or the WHOLE table, every salesperson included? "
-        "Or nothing?",
-        "A salesperson WITH entries: is their group printed normally, code included?",
-        "Side by side with P09's render on the same filter: what does this table variant hide that P09's row "
+        "A quote with NO lines: what is left out - the caption row, the whole lines table including its totals "
+        "rows, or nothing?",
+        "A quote WITH lines: is the table printed normally?",
+        "Side by side with P09's render of the same two quotes: what does the table variant hide that the row "
         "variant does not?",
     ],
     bc_steps=[
-        "The same run as P09: report 115, filtered to at least one salesperson who HAS posted sales and one "
-        "who has NONE in the posting-date filter.",
-        "Report Layouts > New layout for report 115, upload this .docx, then run the report with it and the "
-        "SAME filter as P09.",
+        "The same two quotes as P09: one with several lines, one with NO lines.",
+        "Report Layouts > New layout for report 1304, upload this .docx, then Print both quotes with it.",
     ],
 )
 def p10(b: Build):
-    parts = rewrite_parts(b.work, r"word/document\.xml", retag_hide_row_as_hide_table)
-    b.note(f"hand edit in {', '.join(parts)}: the stock layout's one 'Hide Table Row If Empty' wrapper "
-           "(#BC:HideTableRowIfEmpty, around the salesperson row's cell bound to "
-           "/Salesperson_Purchaser/Cust_Ledger_Entry/SalespersonPurchaser_Code) re-tagged as 'Hide Table If "
-           "Empty' (#BC:HideTableIfEmpty) - alias and tag only, as captured in the Subcontractor Dispatch List")
+    b.drop_broken_abn_control()
+    wrap_caption_in_hide_if_empty(b, *HIDE_TABLE_WRAPPER)
 
 
 # The nested IF PAGE = NUMPAGES construct, run for run as Word itself serializes it: opening this exact
@@ -956,9 +994,9 @@ MISSING_FONT = "BCWL Missing Font"
         "has. Is it italic in BC, as in the mock?",
         "Do 'P13 Segoe UI 10 pt bold blue', 'P13 underlined' and 'P13 Strong character style' look as "
         "in the mock (blue is 0070C0, the stock accent)?",
-        f"FONTS: which typeface does BC use for 'P13 Georgia', and for 'P13 {MISSING_FONT}' - a font that "
-        "exists nowhere? Whatever BC substitutes for the second tells us whether fontName needs a warning "
-        "for fonts Business Central online does not have.",
+        f"FONTS: 'P13 Georgia' in Georgia, and 'P13 {MISSING_FONT}' - a font that exists nowhere - in a "
+        "substitute (round 3: a serif face)? validate_layout now warns about the second (font-installed), "
+        "and insert_text's summary says so.",
         "RESTYLED STOCK CONTENT: is the document number in the page header blue and italic "
         "(set_text_format on the control), and is the line table's header row shaded light grey with "
         "underlined captions (set_cell_format fill + set_text_format on the row)?",
@@ -971,14 +1009,7 @@ MISSING_FONT = "BCWL Missing Font"
     ],
 )
 def p13(b: Build):
-    # Same repair as P05: the stock capture's stray CompanyABNNumber control makes BC reject the upload.
-    info = b.info()
-    stray = [c for c in info["controls"] if "CompanyABNNumber" in str(c.get("alias", ""))]
-    for c in stray:
-        b.edit("remove_control", controlId=c["sdtId"])
-    if stray:
-        b.note(f"remove_control: dropped {len(stray)} broken CompanyABNNumber control(s) the stock layout "
-               "shipped with")
+    b.drop_broken_abn_control()
 
     # Restyle stock content that is already there.
     info = b.info()
@@ -1192,7 +1223,6 @@ def p15(b: Build):
         "empty spacer row and a bold subtotal row. Does the subtotal pair print ONCE per salesperson, after "
         "their last entry - never per entry?",
         "Do the subtotal amounts match that salesperson's entries (they come from the report's Subtotals item)?",
-        "A salesperson with no entries in the filter: is their subtotal pair printed (with zeros), or left out?",
         "Does the bold grand-total row print once, at the very end, under a rule, and match the sum of the "
         "subtotals?",
     ],
@@ -1522,6 +1552,12 @@ looks, a rule under every line - with the work description repeated per line (P1
 **P15-P17** print what no round has printed from the tools at all: totals rows inside a lines table and
 page numbers (P15), per-group subtotals (P16), and a layout created over a branded `.dotx` template (P17).
 
+**Round 3's re-run (2.0.0-rc.2)** follows the first round-3 prints (2026-10-24). P04 and P06 are corrected
+(P04's column order and typography, P06's vendor address), P08 is a regression check of the #102 fix, and
+P09/P10 moved to the stock quote, where a quote with no lines gives the hide-if-empty wrappers an empty case.
+P11, P14 and P15 are unchanged, but their round-3 prints missed a case each: a one-page order (P11), a quote
+with a work description (P14) and a quote long enough for two pages (P15).
+
 ## The layouts
 
 | Item | What it tests | Report | File | Status |
@@ -1582,6 +1618,27 @@ gets filled in per item, and the real findings go to `docs/FIDELITY-CHECKLIST.md
                    for r in records], f, indent=2)
 
 
+# What a reviewer adds to an item folder (INSTRUCTIONS.md, steps 4-5, and the dataset tip).
+REVIEWER_FILES = re.compile(r".*-bc(-stock)?\.pdf|.*-dataset\.xml", re.IGNORECASE)
+
+
+def remove_stale_item_dirs(item_id: str, slug: str):
+    """Deletes the folders an item built under an earlier title, so the pack holds one folder per item. A
+    folder holding a reviewer's BC PDF or dataset is kept, with a warning."""
+    if not os.path.isdir(OUT_ROOT):
+        return
+    for name in os.listdir(OUT_ROOT):
+        path = os.path.join(OUT_ROOT, name)
+        if name == slug or not name.startswith(f"{item_id}-") or not os.path.isdir(path):
+            continue
+        kept = [f for f in os.listdir(path) if REVIEWER_FILES.fullmatch(f)]
+        if kept:
+            print(f"    kept the stale folder {name}: it holds {', '.join(kept)}")
+        else:
+            shutil.rmtree(path)
+            print(f"    removed the stale folder {name}")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("items", nargs="*", help="item ids to build (prefix match); default all")
@@ -1602,6 +1659,7 @@ def main() -> int:
     for e in selected:
         slug = f"{e['id']}-{e['title'][:28].replace(' ', '-').lower()}"
         out_dir = os.path.join(OUT_ROOT, slug)
+        remove_stale_item_dirs(e["id"], slug)
         print(f"--- {e['id']}: {e['title']}")
         r = build_item(e, out_dir)
         r["slug"] = slug

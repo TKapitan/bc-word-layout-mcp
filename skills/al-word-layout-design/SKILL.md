@@ -30,7 +30,7 @@ Pick the archetype before calling any tool:
 |---|---|---|
 | **Trading document** | Quote, order, invoice, credit memo, shipment — one document per record, addressed to a counterparty | Title/logo chrome → address block → document-info grid → line-items table → totals (§2) |
 | **List / analysis report** | Commission, register, aging, activity lists — rows grouped under entities, running chrome | Header/footer parts with report chrome → grouped repeater table with nested detail rows → totals (§3) |
-| **Per-entity statement** | One sub-document per customer/vendor with a page break between them | Author ONE entity's body bound under the top-level item (e.g. `/Customer/...`), then `wrap_in_repeater` with `wholeBody=true`, `pageBreakBefore=true`: the stock shape [stock: 1316], `w:group` included. BC already prints the body once per top-level record without it; the wrap gives every record its own page in one document. The tool-written shape has no BC sandbox render yet (sandbox pack item P12 asks for one), so when it must be right first time, export the stock layout and edit it. |
+| **Per-entity statement** | One sub-document per customer/vendor with a page break between them | Author ONE entity's body bound under the top-level item (e.g. `/Customer/...`), then `wrap_in_repeater` with `wholeBody=true`, `pageBreakBefore=true`: the stock shape [stock: 1316], `w:group` included. BC already prints the body once per top-level record without it; the wrap gives every record its own page in one document. BC prints the tool-written shape as intended: each customer on its own page with its own data, no blank first page [verified: P12]. |
 
 Settle before building (ask only what the request leaves open): which parties' addresses (two is
 the default; add ship-to when it differs [stock: 1322 buy-from + ship-to + company]), which
@@ -89,8 +89,12 @@ printed filter expressions) in the running header part. That grouped shape is bu
 all-spacer row (`cells=[{"span": 9}]` on a 9-column grid), then the bold subtotal row binding the
 dataset's per-group totals (in 115, a sibling non-repeating `Subtotals` item), amounts
 right-aligned. Grand totals close the table as a static `insert_table_row` (or the separate
-totals table, which is the BC-verified simpler shape [verified: P07]). The tool-built grouped shape has
-no BC render yet — sandbox pack item P16 asks.
+totals table, which is the BC-verified simpler shape [verified: P07]). BC prints the tool-built
+grouped shape as intended: the subtotal pair once per salesperson after their entries, the grand
+total once at the end, and the subtotals sum to it [verified: P16]. Bind group totals from the
+`Subtotals` item only: 115's group row carries `SalesCommissionAmt`/`AdjProfitCommissionAmt` too, but
+they hold the FIRST entry's values, which is why the stock group row shows only code, name and
+commission % [verified: P07, P16].
 
 ## 4. Per-element conventions
 
@@ -101,6 +105,9 @@ no BC render yet — sandbox pack item P16 asks.
 - Two columns at `4600,4600` is the verified default. Stock varies by requirement: 2-col
   customer|company [1304], 4-col buy-from|spacer|ship-to|company [1322], stacked single-column
   blocks [1316] — party count follows the document, not a rule.
+- Purchase documents: the vendor block binds `BuyFromAddr1`–`8`, as the stock order does [stock: 1322];
+  `VendAddr1`–`8` print empty on an order [verified: P06]. The mock cannot show that, because generated
+  data fills every field (§6).
 - Captions: mostly none. The only stock caption is a label **above the ship-to column** when
   ship-to differs from buy-from [1322]. Don't caption sell-to/company blocks by default.
 - Side-by-side company blocks are right-aligned in two stock files [1304, 1306], left in one
@@ -137,11 +144,11 @@ no BC render yet — sandbox pack item P16 asks.
     `set_cell_format` `row=0, edges=["bottom"], borderSize=4`.)
   - **Full grid** [verified: P06]: `tableStyle="TableGrid"` — the style reference alone draws the
     ½ pt grid (BC honours `w:tblStyle` against the scaffolded styles part); don't also paint
-    per-cell borders. (`borders="grid"` paints the same grid as explicit table borders instead;
-    that shape is not BC-verified — sandbox pack item P14 asks — so prefer the style.)
-  - Stock 1306 additionally rules under *every* data row — a bottom border on the repeater's data
-    (template) row should repeat per line, but that exact shape is **not BC-verified** (P14 asks); its solid
-    colour header band is `set_cell_format`'s `fill` on the header row.
+    per-cell borders. (`borders="grid"` paints the same grid as explicit table borders instead, and
+    BC prints that too [verified: P14].)
+  - Stock 1306 additionally rules under *every* data row: `set_cell_format` `edges=["bottom"]` on the
+    repeater's data (template) row, which repeats per line [verified: P14]; its solid colour header
+    band is `set_cell_format`'s `fill` on the header row [verified: P13].
 - ½ pt (`borderSize=4`) is the only rule weight observed anywhere in the corpus — use it unless asked.
 
 ### Totals block
@@ -151,8 +158,8 @@ no BC render yet — sandbox pack item P16 asks.
   amount cell right-aligned, `format={"bold": true}`; then `set_cell_format` on the new row for the rule.
   Example on an 8-column stock lines table:
   `cells=[{"span": 4}, {"fields": ["/Header/Totals/TotalIncludingVATText"], "span": 3}, {"fields": ["/Header/Totals/TotalAmountIncludingVAT"], "alignment": "right"}]`.
-  A spacer row before it (`cells=[{"span": 8}]`) is the stock spacing. Built by the tools, it has no
-  BC render yet — sandbox pack item P15 asks.
+  A spacer row before it (`cells=[{"span": 8}]`) is the stock spacing. BC prints the rows once, after
+  the last line [verified: P15].
 - A totals *ladder* (excl. VAT / VAT / incl. VAT [stock: 1322]) is repeated `insert_table_row`
   calls: amounts share the right column, the grand-total row gets the bold + rule treatment.
 - The **separate** borderless 1×2 totals table directly after the line table remains BC-verified
@@ -174,7 +181,7 @@ no BC render yet — sandbox pack item P16 asks.
   [stock: 1304, 1322, 1306, 115 — identical construct in all four]. Buildable: `insert_label` the
   `Page_Lbl`, then `insert_page_number` (`afterControl` on the label), then `insert_text` `"  "`
   (`afterControl` on the label again) — it emits the exact stock field construct (`X / Y` by default;
-  `includeTotal=false` for the bare page number). P15 asks BC to print it.
+  `includeTotal=false` for the bare page number). BC counts it correctly [verified: P15].
 - Inline sequences anywhere: insert the first control, then the rest **right to left**, each with
   `locationType="afterControl"` anchored on that first control — every such insert lands directly
   after the anchor, so for `Label: Value` insert the label, then the value, then the `": "` text.
@@ -188,6 +195,11 @@ no BC render yet — sandbox pack item P16 asks.
 - Editing a stock layout: inline inserts take the run formatting of the text before them (#122), so a
   field or separator added to a stock line already matches its `Strong` or Segoe UI 8 pt neighbours.
   Pass `format` only to differ from them.
+- The row tools do the same per column: a new row's cells take the formatting of the row above them.
+  A row built into a repeater item that has lost its own rows has nothing to take, so pass the stock
+  rows' look as `format` (Job Quote's are Segoe UI 8 pt; a bare row printed at 11 pt [verified: P04]).
+- Pick installed fonts: a font Business Central online does not have prints in a substitute
+  [verified: P13], and `validate_layout` warns (`font-installed`).
 - Stock caption text is smaller and bolder than its values (9 pt bold captions over 11 pt values
   [1304, 1322]); totals amounts are bold everywhere [stock + verified].
 - `format` also takes italic, underline, a font (Segoe UI is what Microsoft's own layouts set on
@@ -220,15 +232,18 @@ no BC render yet — sandbox pack item P16 asks.
 
 | Stock idiom | Why no tool | Route |
 |---|---|---|
-| Page-position-CONDITIONAL content (`IF PAGE = NUMPAGES`) | Blocked on add-in-compatible OOXML evidence (#11); plain `PAGE`/`NUMPAGES` itself IS buildable — `insert_page_number` (§4 Chrome) | `templatePath` shell carrying the construct, or hand-edit + `validate_layout` |
+| Page-position-CONDITIONAL content (`IF PAGE = NUMPAGES`) | BC evaluates it per page [verified: P11, last page only on a two-page order], but no tool writes it yet (#11); plain `PAGE`/`NUMPAGES` itself IS buildable — `insert_page_number` (§4 Chrome) | `templatePath` shell carrying the construct, or hand-edit + `validate_layout` |
 | Hide-if-empty add-in controls | Row/table variants captured [stock: 115, SubcontractorDispatchList] but BC's "empty" rule unverified (#123); *Hide Field if Zero* never captured (#8) | Reserve the rows/cells; stock layouts render empty lines too |
 
 ## 6. Design-time mock caveats
 
-No known mock-preview gap currently looks like a design mistake. The one that did — a repeated
-table header row never spanning pages in the mock even when BC repeats it — is fixed (#19): the
-mock now repeats it exactly as BC does. Sandbox render stays the sign-off (al-word-layout §4);
-a newly discovered gap gets listed here so nobody redesigns around a mock artefact.
+One known mock-preview gap hides a design mistake: **generated data fills every field**, so a field
+that is empty in real data looks filled in the mock. A purchase order's `VendAddr` block previewed
+full and printed empty [verified: P06]. When it matters which of two similar fields carries the data,
+preview with a real dataset export (`dataOverridesPath`). The gap that used to mislead layout work —
+a repeated table header row never spanning pages in the mock even when BC repeats it — is fixed
+(#19). Sandbox render stays the sign-off (al-word-layout §4); a newly discovered gap gets listed here
+so nobody redesigns around a mock artefact.
 
 ## 7. Handover checklist
 
