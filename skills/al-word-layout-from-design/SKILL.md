@@ -77,7 +77,7 @@ Show the table to the consultant in plain language and get a yes, or corrections
   does. Expect a few static captions (section headings such as "Details", "Notes").
 - **Company block:** `/Header/CompanyAddress1…8` are BC's formatted address lines and line 1 is the
   **name**; VAT and registration numbers each have a value and a `_Lbl` column. Lines a company does not
-  use print empty — there is no hide-if-empty (al-word-layout §3).
+  use print empty — there is no hide-if-empty tool (al-word-layout §3).
 - **Counterparty addresses:** `CustomerAddress1…8` (bill-to), `ShipToAddress1…8`; line 1 is the name.
   Reserve as many lines as the design shows; say that a contact or second name line needs a 5th.
 - **References:** a customer's purchase-order number is `ExternalDocumentNo`; BC's own order number is

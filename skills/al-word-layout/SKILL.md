@@ -227,7 +227,8 @@ removed, or the grid column an edited cell starts at; absent for a whole-table o
   controls get a placeholder image blip during merge (counted in `stats.picturesFilled`).
 - Page-number field codes (`insert_page_number`): the stock `PAGE`/`NUMPAGES` "Page X / Y" header
   chrome, emitted exactly as the corpus layouts carry it. (Page-position-CONDITIONAL content —
-  `IF PAGE = NUMPAGES` constructs — remains deferred, GitHub issue #11.)
+  `IF PAGE = NUMPAGES` constructs — has no tool yet, GitHub issue #11: BC evaluates it per page, so a
+  `templatePath` shell or a hand edit carrying it works.)
 - **Table-structure changes**: `insert_table_row` (a static totals/spacer row inside an existing
   table — the stock BC totals-block shape), `insert_column` / `remove_column` / `set_column_widths` /
   `merge_cells` / `split_cells` (all `gridSpan`-aware and grid-column-addressed, guarded against
@@ -246,8 +247,10 @@ removed, or the grid column an edited cell starts at; absent for a whole-table o
 - **Hide-if-empty / BC add-in conditional controls** (Hide Field if Zero, Hide Empty Table, Hide Empty
   Table Row, layout comment) — there is no `set_hide_if_empty` tool. *Hide Empty Table Row* and *Hide
   Empty Table* are captured in two corpus layouts, and the table tools address cells inside their
-  wrapper, but authoring them waits on what BC treats as empty (GitHub issue #123). *Hide Field if
-  Zero* and layout comments have never been captured (#8).
+  wrapper. BC 28's behaviour is measured (GitHub issue #123): inside a repeater, *Hide Empty Table Row*
+  hides the WHOLE repeated item when its cell is empty (a missing record or an empty value), and outside
+  a repeater it does nothing; *Hide Empty Table* around a cell does nothing. A tool is planned after 2.0.
+  *Hide Field if Zero* and layout comments have never been captured (#8).
 - **Repeaters in headers/footers** — not supported: nothing shows BC renders a repeating section
   there. `insert_repeater_table` takes no `layoutPart` at all and `wrap_in_repeater` refuses a range
   in a header or footer (a plain `insert_table` does work there); `validate_layout` (`quick`) still

@@ -160,13 +160,15 @@ passed**; the filled comparison sheet lives with the round's pack output.
   `MergeEngine`'s flatten-for-render step now unwraps row-level sdt shells entirely
   (`UnwrapRowLevelSdts`).
 
-### Recorded result — 2026-10-24, BC sandbox (round 3: seventeen items on a BC 28 sandbox)
+### Recorded result — 2026-10-24/25, BC sandbox (round 3 and its re-run: twenty-four items on a BC 28 sandbox)
 
 All seventeen items printed once two of them were repaired, and three research probes answered their
 questions. Every capability check printed what the mock showed. The round found one tool gap, two mistakes
-in the pack's own items, and three mock-data gaps, all fixed for 2.0.0. Its re-run (2026-10-25,
-P04, P06, P08–P11, P14, P15) printed the fixes as intended and filled in the cases the first prints missed,
-but one: P14's work description, a new finding below.
+in the pack's own items, and three mock-data gaps. Its re-run (2026-10-25: P04, P06, P08–P11, P14, P15)
+printed those fixes as intended and filled in the cases the first prints missed, and it found two more
+tool gaps: P14's work description, and the paragraph style of rows the row tools add. Seven follow-up
+probes (P18–P24) confirmed the first and measured the add-in's hide-if-empty controls. Everything found
+is fixed in 2.0.0.
 
 - **BC now refuses a layout that links an external attached template.** P02's upload failed with
   `UnsupportedExternalContentFields: The Word layout contains unsupported fields or external references:
@@ -191,7 +193,7 @@ but one: P14's work description, a new finding below.
   [#11](https://github.com/TKapitan/bc-word-layout-mcp/issues/11)). On a two-page order the footer text
   printed on the last page only, and the header's page numbers counted correctly; in the re-run, a one-page
   order printed it on its only page.
-- **Hide-if-empty stays open** (P09, P10,
+- **What the add-in's hide-if-empty controls do** (P09, P10, P19–P24,
   [#123](https://github.com/TKapitan/bc-word-layout-mcp/issues/123)). Report 115 prints only salespeople
   with entries in the filter, so neither wrapper had an empty case to act on, and the two renders were
   identical. The re-run put both wrappers around the stock quote's caption cell bound to the first line's
@@ -203,8 +205,8 @@ but one: P14's work description, a new finding below.
   invoice lines at all when the cell was bound to a missing record (the line's first assembly line, P20) or
   to an existing but empty value (its discount text, P21): every line vanished with its added row, while the
   caption row, the totals and the rest of the invoice printed as usual, with no gap and no error. With the
-  cell bound to a filled value (the description, P22) every line printed with its row. So it is the item -
-  the line and every row in it - that goes, not only the wrapper's own row, and both kinds of empty count:
+  cell bound to a filled value (the description, P22) every line printed with its row. So it is the item —
+  the line and every row in it — that goes, not only the wrapper's own row, and both kinds of empty count:
   the captured use, where it hides a salesperson with no entries, group and all. **The table variant around
   one cell does nothing**, inside a repeater as outside one: in P20's exact position, around the line's
   missing first assembly line, it printed every line with its added row (P23), as did its filled-value
@@ -232,7 +234,9 @@ but one: P14's work description, a new finding below.
   wrapped. The row tools now give each new cell the formatting of the row beside it, column by column, and
   `insert_repeater_row` takes `format`, which P04's emptied task item needs. In the re-run the rebuilt row
   printed like the stock one: the same columns in the same order, Segoe UI 8 pt, and the same values as the
-  stock layout's print of the same job.
+  stock layout's print of the same job. P22 then showed rows added under the stock VAT specification
+  invoice's lines a point larger than the lines: that layout sizes its line text through paragraph styles
+  (`LeftAlign`, `RightAlign`), and the row tools now copy the reference cell's paragraph style too.
 - **Two pack mistakes:** P04 laid its detail columns out in another order than the stock row and left one
   out, and P06 bound the vendor address an order leaves empty (`VendAddr1`–`6`) instead of the buy-from
   address the stock layout prints (`BuyFromAddr1`–`8`). Both are corrected and printed correctly in the
