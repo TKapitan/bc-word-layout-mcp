@@ -921,8 +921,11 @@ public static class SdtFactory
     /// <c>w:lock w:val="contentLocked"</c>. The group is load-bearing: without it Business Central prints an
     /// EMPTY document (SOLUTION-DESIGN §2.3, the validator's <c>top-level-repeater-group</c> check);</item>
     /// <item>over a NESTED data item, StandardSalesQuote's (1304)
-    /// <c>repeatingSection(/Header/WorkDescriptionLines) › repeatingSectionItem › paragraph</c>, with no
-    /// group.</item>
+    /// <c>repeatingSection(/Header/WorkDescriptionLines) › repeatingSectionItem › field control › paragraph</c>,
+    /// with no group. The field is a BLOCK-level control around its paragraph, as in every nested block repeater
+    /// the corpus holds (the work description of 1304 and of both invoices, their payment-reporting argument,
+    /// 1316's aging band), so a paragraph whose only content is one inline field is turned into that shape
+    /// (<see cref="LiftLoneField"/>).</item>
     /// </list>
     /// The section and item <c>w:sdtPr</c> are the ones <see cref="BuildRepeaterTable"/> writes for a row
     /// repeater, at block level; the group's is 1316's (id, lock, placeholder, <c>w:group</c>), with this
@@ -967,9 +970,10 @@ public static class SdtFactory
             }
         }
 
+        var topLevel = IsTopLevel(dataItem);
         foreach (var block in blocks)
         {
-            content.AppendChild(block);
+            content.AppendChild(topLevel ? block : LiftLoneField(block));
         }
 
         // Every corpus item ends on a paragraph; a table last would sit directly against whatever follows the
@@ -980,7 +984,7 @@ public static class SdtFactory
         }
 
         OpenXmlElement inner = new SdtBlock(RepeaterItemProperties(nextId), content);
-        if (IsTopLevel(dataItem))
+        if (topLevel)
         {
             inner = new SdtBlock(
                 new SdtProperties(
@@ -992,6 +996,72 @@ public static class SdtFactory
         }
 
         return new SdtBlock(RepeaterProperties(schema, dataItem, nextId), new SdtContentBlock(inner));
+    }
+
+    /// <summary>
+    /// <paramref name="block"/> as a nested block repeater's item holds it: a paragraph whose only content is one
+    /// bound inline field becomes that field as a BLOCK-level control around the paragraph — the field's
+    /// <c>w:sdtPr</c> on the outside, the paragraph with its <c>w:pPr</c> and the field's runs inside. Any other
+    /// block is returned as it is.
+    /// </summary>
+    /// <remarks>
+    /// WHY: every nested block repeater in the corpus holds its values as block-level controls (see
+    /// <see cref="BuildBlockRepeater"/>), and the inline form has no witness. It is also the one difference from
+    /// the stock shape in a work-description repeater that Business Central 28 did not print, although the quote
+    /// had a work description and Word's mock printed every line (sandbox pack P14, 2026-10-25; P18 prints the
+    /// inline form on the stock layout to confirm the cause). A paragraph holding anything else beside the field
+    /// (text, a second control, a bookmark) has no block-level form that keeps it, and a picture control is not
+    /// a text field, so both stay as they are.
+    /// </remarks>
+    private static OpenXmlElement LiftLoneField(OpenXmlElement block)
+    {
+        if (!IsLoneFieldParagraph(block, out var paragraph, out var field) || field.SdtProperties is not { } fieldProperties)
+        {
+            return block;
+        }
+
+        var lifted = (Paragraph)paragraph.CloneNode(false);
+        if (paragraph.ParagraphProperties?.CloneNode(true) is { } pPr)
+        {
+            lifted.AppendChild(pPr);
+        }
+
+        foreach (var child in field.SdtContentRun?.ChildElements ?? Enumerable.Empty<OpenXmlElement>())
+        {
+            lifted.AppendChild(child.CloneNode(true));
+        }
+
+        var control = new SdtBlock(fieldProperties.CloneNode(true));
+        if (field.GetFirstChild<SdtEndCharProperties>()?.CloneNode(true) is { } endPr)
+        {
+            control.AppendChild(endPr);
+        }
+
+        control.AppendChild(new SdtContentBlock(lifted));
+        return control;
+    }
+
+    /// <summary>
+    /// True when <paramref name="block"/> is a paragraph whose only content besides its <c>w:pPr</c> is one bound
+    /// inline text field, the block <see cref="LiftLoneField"/> turns into a block-level control.
+    /// </summary>
+    internal static bool IsLoneFieldParagraph(OpenXmlElement block) => IsLoneFieldParagraph(block, out _, out _);
+
+    private static bool IsLoneFieldParagraph(OpenXmlElement block, out Paragraph paragraph, out SdtRun field)
+    {
+        paragraph = null!;
+        field = null!;
+        if (block is not Paragraph candidate
+            || candidate.ChildElements.Where(c => c is not ParagraphProperties).ToList() is not [SdtRun lone]
+            || SdtInspector.ReadXPath(lone) is null
+            || SdtInspector.Classify(lone.SdtProperties) == SdtInspector.Classification.Picture)
+        {
+            return false;
+        }
+
+        paragraph = candidate;
+        field = lone;
+        return true;
     }
 
     /// <summary>

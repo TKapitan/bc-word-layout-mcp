@@ -474,6 +474,9 @@ public static class LayoutEditor
     /// The bindings inside need no rewrite: a field under the item is bound with <c>[1]</c> on every step
     /// (<c>/Customer[1]/Name[1]</c>), which Word and BC re-point to each repeated item - exactly how the corpus
     /// controls inside 1316's <c>/Customer</c> repeater are bound, and what <c>insert_field</c> already writes.
+    /// Over a nested data item, a paragraph holding nothing but one field becomes that field as a block-level
+    /// control, the shape every nested block repeater in the corpus holds (see
+    /// <see cref="SdtFactory.BuildBlockRepeater"/>); the summary counts them.
     /// </para>
     /// <para>
     /// Refused rather than guessed (ADR-0003): a range in a header or footer (nothing shows BC renders a
@@ -524,6 +527,9 @@ public static class LayoutEditor
                 nameof(dataItemPath));
         }
 
+        var grouped = SdtFactory.IsTopLevel(dataItem);
+        var lifted = grouped ? 0 : blocks.Count(SdtFactory.IsLoneFieldParagraph);
+
         var nextId = MakeIdGenerator(doc);
         var marker = new Paragraph();
         body.InsertBefore(marker, blocks[0]);
@@ -538,7 +544,6 @@ public static class LayoutEditor
 
         var controlId = SdtInspector.ReadControlId(repeater)
             ?? throw new InvalidOperationException("The newly built repeater has no w:id (unexpected).");
-        var grouped = SdtFactory.IsTopLevel(dataItem);
 
         return new EditResult
         {
@@ -558,6 +563,10 @@ public static class LayoutEditor
                 + $". {under} bound control(s) inside follow each record"
                 + (outside > 0
                     ? $"; {outside} bound outside '{itemPath}' print the same value for every record"
+                    : string.Empty)
+                + (lifted > 0
+                    ? $". {lifted} paragraph(s) holding nothing but a field became that field as a block-level "
+                      + "control around the paragraph, the shape Microsoft's nested repeaters hold"
                     : string.Empty)
                 + $". To undo it, remove_control keepText=true on id {controlId} unwraps the repeater and keeps "
                 + "the content.",

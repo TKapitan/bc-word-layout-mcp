@@ -165,7 +165,10 @@ set the table's `w:tblLook` (§5).
 Bind straight to `/Header[1]/…`: BC already prints the body once per document. A block repeater over
 `/Header` without a `w:group` prints an EMPTY page (validate_layout's `top-level-repeater-group`);
 when one is really wanted, `wrap_in_repeater` writes the correct shape. Block repeaters over nested
-items (work-description lines) need no group.
+items (work-description lines) need no group, and hold their field as a block-level control around
+the paragraph, as the stock quote does; `wrap_in_repeater` turns a paragraph holding only the field
+into that shape. BC 28 printed nothing for a paragraph with the field inline in it (sandbox pack P14;
+P18 confirms), so do not hand-wrap that form.
 
 ### 4.5 Touch-ups after binding: use the tools
 

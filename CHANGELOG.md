@@ -221,6 +221,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **`wrap_in_repeater` over a nested data item writes the shape Microsoft's layouts use.** A quote
+  whose work description `wrap_in_repeater` had repeated per line printed no work description in a
+  BC 28 sandbox, although the quote had one and Word's mock printed every line (sandbox pack P14,
+  2026-10-25). Its item held a paragraph with an inline field, a shape no stock layout has: every
+  nested block repeater in the corpus (the work description of the stock quote and both invoices,
+  their payment-reporting argument, the statement's aging band) holds its fields as block-level
+  controls around their paragraphs. Over a nested item, a paragraph holding nothing but one field now
+  becomes that field as a block-level control, with the same binding, id and formatting, and the
+  summary counts them. A paragraph holding more than the field is kept as it is. Sandbox pack P18
+  prints the inline shape on the stock quote to confirm it was the cause.
+
 - **The preview's sample data no longer makes tables far taller than Business Central prints them.**
   The round-3 sandbox prints (BC 28, 2026-10-24) showed three generated values the real data never has:
   - a percent formatted as text (`LineDiscountPercentText_Line` in the stock quote and invoices) was
