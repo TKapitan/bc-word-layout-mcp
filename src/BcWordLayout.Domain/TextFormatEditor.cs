@@ -66,7 +66,7 @@ public static class TextFormatEditor
                 nameof(format));
         }
 
-        var change = new Change(prepared, justification);
+        var change = new Change(prepared, justification, RunFormatter.FontNote(prepared, doc));
         return target.Kind switch
         {
             TextFormatTargetKind.Control => FormatControl(doc, target, change),
@@ -457,7 +457,7 @@ public static class TextFormatEditor
     private static string Id(int value) => value.ToString(CultureInfo.InvariantCulture);
 
     /// <summary>One call's change, and a tally of what it touched for the summary.</summary>
-    private sealed class Change(RunFormatter.Prepared? format, JustificationValues? alignment)
+    private sealed class Change(RunFormatter.Prepared? format, JustificationValues? alignment, string fontNote)
     {
         public RunFormatter.Prepared? Format { get; } = format;
 
@@ -575,7 +575,7 @@ public static class TextFormatEditor
                 parts.Add($"aligned {justification.ToString().ToLowerInvariant()} ({Id(aligned)} paragraph(s))");
             }
 
-            return ": " + string.Join("; ", parts) + ".";
+            return ": " + string.Join("; ", parts) + "." + fontNote;
         }
     }
 }

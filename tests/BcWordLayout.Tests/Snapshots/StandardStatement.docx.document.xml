@@ -4420,7 +4420,7 @@
                                                         <w:sz w:val="18" />
                                                         <w:szCs w:val="18" />
                                                       </w:rPr>
-                                                      <w:t xml:space="preserve">Desc Cust Ledg Entry 2 Draft 1</w:t>
+                                                      <w:t xml:space="preserve">Desc Draft 1</w:t>
                                                     </w:r>
                                                   </w:p>
                                                 </w:tc>
@@ -4715,7 +4715,7 @@
                                                         <w:sz w:val="18" />
                                                         <w:szCs w:val="18" />
                                                       </w:rPr>
-                                                      <w:t xml:space="preserve">Desc Cust Ledg Entry 2 Sample 2</w:t>
+                                                      <w:t xml:space="preserve">Desc Sample 2</w:t>
                                                     </w:r>
                                                   </w:p>
                                                 </w:tc>
@@ -5279,7 +5279,7 @@
                                                         <w:sz w:val="18" />
                                                         <w:szCs w:val="18" />
                                                       </w:rPr>
-                                                      <w:t xml:space="preserve">Desc Cust Ledg Entry 2 Test 1</w:t>
+                                                      <w:t xml:space="preserve">Desc Test 1</w:t>
                                                     </w:r>
                                                   </w:p>
                                                 </w:tc>
@@ -5574,7 +5574,7 @@
                                                         <w:sz w:val="18" />
                                                         <w:szCs w:val="18" />
                                                       </w:rPr>
-                                                      <w:t xml:space="preserve">Desc Cust Ledg Entry 2 Example 2</w:t>
+                                                      <w:t xml:space="preserve">Desc Example 2</w:t>
                                                     </w:r>
                                                   </w:p>
                                                 </w:tc>
@@ -6184,7 +6184,7 @@
                                                         <w:sz w:val="18" />
                                                         <w:szCs w:val="18" />
                                                       </w:rPr>
-                                                      <w:t xml:space="preserve">Desc Cust Ledg Entry 2 Delta 1</w:t>
+                                                      <w:t xml:space="preserve">Desc Delta 1</w:t>
                                                     </w:r>
                                                   </w:p>
                                                 </w:tc>
@@ -6479,7 +6479,7 @@
                                                         <w:sz w:val="18" />
                                                         <w:szCs w:val="18" />
                                                       </w:rPr>
-                                                      <w:t xml:space="preserve">Desc Cust Ledg Entry 2 Example 2</w:t>
+                                                      <w:t xml:space="preserve">Desc Example 2</w:t>
                                                     </w:r>
                                                   </w:p>
                                                 </w:tc>
@@ -7043,7 +7043,7 @@
                                                         <w:sz w:val="18" />
                                                         <w:szCs w:val="18" />
                                                       </w:rPr>
-                                                      <w:t xml:space="preserve">Desc Cust Ledg Entry 2 Example 1</w:t>
+                                                      <w:t xml:space="preserve">Desc Example 1</w:t>
                                                     </w:r>
                                                   </w:p>
                                                 </w:tc>
@@ -7338,7 +7338,7 @@
                                                         <w:sz w:val="18" />
                                                         <w:szCs w:val="18" />
                                                       </w:rPr>
-                                                      <w:t xml:space="preserve">Desc Cust Ledg Entry 2 Delta 2</w:t>
+                                                      <w:t xml:space="preserve">Desc Delta 2</w:t>
                                                     </w:r>
                                                   </w:p>
                                                 </w:tc>
@@ -13687,7 +13687,7 @@
                                                         <w:sz w:val="18" />
                                                         <w:szCs w:val="18" />
                                                       </w:rPr>
-                                                      <w:t xml:space="preserve">Desc Cust Ledg Entry 2 Beta 1</w:t>
+                                                      <w:t xml:space="preserve">Desc Beta 1</w:t>
                                                     </w:r>
                                                   </w:p>
                                                 </w:tc>
@@ -13982,7 +13982,7 @@
                                                         <w:sz w:val="18" />
                                                         <w:szCs w:val="18" />
                                                       </w:rPr>
-                                                      <w:t xml:space="preserve">Desc Cust Ledg Entry 2 Example 2</w:t>
+                                                      <w:t xml:space="preserve">Desc Example 2</w:t>
                                                     </w:r>
                                                   </w:p>
                                                 </w:tc>
@@ -14546,7 +14546,7 @@
                                                         <w:sz w:val="18" />
                                                         <w:szCs w:val="18" />
                                                       </w:rPr>
-                                                      <w:t xml:space="preserve">Desc Cust Ledg Entry 2 Delta 1</w:t>
+                                                      <w:t xml:space="preserve">Desc Delta 1</w:t>
                                                     </w:r>
                                                   </w:p>
                                                 </w:tc>
@@ -14841,7 +14841,7 @@
                                                         <w:sz w:val="18" />
                                                         <w:szCs w:val="18" />
                                                       </w:rPr>
-                                                      <w:t xml:space="preserve">Desc Cust Ledg Entry 2 Gamma 2</w:t>
+                                                      <w:t xml:space="preserve">Desc Gamma 2</w:t>
                                                     </w:r>
                                                   </w:p>
                                                 </w:tc>
@@ -15451,7 +15451,7 @@
                                                         <w:sz w:val="18" />
                                                         <w:szCs w:val="18" />
                                                       </w:rPr>
-                                                      <w:t xml:space="preserve">Desc Cust Ledg Entry 2 Gamma 1</w:t>
+                                                      <w:t xml:space="preserve">Desc Gamma 1</w:t>
                                                     </w:r>
                                                   </w:p>
                                                 </w:tc>
@@ -15746,7 +15746,7 @@
                                                         <w:sz w:val="18" />
                                                         <w:szCs w:val="18" />
                                                       </w:rPr>
-                                                      <w:t xml:space="preserve">Desc Cust Ledg Entry 2 Gamma 2</w:t>
+                                                      <w:t xml:space="preserve">Desc Gamma 2</w:t>
                                                     </w:r>
                                                   </w:p>
                                                 </w:tc>
@@ -16310,7 +16310,7 @@
                                                         <w:sz w:val="18" />
                                                         <w:szCs w:val="18" />
                                                       </w:rPr>
-                                                      <w:t xml:space="preserve">Desc Cust Ledg Entry 2 Alpha 1</w:t>
+                                                      <w:t xml:space="preserve">Desc Alpha 1</w:t>
                                                     </w:r>
                                                   </w:p>
                                                 </w:tc>
@@ -16605,7 +16605,7 @@
                                                         <w:sz w:val="18" />
                                                         <w:szCs w:val="18" />
                                                       </w:rPr>
-                                                      <w:t xml:space="preserve">Desc Cust Ledg Entry 2 Delta 2</w:t>
+                                                      <w:t xml:space="preserve">Desc Delta 2</w:t>
                                                     </w:r>
                                                   </w:p>
                                                 </w:tc>

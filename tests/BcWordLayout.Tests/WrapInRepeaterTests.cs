@@ -44,15 +44,16 @@ public class WrapInRepeaterTests
     // ---- the two corpus shapes ----
 
     [Fact]
-    public void A_nested_item_wraps_the_paragraph_in_section_and_item_with_no_group()
+    public void A_nested_item_holds_its_lone_field_as_a_block_control_in_section_and_item_with_no_group()
     {
         var path = NewLayout(Corpus.StandardSalesQuote);
         try
         {
             EditResult result;
+            int field;
             using (var doc = WordprocessingDocument.Open(path, true))
             {
-                var field = Field(doc, WorkDescriptionLine);
+                field = Field(doc, WorkDescriptionLine);
                 result = LayoutEditor.WrapInRepeater(doc, "/Header/WorkDescriptionLines", field, null);
                 doc.MainDocumentPart!.Document!.Save();
             }
@@ -60,6 +61,7 @@ public class WrapInRepeaterTests
             Assert.Equal("wrap_in_repeater", result.Operation);
             Assert.Equal("Repeater", result.Kind);
             Assert.Equal("/ns0:NavWordReportXmlPart[1]/ns0:Header[1]/ns0:WorkDescriptionLines", result.XPath);
+            Assert.Contains("1 paragraph(s) holding nothing but a field became that field as a block-level control", result.Summary);
 
             using (var doc = WordprocessingDocument.Open(path, false))
             {
@@ -67,11 +69,53 @@ public class WrapInRepeaterTests
                 Assert.Equal(result.ControlId, SdtInspector.ReadControlId(repeater));
                 var item = Only(repeater);
                 Assert.True(SdtInspector.IsRepeaterItem(item)); // section > item: no group for a nested item
-                var paragraph = Assert.IsType<Paragraph>(Assert.Single(item.SdtContentBlock!.ChildElements));
-                Assert.Contains(paragraph.Descendants<SdtElement>(), s => SdtInspector.ReadAlias(s) == "#Nav: " + WorkDescriptionLine);
+
+                // The stock quote's shape: item > the field as a block control > its paragraph, same id and binding.
+                var control = Only(item);
+                Assert.Equal(field, SdtInspector.ReadControlId(control));
+                Assert.Equal("#Nav: " + WorkDescriptionLine, SdtInspector.ReadAlias(control));
+                var paragraph = Assert.IsType<Paragraph>(Assert.Single(control.SdtContentBlock!.ChildElements));
+                Assert.Empty(paragraph.Descendants<SdtElement>());
+                Assert.Equal("WorkDescriptionLine", paragraph.InnerText);
             }
 
             AssertValid(path);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void The_lifted_field_has_the_stock_quotes_shape_and_a_paragraph_holding_more_stays_as_it_is()
+    {
+        var path = NewLayout(Corpus.StandardSalesQuote);
+        try
+        {
+            using var doc = WordprocessingDocument.Open(path, true);
+            var lone = Field(doc, WorkDescriptionLine);
+            var mixed = Field(doc, WorkDescriptionLine);
+            LayoutEditor.InsertText(doc, "- ", new Location { Type = LocationKind.AfterControl, ControlId = mixed });
+
+            var result = LayoutEditor.WrapInRepeater(doc, "/Header/WorkDescriptionLines", lone, mixed);
+            Assert.Contains("1 paragraph(s) holding nothing but a field", result.Summary);
+
+            var item = Only(BodyOf(doc).Elements<SdtBlock>().Single(s => SdtInspector.IsRepeater(s)));
+            var content = item.SdtContentBlock!.ChildElements.ToList();
+            Assert.Equal(2, content.Count);
+            Assert.IsType<SdtBlock>(content[0]);
+            var kept = Assert.IsType<Paragraph>(content[1]); // text beside the field: no block form keeps it
+            Assert.Equal(mixed, SdtInspector.ReadControlId(Assert.Single(kept.Elements<SdtRun>())));
+
+            // The lifted control is the stock quote's: block sdt > sdtContent > paragraph, its sdtPr the field's.
+            using var stock = WordprocessingDocument.Open(Corpus.Path(Corpus.StandardSalesQuote), false);
+            var stockItem = Only(BodyOf(stock).Descendants<SdtBlock>().Single(s =>
+                SdtInspector.IsRepeater(s) && SdtInspector.ReadAlias(s) == "#Nav: /Header/WorkDescriptionLines"));
+            var stockField = Only(stockItem);
+            static string Shape(SdtBlock sdt) => string.Join(">", sdt.Descendants().Select(e => e.LocalName)
+                .Where(n => n is "sdt" or "sdtContent" or "p" or "r" or "t" or "dataBinding" or "text"));
+            Assert.Equal(Shape(stockField), Shape((SdtBlock)content[0]));
         }
         finally
         {

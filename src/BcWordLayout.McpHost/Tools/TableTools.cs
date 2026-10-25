@@ -147,10 +147,12 @@ public static class TableTools
                      + "to its columnCount. A cell's fields are full dataset paths of leaf columns of dataItem.")]
         [MinLength(1)]
         [MaxLength(MaxCellSpan)]
-        IReadOnlyList<RowCellArgument> cells)
+        IReadOnlyList<RowCellArgument> cells,
+        [Description(TextFormatArgument.RowDescription)] TextFormatArgument? format = null)
     {
         return GuardEdit(layoutPath, doc =>
-            LayoutEditor.InsertRepeaterRow(doc, parentControlId, dataItem, TableArguments.ToRowCells(cells)));
+            LayoutEditor.InsertRepeaterRow(
+                doc, parentControlId, dataItem, TableArguments.ToRowCells(cells), TextFormatArgument.ToDomain(format)));
     }
 
     [McpServerTool(Name = "insert_subtotal_row")]

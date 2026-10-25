@@ -1,5 +1,6 @@
 using BcWordLayout.Domain;
 using BcWordLayout.Domain.Models;
+using DocumentFormat.OpenXml.Packaging;
 
 namespace BcWordLayout.Tests;
 
@@ -49,9 +50,11 @@ public class LayoutValidatorNegativeTests
     }
 
     [Fact]
-    public void StoreItemId_mismatch_is_flagged_but_matching_sibling_is_not()
+    public void A_storeItemId_naming_no_part_is_a_warning_and_a_matching_sibling_is_not_flagged()
     {
         // Both bindings have valid xpaths, so xpath-resolves stays silent and isolates the storeItemID check.
+        // WrongItemId names no part: Word and Business Central re-bind such a control to the BC part (sandbox
+        // pack item P08, GitHub issue #102), so it prints - a warning, not an error.
         var body =
             SyntheticLayout.BoundField(ValidFieldXPath, SyntheticLayout.GoodItemId) +
             SyntheticLayout.BoundField(ValidFieldXPath, SyntheticLayout.WrongItemId);
@@ -61,15 +64,61 @@ public class LayoutValidatorNegativeTests
         {
             var result = LayoutValidator.Quick(path);
 
-            var storeFindings = result.Findings.Where(f => f.Check == "store-item-id").ToList();
-            Assert.Single(storeFindings);
-            Assert.Contains(SyntheticLayout.WrongItemId, storeFindings[0].Message);
+            var storeFinding = Assert.Single(result.Findings, f => f.Check == "store-item-id");
+            Assert.Equal(FindingSeverity.Warning, storeFinding.Severity);
+            Assert.Contains(SyntheticLayout.WrongItemId, storeFinding.Message);
+            Assert.Contains("names no part", storeFinding.Message);
             Assert.DoesNotContain(result.Findings, f => f.Check == "xpath-resolves");
-            Assert.False(result.Passed);
+            Assert.True(result.Passed);
         }
         finally
         {
             File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void A_storeItemId_naming_another_existing_part_is_an_error_and_refresh_leaves_it()
+    {
+        // The genuinely broken case: the ID names a real custom XML part that is not the BC one, so the control
+        // is bound to that part's data. refresh_xml_part must not "repair" it onto the BC part.
+        var body =
+            SyntheticLayout.BoundField(ValidFieldXPath, SyntheticLayout.GoodItemId) +
+            SyntheticLayout.BoundField(ValidFieldXPath, SyntheticLayout.WrongItemId);
+        var path = SyntheticLayout.Create(body, partItemId: SyntheticLayout.GoodItemId);
+        var schemaSource = Path.Combine(Path.GetTempPath(), $"bcwl-schema-{Guid.NewGuid():N}.docx");
+        File.Copy(path, schemaSource);
+
+        try
+        {
+            using (var doc = WordprocessingDocument.Open(path, true))
+            {
+                var other = doc.MainDocumentPart!.AddCustomXmlPart(CustomXmlPartType.CustomXml);
+                using (var writer = new StreamWriter(other.GetStream(FileMode.Create, FileAccess.Write)))
+                {
+                    writer.Write("<other xmlns=\"urn:example:not-bc\"/>");
+                }
+
+                var props = other.AddNewPart<CustomXmlPropertiesPart>();
+                using var propsWriter = new StreamWriter(props.GetStream(FileMode.Create, FileAccess.Write));
+                propsWriter.Write(
+                    $"<ds:datastoreItem ds:itemID=\"{SyntheticLayout.WrongItemId}\" "
+                    + "xmlns:ds=\"http://schemas.openxmlformats.org/officeDocument/2006/customXml\"><ds:schemaRefs/></ds:datastoreItem>");
+            }
+
+            var storeFinding = Assert.Single(LayoutValidator.Quick(path).Findings, f => f.Check == "store-item-id");
+            Assert.Equal(FindingSeverity.Error, storeFinding.Severity);
+            Assert.Contains("names another custom XML part", storeFinding.Message);
+
+            using (var doc = WordprocessingDocument.Open(path, true))
+            {
+                Assert.Empty(LayoutRefresher.Refresh(doc, schemaSource).RepointedStoreItemIds);
+            }
+        }
+        finally
+        {
+            File.Delete(path);
+            File.Delete(schemaSource);
         }
     }
 

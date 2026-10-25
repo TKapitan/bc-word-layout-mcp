@@ -1220,10 +1220,9 @@ public class LayoutBuilderTests
                 "errors: " + string.Join(" | ", result.QuickValidation.Findings.Select(f => $"{f.Check}: {f.Message}")));
 
             // Asserted on the saved package's own [Content_Types].xml, not on what the SDK reports back:
-            // that file is what Word reads to decide whether it is looking at a document. The SDK's
-            // conversion leaves the package's Default for ".xml" at the template type it was created with
-            // (there is no API to change a Default - SOLUTION-DESIGN §6.9), so what matters is that NO part
-            // resolves to it: every .xml part, the new main part included, carries its own Override.
+            // that file is what Word reads to decide whether it is looking at a document. This fixture is
+            // SDK-written, so its main part was typed through the Default for ".xml": NO part may resolve to
+            // the template type any more.
             var (mainPartType, partTypes) = ResolvePackageContentTypes(outputPath);
             Assert.Equal(DocumentMainContentType, mainPartType);
             Assert.DoesNotContain(partTypes, p => p.Value == TemplateMainContentType);
@@ -1231,12 +1230,15 @@ public class LayoutBuilderTests
             using (var doc = WordprocessingDocument.Open(outputPath, false))
             {
                 Assert.Equal(WordprocessingDocumentType.Document, doc.DocumentType);
+                // Retyped in place: the SDK's ChangeDocumentType moved it to /word/document2.xml, which BC
+                // accepted on upload and then failed to print (sandbox pack item P17, 2026-10-24).
+                Assert.Equal("/word/document.xml", doc.MainDocumentPart!.Uri.OriginalString);
                 Assert.Contains("Letterhead", doc.MainDocumentPart!.Document!.Body!.InnerText, StringComparison.Ordinal);
                 Assert.Single(FindBcCustomXmlParts(doc.MainDocumentPart));
                 AssertNoOpenXmlErrors(doc);
             }
 
-            // Still editable after the conversion moved the main part: a field binds and validates clean.
+            // Still editable after the conversion: a field binds and validates clean.
             using (var doc = WordprocessingDocument.Open(outputPath, true))
             {
                 LayoutEditor.InsertField(doc, "/Header/CustomerAddress1", new Location { Type = LocationKind.DocumentEnd });
@@ -1244,6 +1246,65 @@ public class LayoutBuilderTests
             }
 
             Assert.True(LayoutValidator.Quick(outputPath).Passed);
+        }
+        finally
+        {
+            File.Delete(templatePath);
+            if (File.Exists(outputPath))
+            {
+                File.Delete(outputPath);
+            }
+        }
+    }
+
+    [Fact]
+    public void Create_with_a_Word_saved_dotx_retypes_its_main_part_override_and_keeps_every_part_name()
+    {
+        // The shape Word itself saves: the Default for ".xml" is application/xml and the main part carries its own
+        // template-typed Override. Only that Override may change - no part is renamed or re-typed besides it.
+        var templatePath = SyntheticLayout.CreateWordPackage(WordprocessingDocumentType.Template, ".dotx");
+        var outputPath = TempOutputPath();
+        try
+        {
+            using (var zip = System.IO.Compression.ZipFile.Open(templatePath, System.IO.Compression.ZipArchiveMode.Update))
+            {
+                var entry = zip.GetEntry("[Content_Types].xml")!;
+                XDocument types;
+                using (var stream = entry.Open())
+                {
+                    types = XDocument.Load(stream);
+                }
+
+                XNamespace ct = "http://schemas.openxmlformats.org/package/2006/content-types";
+                foreach (var fallback in types.Root!.Elements(ct + "Default").Where(d => (string?)d.Attribute("Extension") == "xml"))
+                {
+                    fallback.SetAttributeValue("ContentType", "application/xml");
+                }
+
+                types.Root.Elements(ct + "Override").Where(o => (string?)o.Attribute("PartName") == "/word/document.xml").Remove();
+                types.Root.Add(new XElement(ct + "Override",
+                    new XAttribute("PartName", "/word/document.xml"), new XAttribute("ContentType", TemplateMainContentType)));
+                entry.Delete();
+                using var replacement = zip.CreateEntry("[Content_Types].xml").Open();
+                types.Save(replacement);
+            }
+
+            var before = ResolvePackageContentTypes(templatePath);
+            Assert.Equal(TemplateMainContentType, before.MainPartType);
+
+            LayoutBuilder.Create(Corpus.Path(Corpus.SalesInvoice), outputPath, templatePath);
+
+            var after = ResolvePackageContentTypes(outputPath);
+            Assert.Equal(DocumentMainContentType, after.MainPartType);
+            Assert.Equal(DocumentMainContentType, after.PartTypes["/word/document.xml"]);
+            foreach (var (part, type) in before.PartTypes.Where(p => p.Key != "/word/document.xml"))
+            {
+                Assert.Equal(type, after.PartTypes[part]);
+            }
+
+            using var doc = WordprocessingDocument.Open(outputPath, false);
+            Assert.Equal("/word/document.xml", doc.MainDocumentPart!.Uri.OriginalString);
+            AssertNoOpenXmlErrors(doc);
         }
         finally
         {

@@ -77,7 +77,7 @@ Show the table to the consultant in plain language and get a yes, or corrections
   does. Expect a few static captions (section headings such as "Details", "Notes").
 - **Company block:** `/Header/CompanyAddress1…8` are BC's formatted address lines and line 1 is the
   **name**; VAT and registration numbers each have a value and a `_Lbl` column. Lines a company does not
-  use print empty — there is no hide-if-empty (al-word-layout §3).
+  use print empty — there is no hide-if-empty tool (al-word-layout §3).
 - **Counterparty addresses:** `CustomerAddress1…8` (bill-to), `ShipToAddress1…8`; line 1 is the name.
   Reserve as many lines as the design shows; say that a contact or second name line needs a 5th.
 - **References:** a customer's purchase-order number is `ExternalDocumentNo`; BC's own order number is
@@ -114,8 +114,8 @@ Copy the design `.docx`; keep its styles, fonts, footer and section setup; remov
   dataset part with a fresh `storeItemID` and the glossary part, and keeps the design's body, headers,
   footers, styles and settings as they are. It does not set the compatibility mode: check that the
   design's `settings.xml` declares `compatibilityMode` 15 (`validate_layout` warns once the layout holds a
-  repeater and it does not). Read the `storeItemId` back with `get_layout_info`. [mock; sandbox pack item
-  P17 asks BC]
+  repeater and it does not). Read the `storeItemId` back with `get_layout_info`. [verified: sandbox pack
+  item P17, which printed with the template's headers and footers]
 - Or copy the empty layout's `customXml/item*.xml` (the `urn:microsoft-dynamics-nav/reports/…` part)
   into the package with an `itemProps` part declaring a new `storeItemID`, and set
   `compatibilityMode` 15 in `settings.xml`. [verified]
@@ -165,7 +165,10 @@ set the table's `w:tblLook` (§5).
 Bind straight to `/Header[1]/…`: BC already prints the body once per document. A block repeater over
 `/Header` without a `w:group` prints an EMPTY page (validate_layout's `top-level-repeater-group`);
 when one is really wanted, `wrap_in_repeater` writes the correct shape. Block repeaters over nested
-items (work-description lines) need no group.
+items (work-description lines) need no group, and hold their field as a block-level control around
+the paragraph, as the stock quote does; `wrap_in_repeater` turns a paragraph holding only the field
+into that shape. BC 28 prints nothing for a paragraph with the field inline in it (sandbox pack P14 and
+P18), so do not hand-wrap that form.
 
 ### 4.5 Touch-ups after binding: use the tools
 

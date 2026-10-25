@@ -28,7 +28,8 @@ namespace BcWordLayout.Domain;
 /// <item><c>FontSizePoints</c>: <c>w:sz</c> + <c>w:szCs</c> in half-points, as Word writes them.</item>
 /// <item><c>FontName</c>: <c>w:rFonts</c> with <c>w:ascii</c>/<c>w:hAnsi</c>/<c>w:cs</c> all naming the font,
 /// the shape of ~700 entries in 8 layouts (nearly all Segoe UI). Theme-font attributes are dropped, because
-/// Word lets them win over the names; the East Asian font and the hint are kept.</item>
+/// Word lets them win over the names; the East Asian font and the hint are kept. Any name is written, but the
+/// tool summary warns when Business Central online lacks the font (<see cref="FontNote"/>).</item>
 /// <item><c>Color</c>: <c>w:color w:val</c> as <c>RRGGBB</c> or <c>auto</c> (<c>0070C0</c> 23 times,
 /// <c>auto</c> 7, in 3 layouts). Theme-colour attributes are dropped for the same reason as theme fonts;
 /// writing theme colours is out of scope (two witnesses, and they depend on the theme part).</item>
@@ -179,6 +180,13 @@ internal static class RunFormatter
             Set(properties, new Color { Val = color });
         }
     }
+
+    /// <summary>
+    /// The sentence a tool summary carries when <paramref name="format"/> names a font Business Central online
+    /// will not print as named (see <see cref="BcOnlineFonts.SummaryNote"/>); empty otherwise.
+    /// </summary>
+    internal static string FontNote(Prepared? format, WordprocessingDocument doc) =>
+        BcOnlineFonts.SummaryNote(format?.FontName, doc.MainDocumentPart);
 
     /// <summary>
     /// The members <paramref name="format"/> sets, as a short phrase for a tool summary ("bold, not italic,

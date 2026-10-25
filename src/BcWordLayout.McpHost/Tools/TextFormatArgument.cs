@@ -27,11 +27,15 @@ public sealed record TextFormatArgument
         + "fontSizePoints, fontName, color, characterStyle), e.g. {\"bold\": true}. A member you omit keeps the "
         + "formatting of the text it replaces.";
 
-    /// <summary>The <c>format</c> parameter's description on the two row tools.</summary>
+    /// <summary>The <c>format</c> parameter's description on the three row tools.</summary>
     internal const string RowDescription =
-        "Optional formatting for every bound cell's text in the new row, the same object the insert tools take "
-        + "(bold, italic, underline, fontSizePoints, fontName, color, characterStyle), e.g. {\"bold\": true} for "
-        + "the stock total look. Omit it to leave the controls unstyled.";
+        "Optional formatting for the new row's text, the same object the insert tools take (bold, italic, "
+        + "underline, fontSizePoints, fontName, color, characterStyle), e.g. {\"bold\": true} for the stock total "
+        + "look. A member you omit keeps what each cell takes from the row above it, column by column (the row "
+        + "below, for a row inserted at the top of a table): its run formatting and paragraph style, Word's rule "
+        + "for an inserted row, so the new row matches a stock table's Segoe UI 7-8 pt text. A table whose rows "
+        + "carry no direct formatting or style gives none, and neither does a repeater item with no row of its "
+        + "own.";
 
     [Description("true makes the text bold; false makes it not bold, even where a character style such as "
                  + "'Strong' supplies the bold.")]

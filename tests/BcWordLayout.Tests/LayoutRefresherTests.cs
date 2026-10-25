@@ -160,7 +160,7 @@ public class LayoutRefresherTests
     [Fact]
     public void Refresh_with_its_own_unmodified_schema_is_idempotent()
     {
-        var path = CopyOfCorpus(Corpus.SalesInvoice);
+        var path = Corpus.UnlinkedCopy(Corpus.SalesInvoice);
         try
         {
             RefreshResult result;
@@ -427,7 +427,7 @@ public class LayoutRefresherTests
     public void Refresh_with_a_different_report_id_remaps_prefixMappings_and_tags_and_bindings_still_resolve()
     {
         const string newNamespace = "urn:microsoft-dynamics-nav/reports/Standard_Sales_Invoice/9999/";
-        var path = CopyOfCorpus(Corpus.SalesInvoice);
+        var path = Corpus.UnlinkedCopy(Corpus.SalesInvoice);
         string? schemaPath = null;
         try
         {
@@ -665,6 +665,47 @@ public class LayoutRefresherTests
                 LayoutReader.Read(reopened).Controls.Where(c => c.PrefixMappings is not null),
                 c => Assert.StartsWith("xmlns:ns0='", c.PrefixMappings, StringComparison.Ordinal));
             Assert.DoesNotContain(LayoutValidator.Quick(path).Findings, f => f.Check is "binding-namespace" or "binding-prefix-mapping");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Refresh_re_points_the_stock_storeItemIDs_that_name_no_part_to_the_BC_part()
+    {
+        // The same two StandardSalesInvoiceVatSpec bindings also carry a storeItemID that names no part of the
+        // package (GitHub issue #102). Word and Business Central re-bind them to the BC part anyway - sandbox pack
+        // item P08 printed both with their data - so the refresh points them at it and the warnings go.
+        var path = CopyOfCorpus(Corpus.SalesInvoiceVatSpec);
+        try
+        {
+            var before = LayoutValidator.Quick(path).Findings.Where(f => f.Check == "store-item-id").ToList();
+            Assert.Equal(2, before.Count);
+            Assert.All(before, f => Assert.Equal(FindingSeverity.Warning, f.Severity));
+
+            RefreshResult result;
+            using (var doc = WordprocessingDocument.Open(path, true))
+            {
+                result = LayoutRefresher.Refresh(doc, Corpus.Path(Corpus.SalesInvoiceVatSpec));
+                SaveAllParts(doc);
+            }
+
+            Assert.Equal(
+                new int?[] { -1454010444, 573011813 },
+                result.RepointedStoreItemIds.Select(r => r.SdtId).OrderBy(id => id).ToArray());
+            Assert.All(result.RepointedStoreItemIds,
+                r => Assert.False(SchemaProvider.SameItemId(result.StoreItemId!, r.PreviousStoreItemId)));
+
+            using (var reopened = WordprocessingDocument.Open(path, false))
+            {
+                Assert.All(
+                    LayoutReader.Read(reopened).Controls.Where(c => c.SdtId is 573011813 or -1454010444),
+                    c => Assert.True(SchemaProvider.SameItemId(result.StoreItemId!, c.StoreItemId!)));
+            }
+
+            Assert.DoesNotContain(LayoutValidator.Quick(path).Findings, f => f.Check == "store-item-id");
         }
         finally
         {

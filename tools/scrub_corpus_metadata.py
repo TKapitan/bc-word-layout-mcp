@@ -19,7 +19,7 @@ save them. This script removes exactly that residue and nothing else:
   5. attachedTemplate rels  - target REWRITTEN to file:///C:/Templates/<same filename>.
                               The originals point into named developers' Desktop folders.
                               The relationship itself is kept deliberately: it is a
-                              real-world wart the validator warns about and tests exercise
+                              real-world wart the validator flags and tests exercise
                               (LayoutValidatorTests / FullValidatorTests / McpHostToolTests
                               preview-stripping); only the personal path segment goes.
   6. dataset sample values  - a leaf value in the BC dataset part that contains an escaped

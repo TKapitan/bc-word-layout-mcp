@@ -36,7 +36,7 @@ public class LayoutEditorTests
     [Fact]
     public void InsertField_at_documentEnd_is_readable_back_as_a_Field_with_the_expected_xpath_and_passes_validation()
     {
-        var path = CopyOfCorpus(Corpus.SalesInvoice);
+        var path = Corpus.UnlinkedCopy(Corpus.SalesInvoice);
         try
         {
             EditResult result;
@@ -74,7 +74,7 @@ public class LayoutEditorTests
     [Fact]
     public void InsertLabel_at_documentEnd_is_readable_back_as_a_Label_and_passes_validation()
     {
-        var path = CopyOfCorpus(Corpus.SalesInvoice);
+        var path = Corpus.UnlinkedCopy(Corpus.SalesInvoice);
         try
         {
             EditResult result;
@@ -171,7 +171,7 @@ public class LayoutEditorTests
     [Fact]
     public void InsertField_targeting_LayoutPart_Header_lands_in_a_header_part_and_passes_validation()
     {
-        var path = CopyOfCorpus(Corpus.SalesInvoice);
+        var path = Corpus.UnlinkedCopy(Corpus.SalesInvoice);
         try
         {
             string expectedPart;
@@ -221,7 +221,7 @@ public class LayoutEditorTests
     [Fact]
     public void InsertLabel_targeting_LayoutPart_Footer_lands_in_a_footer_part_and_passes_validation()
     {
-        var path = CopyOfCorpus(Corpus.SalesInvoice);
+        var path = Corpus.UnlinkedCopy(Corpus.SalesInvoice);
         try
         {
             string expectedPart;

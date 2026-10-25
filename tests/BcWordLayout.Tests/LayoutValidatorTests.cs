@@ -8,9 +8,10 @@ public class LayoutValidatorTests
 {
     // PaymentPracticeByPeriod and SubcontractorDispatchList are deliberately absent: both carry
     // foreign-namespace bindings, an Error since the 2026-08-02 sandbox verification (issue #1) —
-    // see the two dedicated tests below.
+    // see the two dedicated tests below. SalesInvoice is absent since its attached-template link became an
+    // Error (BC refuses the upload, 2026-10-24); it validates clean once unlinked, see
+    // SalesInvoice_validates_clean_at_both_levels_once_its_attached_template_is_unlinked.
     [Theory]
-    [InlineData(Corpus.SalesInvoice)]
     [InlineData(Corpus.InventoryOrderDetails)]
     [InlineData(Corpus.StandardStatement)]
     [InlineData(Corpus.SalespersonCommission)]
@@ -114,14 +115,45 @@ public class LayoutValidatorTests
     }
 
     [Fact]
-    public void SalesInvoice_surfaces_attachedTemplate_as_warning_not_error()
+    public void SalesInvoice_surfaces_attachedTemplate_as_the_error_BC_refuses_the_upload_with()
     {
+        // Microsoft's own layout links the template its developer built it from. It was a warning while BC still
+        // accepted that; a BC 28 sandbox refused the upload on 2026-10-24 (UnsupportedExternalContentFields).
         var result = LayoutValidator.Quick(Corpus.Path(Corpus.SalesInvoice));
 
-        var warning = result.Findings.SingleOrDefault(f => f.Check == "attached-template");
-        Assert.NotNull(warning);
-        Assert.Equal(FindingSeverity.Warning, warning!.Severity);
-        Assert.True(result.Passed);
+        var error = Assert.Single(result.Findings, f => f.Severity == FindingSeverity.Error);
+        Assert.Equal("attached-template", error.Check);
+        Assert.Contains("Simplified Sales Document.dotx", error.Message);
+        Assert.Contains("UnsupportedExternalContentFields", error.Message);
+        Assert.Contains("refresh_xml_part", error.Message);
+        Assert.False(result.Passed);
+    }
+
+    [Fact]
+    public void SalesInvoice_validates_clean_at_both_levels_once_its_attached_template_is_unlinked()
+    {
+        // The link is the stock layout's only error; everything else about it - the dry-run merge included -
+        // stays clean, which is what the pass-clean theories checked before the link became an error.
+        var path = Path.Combine(Path.GetTempPath(), $"bcwl-unlinked-{Guid.NewGuid():N}.docx");
+        File.Copy(Corpus.Path(Corpus.SalesInvoice), path);
+        try
+        {
+            using (var doc = DocumentFormat.OpenXml.Packaging.WordprocessingDocument.Open(path, true))
+            {
+                Assert.Single(AttachedTemplateLink.Remove(doc));
+            }
+
+            foreach (var result in new[] { LayoutValidator.Quick(path), FullValidator.Full(path) })
+            {
+                Assert.True(result.Passed,
+                    $"expected {result.Level} to pass; errors: "
+                    + string.Join(" | ", result.Findings.Where(f => f.Severity == FindingSeverity.Error).Select(f => f.Message)));
+            }
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     [Fact]
@@ -180,7 +212,7 @@ public class LayoutValidatorTests
         // "full" is now implemented (BcWordLayout.Merge.FullValidator) rather than a placeholder — this
         // just proves the plumbing: level is "full", and Findings is a real (possibly empty) list rather
         // than the fixed one-item "not implemented" placeholder the old version of this test targeted.
-        var result = FullValidator.Full(Corpus.Path(Corpus.SalesInvoice));
+        var result = FullValidator.Full(Corpus.Path(Corpus.InventoryOrderDetails));
 
         Assert.Equal("full", result.Level);
         Assert.DoesNotContain(result.Findings, f => f.Check == "full-not-implemented");

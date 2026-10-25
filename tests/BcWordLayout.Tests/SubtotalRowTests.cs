@@ -331,7 +331,7 @@ public class SubtotalRowTests
     [Fact]
     public void InsertSubtotalRow_tool_builds_the_corpus_group_shape_end_to_end()
     {
-        var path = CopyOfCorpus(Corpus.SalesInvoice);
+        var path = Corpus.UnlinkedCopy(Corpus.SalesInvoice);
         try
         {
             var baseline = Assert.IsType<ValidationResultDto>(ReadTools.ValidateLayout(path, "quick").Data);

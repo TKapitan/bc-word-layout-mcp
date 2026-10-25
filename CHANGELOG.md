@@ -7,6 +7,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-10-25
+
+A major release. Many tools take new argument shapes: the six entries marked **BREAKING** under
+*Changed* give the old and the new form of each change. Everything under *Fixed* was found or confirmed by printing the
+sandbox pack in a Business Central 28 sandbox (round 3, recorded in `docs/FIDELITY-CHECKLIST.md`).
+
 ### Added
 
 - **New tool `set_text_format`: restyle text that is already in the layout** (GitHub issue #15).
@@ -23,6 +29,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
   Alignment goes on the target's paragraphs, or for an inline control or a text match on the line it
   sits in. A target given an argument it does not use is refused.
+
+- **A warning for fonts Business Central online does not have.** A BC 28 sandbox printed a line set in
+  a font that exists nowhere in a serif face (sandbox probe P13, 2026-10-24), and Microsoft documents
+  the fallback as the Normal style's font; custom fonts cannot be uploaded to BC online.
+  - `validate_layout`'s new `font-installed` warning names each font the layout uses that is not on
+    Microsoft's list of installed fonts (learn.microsoft.com/dynamics365/business-central/ui-fonts, 519
+    names) and is not embedded in the layout, with the parts that use it. It reads runs, controls,
+    paragraph marks, styles, document defaults and numbering, and the theme's heading and body fonts
+    where text refers to them. No stock layout in the corpus trips it.
+  - A tool given a `format.fontName` that BC online lacks still writes it, and says so in its summary.
 
 - **New skill `al-word-layout-from-design`: from a finished Word design to a bound layout.** A
   consultant who has the document designed in Word (colours, logo box, sample values) and the report's
@@ -211,6 +227,53 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **`wrap_in_repeater` over a nested data item writes the shape Microsoft's layouts use.** A quote
+  whose work description `wrap_in_repeater` had repeated per line printed no work description in a
+  BC 28 sandbox, although the quote had one and Word's mock printed every line (sandbox pack P14,
+  2026-10-25). Its item held a paragraph with an inline field, a shape no stock layout has: every
+  nested block repeater in the corpus (the work description of the stock quote and both invoices,
+  their payment-reporting argument, the statement's aging band) holds its fields as block-level
+  controls around their paragraphs. Over a nested item, a paragraph holding nothing but one field now
+  becomes that field as a block-level control, with the same binding, id and formatting, and the
+  summary counts them. A paragraph holding more than the field is kept as it is. Sandbox pack P18
+  confirmed the cause: the stock quote printed its work description, and the same layout with only
+  that field made inline printed none. The rebuilt P14 printed it.
+
+- **The preview's sample data no longer makes tables far taller than Business Central prints them.**
+  The round-3 sandbox prints (BC 28, 2026-10-24) showed three generated values the real data never has:
+  - a percent formatted as text (`LineDiscountPercentText_Line` in the stock quote and invoices) was
+    sampled as a caption, "Line Discount Percent Line", which wrapped to five lines per row in its
+    narrow column. It gets a short percent such as `5%` now;
+  - `Capt`, the caption abbreviation older reports use (`JobTaskNoCapt` in Job Quote), was not a
+    caption word, so Job Quote's first column header showed the fake code `JOBT-3695`. It reads
+    "Job Task No" now;
+  - name-echo text repeated the data item's name and grew to 40 characters ("Cust Ledger Entry
+    Customer Name Draft 1"), three lines in a narrow column. It leaves the data item's name out and
+    stays within 30 characters ("Customer Name Draft 1").
+
+- **A binding whose storeItemID names no part is a warning, and `refresh_xml_part` re-points it**
+  (GitHub issue #102). Any mismatch between a binding's `w:storeItemID` and the BC part's item ID was
+  one error, although the two cases behave differently. An ID that names another custom XML part binds
+  the control to that part's data: still an error. An ID that names no part at all is re-bound to the BC
+  part by Word and by Business Central, which printed Microsoft's own StandardSalesInvoiceVatSpec
+  controls of that kind with their data (sandbox pack item P08): now a warning. `refresh_xml_part` points
+  such BC bindings at the BC part and lists them in the new `repointedStoreItemIds`; it leaves a binding
+  that names another part alone.
+
+- **Layouts the tools write no longer link an external attached template, which Business Central now
+  refuses on upload.** A BC 28 sandbox refused a layout built on Microsoft's stock invoice layout
+  (2026-10-24): "UnsupportedExternalContentFields: The Word layout contains unsupported fields or external
+  references: ExternalRelationship:attachedTemplate". Four of Microsoft's own stock layouts link the Word
+  template their developers built them from (`w:attachedTemplate`), and so does any design started from a
+  custom template. The tools kept the link, and `validate_layout` called it harmless; BC accepted the same
+  layouts in August.
+  - Every tool that writes a layout removes the link and its setting; nothing BC renders comes from it.
+    The edit tools say so at the end of their `summary`. `refresh_xml_part` and `create_layout` (which
+    otherwise keeps a template's settings) list the targets in the new `unlinkedAttachedTemplates`.
+  - `validate_layout`'s `attached-template` check is an error now, not a warning. Its message quotes
+    BC's refusal and names the repair for a layout that needs no other edit: `refresh_xml_part` against
+    its own schema.
+
 - `insert_table` placed inside a table cell (`locationType` `tableCell`) without widths now splits the
   host cell's width across its columns, as `insert_repeater_table` does. It split the page's content
   width, so the nested table's fixed grid overran the cell and the outer table with it.
@@ -232,6 +295,28 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   w:val="0"` when the run took over a character style, so it beats a bold style such as `Strong`. The insert summary
   names what was taken. An insert that opens a new paragraph, or lands in a fresh `insert_table`
   cell, has nothing to take and is unchanged.
+
+- **The row tools take the formatting of the row beside the new row, and `insert_repeater_row`
+  takes `format`.** A BC 28 sandbox printed the detail row `insert_repeater_row` built in Job Quote
+  at 11 pt between Segoe UI 8 pt rows (sandbox pack item P04, 2026-10-24): the tool had no `format`
+  argument, and the row tools built bare runs. Stock rows format each cell on its own, so
+  `insert_repeater_row`, `insert_subtotal_row` and `insert_table_row` now follow Word's rule for an
+  inserted row:
+  - each new cell copies the run formatting of the cell in the same grid column of the row above
+    it: the repeater item's last row for the two repeater tools, the row before `atRow` for
+    `insert_table_row` (the row after it for a row at the top of the table);
+  - the formatting goes on the cell's controls and on its paragraph mark, which sets the line
+    height of an empty spacer cell;
+  - the cell's paragraphs take that cell's paragraph style too, since some stock tables size their
+    text through styles: rows added under the stock VAT specification invoice's lines printed a point
+    larger without its `LeftAlign`/`RightAlign` (sandbox pack P22). A cell's `alignment` still wins;
+  - `format`, now on all three tools, overrides it member by member, and the summary names what was
+    taken.
+
+  The rules of the inline inserts apply to what is copied. A table whose rows carry no direct
+  formatting or style (the stock quote's lines table, every tool-built table) gives nothing, and neither does a
+  repeater item with no row of its own. `format` used to style only the bound controls; it now styles
+  the paragraph marks too.
 
 - **Inserts that would land inside a data-bound field, label or picture control are refused**
   (GitHub issue #76). Three locations could resolve inside a bound control's content:
@@ -258,7 +343,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   can open** (GitHub issue #77). The template was copied as-is, so the output kept the template's
   main-part content type under a `.docx` name. Word refused it ("Word was unable to read this
   document"), while `create_layout`'s own quick validation and `validate_layout` reported it clean.
-  - A template is now converted to a document before the BC part is attached.
+  - A template is now converted to a document before the BC part is attached, in place: its main
+    part keeps its name, `word/document.xml`, and only its content type changes, as in Word's own
+    Save As. Converted the way the OpenXML SDK does it, the main part moved to `word/document2.xml`,
+    which Word opens; such a layout was accepted on upload and then failed to print in Business
+    Central with an internal server error (sandbox pack item P17).
   - A macro-enabled `templatePath` (`.dotm`/`.docm`) is refused with `invalid_argument` instead
     of having its macros silently dropped.
   - A new `validate_layout` check, `document-content-type` (error), flags any layout whose main

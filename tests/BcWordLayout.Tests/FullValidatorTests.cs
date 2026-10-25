@@ -11,8 +11,9 @@ namespace BcWordLayout.Tests;
 /// </summary>
 public class FullValidatorTests
 {
+    // SalesInvoice is absent since its attached-template link became an error (BC refuses the upload); it
+    // full-validates clean once unlinked - see LayoutValidatorTests.
     [Theory]
-    [InlineData(Corpus.SalesInvoice)]
     [InlineData(Corpus.InventoryOrderDetails)]
     [InlineData(Corpus.StandardStatement)]
     public void All_corpus_layouts_full_validate_with_zero_errors(string fileName)
@@ -54,8 +55,8 @@ public class FullValidatorTests
     [Fact]
     public void Quick_findings_are_preserved_alongside_merge_findings()
     {
-        // SalesInvoice's known quick-level finding (an external attachedTemplate relationship, a warning)
-        // must still be present at "full" level — full is additive over quick, not a replacement.
+        // SalesInvoice's known quick-level finding (an external attachedTemplate relationship, an error since BC
+        // refuses the upload) must still be present at "full" level — full is additive over quick, not a replacement.
         var result = FullValidator.Full(Corpus.Path(Corpus.SalesInvoice));
 
         Assert.Contains(result.Findings, f => f.Check == "attached-template");

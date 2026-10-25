@@ -105,6 +105,7 @@ public static class LayoutEditor
                 + "It is a plain run, not a content control, so it has no controlId and cannot be targeted by "
                 + "remove_control or used as an afterControl anchor."
                 + InheritedFormatNote(inherited)
+                + RunFormatter.FontNote(prepared, doc)
                 + (scaffolded
                     ? $" The layout had no {location.Part.ToString().ToLowerInvariant()} part, so an empty "
                       + $"{anchor.PartName} was created and wired into the page setup first."
@@ -183,6 +184,7 @@ public static class LayoutEditor
                 + "cannot be targeted by remove_control or used as an afterControl anchor. Word/BC "
                 + "recalculates the numbers on render; the visible '1' is only the cached placeholder."
                 + InheritedFormatNote(inherited)
+                + RunFormatter.FontNote(prepared, doc)
                 + (scaffolded
                     ? $" The layout had no {location.Part.ToString().ToLowerInvariant()} part, so an empty "
                       + $"{anchor.PartName} was created and wired into the page setup first."
@@ -472,6 +474,9 @@ public static class LayoutEditor
     /// The bindings inside need no rewrite: a field under the item is bound with <c>[1]</c> on every step
     /// (<c>/Customer[1]/Name[1]</c>), which Word and BC re-point to each repeated item - exactly how the corpus
     /// controls inside 1316's <c>/Customer</c> repeater are bound, and what <c>insert_field</c> already writes.
+    /// Over a nested data item, a paragraph holding nothing but one field becomes that field as a block-level
+    /// control, the shape every nested block repeater in the corpus holds (see
+    /// <see cref="SdtFactory.BuildBlockRepeater"/>); the summary counts them.
     /// </para>
     /// <para>
     /// Refused rather than guessed (ADR-0003): a range in a header or footer (nothing shows BC renders a
@@ -522,6 +527,9 @@ public static class LayoutEditor
                 nameof(dataItemPath));
         }
 
+        var grouped = SdtFactory.IsTopLevel(dataItem);
+        var lifted = grouped ? 0 : blocks.Count(SdtFactory.IsLoneFieldParagraph);
+
         var nextId = MakeIdGenerator(doc);
         var marker = new Paragraph();
         body.InsertBefore(marker, blocks[0]);
@@ -536,7 +544,6 @@ public static class LayoutEditor
 
         var controlId = SdtInspector.ReadControlId(repeater)
             ?? throw new InvalidOperationException("The newly built repeater has no w:id (unexpected).");
-        var grouped = SdtFactory.IsTopLevel(dataItem);
 
         return new EditResult
         {
@@ -556,6 +563,10 @@ public static class LayoutEditor
                 + $". {under} bound control(s) inside follow each record"
                 + (outside > 0
                     ? $"; {outside} bound outside '{itemPath}' print the same value for every record"
+                    : string.Empty)
+                + (lifted > 0
+                    ? $". {lifted} paragraph(s) holding nothing but a field became that field as a block-level "
+                      + "control around the paragraph, the shape Microsoft's nested repeaters hold"
                     : string.Empty)
                 + $". To undo it, remove_control keepText=true on id {controlId} unwraps the repeater and keeps "
                 + "the content.",
@@ -723,20 +734,28 @@ public static class LayoutEditor
     /// already there — so repeated calls stack detail lines in authoring order. Cell construction and
     /// validation are <see cref="SdtFactory.BuildDetailRepeaterRow"/>'s (label-shaped names become label
     /// controls, chained inline); the spans must cover the parent table's grid exactly, which the
-    /// grid-consistency guard also enforces mechanically before anything reaches disk.
+    /// grid-consistency guard also enforces mechanically before anything reaches disk. Each cell takes the
+    /// formatting of the row above it, column by column, under <paramref name="format"/> (see
+    /// <see cref="StyleNewRow"/>).
     /// </summary>
     /// <exception cref="ArgumentException">
     /// <paramref name="parentRepeaterId"/> is not a row-level repeater; <paramref name="dataItemPath"/> is
     /// not a DIRECT child data item of the parent repeater's bound item; the spans don't sum to the parent
-    /// grid; or propagated from <see cref="SdtFactory.BuildDetailRepeaterRow"/>.
+    /// grid; <paramref name="format"/> has a bad member (see <see cref="RunFormatter.Prepare"/>); or propagated
+    /// from <see cref="SdtFactory.BuildDetailRepeaterRow"/>.
     /// </exception>
     /// <exception cref="NotFoundException">No control with <paramref name="parentRepeaterId"/> exists in the body.</exception>
     public static EditResult InsertRepeaterRow(
-        WordprocessingDocument doc, int parentRepeaterId, string dataItemPath, IReadOnlyList<RepeaterRowCell> cells)
+        WordprocessingDocument doc,
+        int parentRepeaterId,
+        string dataItemPath,
+        IReadOnlyList<RepeaterRowCell> cells,
+        TextFormat? format = null)
     {
         ArgumentNullException.ThrowIfNull(doc);
         ArgumentNullException.ThrowIfNull(cells);
 
+        var prepared = RunFormatter.Prepare(format, doc);
         var context = ResolveRepeaterItem(doc, parentRepeaterId, cells, rowNoun: "a detail row");
 
         // The parent's bound data item, from its own alias ('#Nav: /Header/Line').
@@ -759,6 +778,7 @@ public static class LayoutEditor
         var schema = SchemaProvider.FromLayoutForBinding(doc);
         var nextId = MakeIdGenerator(doc);
         var detailRow = SdtFactory.BuildDetailRepeaterRow(schema, normalizedChild, cells, widths, nextId);
+        var formatNote = StyleNewRow(detailRow.Descendants<TableRow>().First(), context.LastRow, prepared, "above");
         context.ItemContent.AppendChild(detailRow);
 
         var controlId = SdtInspector.ReadControlId(detailRow)
@@ -775,7 +795,9 @@ public static class LayoutEditor
             TableIndex = context.TableIndex,
             Part = "document.xml",
             Summary = $"Added a nested '{normalizedChild}' detail row (id {controlId}) inside repeater "
-                + $"{parentRepeaterId}'s item - it expands once per parent row, below the line row.",
+                + $"{parentRepeaterId}'s item - it expands once per parent row, below the line row."
+                + formatNote
+                + RunFormatter.FontNote(prepared, doc),
         };
     }
 
@@ -790,7 +812,8 @@ public static class LayoutEditor
     /// the spans must cover the parent table's grid exactly. Repeated calls stack rows in authoring order,
     /// exactly like <see cref="InsertRepeaterRow"/> — the corpus order is spacer first, subtotal second.
     /// The GROUP-HEADER half of the stock group shape needs no tool: the repeater's own line row (built by
-    /// <see cref="InsertRepeaterTable"/>) is the per-group header row.
+    /// <see cref="InsertRepeaterTable"/>) is the per-group header row. Each cell takes the formatting of the row
+    /// above it, column by column, under <paramref name="format"/> (see <see cref="StyleNewRow"/>).
     /// </summary>
     /// <remarks>
     /// LIKE <see cref="InsertText"/>, THIS CREATES NO SINGLE CONTROL: the row is a plain <c>w:tr</c> whose
@@ -820,16 +843,12 @@ public static class LayoutEditor
         var schema = SchemaForRow(doc, cells);
         var nextId = MakeIdGenerator(doc);
         var row = SdtFactory.BuildStaticRow(schema, cells, widths, nextId);
+        var formatNote = StyleNewRow(row, context.LastRow, prepared, "above");
 
-        var boundControlIds = new List<int>();
-        foreach (var sdt in row.Descendants<SdtRun>())
-        {
-            ApplyControlRunFormat(sdt, prepared);
-            if (SdtInspector.ReadControlId(sdt) is { } id)
-            {
-                boundControlIds.Add(id);
-            }
-        }
+        var boundControlIds = row.Descendants<SdtRun>()
+            .Select(SdtInspector.ReadControlId)
+            .OfType<int>()
+            .ToList();
 
         context.ItemContent.AppendChild(row);
 
@@ -848,13 +867,32 @@ public static class LayoutEditor
             Summary = $"Appended a static row with {cells.Count} cell(s) and {boundSummary} at the end of "
                 + $"repeater {parentRepeaterId}'s item - it renders once per group (per parent row), after "
                 + "the line row and any nested detail rows. Repeated calls stack further rows below it "
-                + "(the stock shape is a spacer row, then the bold subtotal row).",
+                + "(the stock shape is a spacer row, then the bold subtotal row)."
+                + formatNote
+                + RunFormatter.FontNote(prepared, doc),
         };
     }
 
     /// <summary>The resolved insertion context both repeater-item row inserts share — see <see cref="ResolveRepeaterItem"/>.</summary>
     private readonly record struct RepeaterItemContext(
-        SdtRow Parent, SdtContentRow ItemContent, Table Table, IReadOnlyList<GridColumn> GridColumns, int? TableIndex);
+        SdtRow Parent, SdtContentRow ItemContent, Table Table, IReadOnlyList<GridColumn> GridColumns, int? TableIndex)
+    {
+        /// <summary>
+        /// The item's last row of <see cref="Table"/> in document order — the row a row appended to the item
+        /// follows, a nested detail repeater's own rows included — or null when the item holds none. The row above
+        /// the repeater is deliberately not used then: it is the caption row (Job Quote's is bold and underlined),
+        /// no model for a detail or subtotal row.
+        /// </summary>
+        public TableRow? LastRow
+        {
+            get
+            {
+                var table = Table;
+                return ItemContent.Descendants<TableRow>()
+                    .LastOrDefault(row => ReferenceEquals(row.Ancestors<Table>().FirstOrDefault(), table));
+            }
+        }
+    }
 
     /// <summary>
     /// The shared plumbing of <see cref="InsertRepeaterRow"/> and <see cref="InsertSubtotalRow"/>: find the
@@ -1232,15 +1270,85 @@ public static class LayoutEditor
     }
 
     /// <summary>
-    /// Applies <paramref name="format"/> to a freshly built control: onto every run inside its content AND its
-    /// <c>w:sdtPr/w:rPr</c>. Internal so <see cref="TableStructureEditor.InsertStaticRow"/> styles its bound
-    /// cells through the exact same path <c>insert_field</c>/<c>insert_label</c> use.
+    /// Formats a freshly built table row before it is placed — the one path the three row tools share. Each cell
+    /// takes the formatting of the <paramref name="reference"/> row's cell in the same grid column
+    /// (<see cref="InheritedRunFormat.ForRowCells"/>), with <paramref name="format"/> on top: on every control it
+    /// holds, through the path <c>insert_field</c> uses (<see cref="StyleControl"/>), and on every paragraph mark,
+    /// which is what sizes an empty spacer cell's line. Its paragraphs also take that cell's paragraph style
+    /// (<see cref="InheritedRunFormat.ParagraphStylesForRowCells"/>); the alignment a cell spec gives is direct
+    /// formatting, so it still wins over the style's. <paramref name="referenceSide"/> ("above"/"below") says
+    /// where the reference row is, for the summary sentence this returns (empty when nothing was inherited).
     /// </summary>
-    internal static void ApplyControlRunFormat(SdtRun sdt, RunFormatter.Prepared? format)
+    internal static string StyleNewRow(
+        TableRow row, TableRow? reference, RunFormatter.Prepared? format, string referenceSide)
     {
+        var cells = row.Elements<TableCell>().ToList();
+        var spans = cells.Select(TableGridNavigator.GridSpanOf).ToList();
+        var inherited = InheritedRunFormat.ForRowCells(reference, spans);
+        var styles = InheritedRunFormat.ParagraphStylesForRowCells(reference, spans);
+        for (var i = 0; i < cells.Count; i++)
+        {
+            foreach (var sdt in cells[i].Descendants<SdtRun>().ToList())
+            {
+                StyleControl(sdt, inherited[i], format);
+            }
+
+            foreach (var paragraph in cells[i].Elements<Paragraph>())
+            {
+                if (styles[i] is { } style && paragraph.ParagraphProperties?.ParagraphStyleId is null)
+                {
+                    (paragraph.ParagraphProperties ??= new ParagraphProperties()).ParagraphStyleId =
+                        new ParagraphStyleId { Val = style };
+                }
+
+                StyleParagraphMark(paragraph, inherited[i], format);
+            }
+        }
+
+        var traits = inherited.OfType<RunProperties>()
+            .Select(rPr => string.Join(", ", FormatTraits(rPr)))
+            .Where(text => text.Length > 0)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        var styleNames = styles.OfType<string>().Distinct(StringComparer.Ordinal).Select(s => $"'{s}'").ToList();
+        if (styleNames.Count > 0)
+        {
+            traits.Add($"paragraph style {string.Join(", ", styleNames)}");
+        }
+
+        return inherited.All(rPr => rPr is null) && styleNames.Count == 0
+            ? string.Empty
+            : $" Each cell takes the formatting of the cell {referenceSide} it"
+              + (traits.Count > 0 ? $" ({string.Join("; ", traits)})" : string.Empty)
+              + "; pass format to override.";
+    }
+
+    /// <summary>
+    /// Gives a freshly built paragraph's mark (<c>w:pPr/w:rPr</c>) <paramref name="inherited"/> with
+    /// <paramref name="format"/> on top, as <see cref="StyleRun"/> does for a run. The two share their formatting
+    /// children, and <see cref="OpenXmlCompositeElement.AddChild"/> places each at its schema position.
+    /// </summary>
+    private static void StyleParagraphMark(Paragraph paragraph, RunProperties? inherited, RunFormatter.Prepared? format)
+    {
+        if (inherited is null && format is null)
+        {
+            return;
+        }
+
+        var mark = new ParagraphMarkRunProperties();
+        foreach (var child in inherited?.ChildElements ?? Enumerable.Empty<OpenXmlElement>())
+        {
+            mark.AddChild(child.CloneNode(true), throwOnError: false);
+        }
+
         if (format is not null)
         {
-            StyleControl(sdt, inherited: null, format);
+            RunFormatter.Apply(mark, format);
+        }
+
+        if (mark.HasChildren)
+        {
+            (paragraph.ParagraphProperties ??= new ParagraphProperties()).ParagraphMarkRunProperties = mark;
         }
     }
 
@@ -1277,31 +1385,38 @@ public static class LayoutEditor
             return string.Empty;
         }
 
+        var traits = FormatTraits(inherited);
+        return " It takes the formatting of the text before it"
+            + (traits.Count > 0 ? $" ({string.Join(", ", traits)})" : string.Empty)
+            + "; pass format to override.";
+    }
+
+    /// <summary>The traits of <paramref name="rPr"/> a summary names: character style, font, size and bold.</summary>
+    private static List<string> FormatTraits(RunProperties rPr)
+    {
         var traits = new List<string>();
-        if (inherited.RunStyle?.Val?.Value is { } style)
+        if (rPr.RunStyle?.Val?.Value is { } style)
         {
             traits.Add($"character style '{style}'");
         }
 
-        if (inherited.RunFonts?.Ascii?.Value is { } font)
+        if (rPr.RunFonts?.Ascii?.Value is { } font)
         {
             traits.Add(font);
         }
 
-        if (inherited.FontSize?.Val?.Value is { } size
+        if (rPr.FontSize?.Val?.Value is { } size
             && double.TryParse(size, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var halfPoints))
         {
             traits.Add($"{(halfPoints / 2).ToString(System.Globalization.CultureInfo.InvariantCulture)} pt");
         }
 
-        if (inherited.Bold is { } b && (b.Val is null || b.Val.Value))
+        if (rPr.Bold is { } b && (b.Val is null || b.Val.Value))
         {
             traits.Add("bold");
         }
 
-        return " It takes the formatting of the text before it"
-            + (traits.Count > 0 ? $" ({string.Join(", ", traits)})" : string.Empty)
-            + "; pass format to override.";
+        return traits;
     }
 
     /// <summary>
@@ -1362,6 +1477,7 @@ public static class LayoutEditor
             Summary = $"Inserted {kind.ToString().ToLowerInvariant()} '{datasetPath}' (id {id}) at "
                 + $"{DescribeLocation(location, anchor.PartName)}."
                 + InheritedFormatNote(inherited)
+                + RunFormatter.FontNote(prepared, doc)
                 + (scaffolded
                     ? $" The layout had no {location.Part.ToString().ToLowerInvariant()} part, so an empty "
                       + $"{anchor.PartName} was created and wired into the page setup first."

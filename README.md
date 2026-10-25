@@ -188,7 +188,7 @@ other tool is conversion-free and works everywhere the server runs.
 |---|---|
 | `get_layout_info` | Inspect a layout: report name/id, dataset namespace, `storeItemID`, the full control inventory (kind, alias, tag, `xPath`, part, parent repeater), per-part details (kind, header/footer role `default`/`first`/`even`, and which part a `partName`-less header/footer edit targets) plus a `hasTitlePage` flag, every table's rows (one per `w:tr`, so each row of a multi-row repeater item is addressable, tagged with the repeater it repeats with) and cells — each cell with both its physical `colIndex` (what the cell tools take) and its `gridColumn`/`gridSpan` (what the column tools take; they differ on any spanned row), each row with its `gridBefore`/`gridAfter` — and a quick validation summary. |
 | `list_dataset_fields` | List the dataset hierarchy (data items + columns) from a `.docx` layout or a standalone schema `.xml`; flags labels and, for a layout, bound/unbound columns. |
-| `validate_layout` | Validate a layout: `level=quick` (structural + binding checks, including a `repeater-downgraded` error for a repeater a Word save turned into a plain content control, a `top-level-repeater-group` error for a block-level repeater over the top-level data item without the `w:group` wrapper Business Central needs to print it, a warning when a layout containing repeaters declares a Word compatibility mode below 15, and a `duplicate-control-id` warning when two content controls share a `w:id`) or `level=full` (adds a dry-run merge that surfaces every unresolved binding as a finding). |
+| `validate_layout` | Validate a layout: `level=quick` (structural + binding checks, including a `repeater-downgraded` error for a repeater a Word save turned into a plain content control, a `top-level-repeater-group` error for a block-level repeater over the top-level data item without the `w:group` wrapper Business Central needs to print it, an `attached-template` error for a layout that links an external Word template (Business Central refuses to upload one), a warning when a layout containing repeaters declares a Word compatibility mode below 15, a `duplicate-control-id` warning when two content controls share a `w:id`, and a `font-installed` warning for a font Business Central online does not have) or `level=full` (adds a dry-run merge that surfaces every unresolved binding as a finding). |
 | `preview_layout` | Mock preview: merges deterministic (or supplied) sample data into a working copy and converts it to PDF via Word COM or LibreOffice. |
 | `render_preview_pages` | Render pages of a preview PDF (the `pdfPath` from `preview_layout`) as PNG images returned inline as MCP image content blocks, so the calling agent can visually inspect the preview (default 3 pages, cap 10 per call; page onward via `firstPage`; each page capped at 5000 px a side and 20 MP, a larger one rendered smaller and flagged `downscaled`). Pass `outputDir` to also write each page as a `.png` a human can open — optionally with `inlineImages=false` to skip the token cost of the inline copies. |
 | `create_layout` | Create a new blank layout `.docx` from a schema, optionally starting from a branded/styled (unbound) template. A blank build ships deterministic default typography (Calibri 11 pt via a scaffolded styles part) so it renders with the same font in Word and in BC, plus a settings part declaring `compatibilityMode` 15 so its repeaters survive being opened and saved in Word. |
@@ -197,23 +197,23 @@ other tool is conversion-free and works everywhere the server runs.
 | `insert_text` | Insert plain STATIC text — a literal run, not a content control: the separator space, colon or `" / "` that glues two inline controls together (without it, chained controls render as `Document NoDOCU-0150`). Creates no control, so it has no `controlId` and cannot be targeted by `remove_control`. |
 | `insert_page_number` | Insert Word `PAGE`/`NUMPAGES` field codes — the "Page X / Y" chrome every stock BC document header carries (by default the full `X / Y` shape; `includeTotal=false` for the current page alone). Field codes are plain runs, so no `controlId`. |
 | `insert_repeater_table` | Insert a complete repeater table (label/static header row + one bound data row) for a repeating data item, in the body — the flagship editing tool. Draws the BC-native look by default (no grid, one rule under the header row; `borders` also offers none or a full grid) and can reference a table style the layout defines; optional per-column widths and alignments, pinned with a fixed table layout so Word renders the grid as specified. |
-| `insert_repeater_row` | Add a nested DETAIL ROW repeater inside an existing repeater's item — the standard BC shape for per-line detail (assembly components, serial/lot nos): a row under each line, aligned to the parent grid via spans, repeating once per parent row. |
+| `insert_repeater_row` | Add a nested DETAIL ROW repeater inside an existing repeater's item — the standard BC shape for per-line detail (assembly components, serial/lot nos): a row under each line, aligned to the parent grid via spans, repeating once per parent row. Its cells take the run formatting and paragraph style of the row above them, column by column; `format` overrides. |
 | `insert_picture` | Insert a PICTURE content control bound to a picture dataset path (e.g. `/Header/CompanyPicture`) — the logo placeholder a from-scratch layout needs; BC fills it at render time. |
 | `insert_table` | Insert a plain (unbound) table, in the body, a header or a footer — the building block for non-repeating layout sections (address columns, label/value header grids, right-anchored totals blocks, the stock header and footer tables). Borderless by default, with the same `borders` and `tableStyle` options as `insert_repeater_table`. Column widths are pinned with a fixed table layout, so Word keeps the grid you asked for. Returns the new table's index for `set_cell_text`/`insert_field` to fill. |
-| `wrap_in_repeater` | Wrap a run of existing body blocks in a block-level repeater over a data item, so they print once per record: a page per customer in a statement, a paragraph per work-description line. Over a top-level item it adds the `w:group` Business Central needs. |
+| `wrap_in_repeater` | Wrap a run of existing body blocks in a block-level repeater over a data item, so they print once per record: a page per customer in a statement, a paragraph per work-description line. Over a top-level item it adds the `w:group` Business Central needs; over a nested item, a paragraph holding only a field becomes a block-level field control, the shape Business Central prints. |
 | `remove_control` | Remove a content control (field/label/repeater/picture/unbound) by its `w:id`, searching the body and every header/footer; `keepText=true` on a block-level repeater unwraps it and keeps its content. |
 | `set_cell_text` | Set (replace) the PLAIN TEXT of a table cell, addressed by table/row/column index — e.g. re-label a line-items column header. Rejects cells that hold a bound control. |
 | `set_text_format` | Restyle text that is ALREADY in the layout without changing it: a control by id, a table cell, a whole row, or one exact piece of text, with the same `format` object the insert tools take (bold, italic, underline, size, font, colour, character style) and an optional alignment. |
 | `clear_cell_text` | Remove all PLAIN TEXT from a table cell, leaving a valid empty cell (the cell/column is preserved) — e.g. blank an unwanted column-header label. |
-| `insert_subtotal_row` | Append a STATIC per-group row at the end of an existing repeater's item — the stock BC shape for group subtotal (and spacer) rows: it renders once per PARENT row, after the nested detail rows, never per detail row. |
-| `insert_table_row` | Insert ONE STATIC (non-repeating) row into an existing table — the stock BC shape for the totals block INSIDE the line-items table (spacer cells, a spanned bound caption cell, a right-aligned bound amount cell). Cells bind FULL dataset paths; the row renders exactly once, never per data row. |
+| `insert_subtotal_row` | Append a STATIC per-group row at the end of an existing repeater's item — the stock BC shape for group subtotal (and spacer) rows: it renders once per PARENT row, after the nested detail rows, never per detail row. Its cells take the formatting of the row above them, as `insert_repeater_row`'s do. |
+| `insert_table_row` | Insert ONE STATIC (non-repeating) row into an existing table — the stock BC shape for the totals block INSIDE the line-items table (spacer cells, a spanned bound caption cell, a right-aligned bound amount cell). Cells bind FULL dataset paths; the row renders exactly once, never per data row. Its cells take the formatting of the row above them (below, at the top of a table), as `insert_repeater_row`'s do. |
 | `set_column_widths` | Set a table's column widths (one twip value per grid column); `gridSpan`-aware — each cell is resized to the sum of the columns it spans. |
 | `insert_column` | Add a new column at any grid position (append by default) — a bound field/label cell (as `insert_field`/`insert_label`) or a plain-text column. Adds the `w:gridCol` and one cell per row; a spanned cell in a row with no content there is widened instead. The table keeps its total width: the new column's width comes out of the existing columns. |
 | `remove_column` | Remove a whole grid column — addressed by the `gridColumn` `get_layout_info` reports for its cells, not their `colIndex`: drops each row's covering cell (a bound cell too) or decrements its `gridSpan`, and removes the `w:gridCol`. The summary says per row which of the two happened. |
 | `merge_cells` | Horizontally merge a run of adjacent cells in one row into a single `gridSpan` cell (keeps the first cell's content). |
 | `split_cells` | Horizontally split one spanned cell back into single-column cells. |
 | `set_cell_format` | Set the appearance of a whole row's cells, or one cell: the per-cell rules a BC document's look is actually made of (a line above a totals row, an underline on one cell) and/or a fill colour (a shaded header row). |
-| `refresh_xml_part` | Update a layout's BC dataset XML part to a new schema in place; remaps/orphans bindings, re-points any binding left naming a foreign report's namespace (which BC refuses to upload), and reports newly-unbound fields. Also the repair for a dataset part that no longer parses (`validate_layout` names the part and the parser error). |
+| `refresh_xml_part` | Update a layout's BC dataset XML part to a new schema in place; remaps/orphans bindings, re-points any binding left naming a foreign report's namespace (which BC refuses to upload) or a `storeItemID` that names no part, and reports newly-unbound fields. Also the repair for a dataset part that no longer parses (`validate_layout` names the part and the parser error). |
 
 ### Response envelope
 
@@ -242,8 +242,9 @@ inspection tool to call first). Nothing throws across the MCP boundary. The 22 m
 rejected (`edit_would_corrupt`) and the file on disk is left untouched. Every one of them is also
 checked by a grid-consistency guard that rejects (`edit_would_break_table`, file untouched) any edit
 leaving a row's cells inconsistent with its `w:tblGrid` — a corruption class `OpenXmlValidator`
-accepts silently. Every successful mutating response also carries a fresh post-edit
-`quickValidation` summary. (`create_layout` writes a new file instead: it checks the layout it built
+accepts silently. Every save also removes a link to an external attached template, which Business
+Central refuses to upload, and the summary says so. Every successful mutating response also carries a
+fresh post-edit `quickValidation` summary. (`create_layout` writes a new file instead: it checks the layout it built
 and returns `quickValidation` too, but a failure of that check is a server bug, reported as
 `internal_error`, never `edit_would_corrupt`.)
 
@@ -292,20 +293,28 @@ Business Central report engine. That's good enough to catch structural and bindi
 edit, but captions, fonts, and exact pagination can differ from a genuine BC render. Every
 `preview_layout` response repeats this as a `disclaimer` string. A dataset printed for several
 documents previews only the first, and a `multiple-top-level-records` warning says so: BC renders the
-report body once per top-level record, the mock does not.
+report body once per top-level record, the mock does not. Generated sample data fills every field and
+every repeating item, so the mock cannot show a field that is empty in real data (a purchase order's
+`VendAddr` block previews full and prints empty), and it ignores the BC add-in's hide-if-empty controls,
+which do hide content in BC.
 
 **Final sign-off on any layout is always a real Business Central sandbox render** (AL build → publish
 to dev sandbox → run the report), never this tool's PDF alone.
 
-**What has been validated against a real Business Central sandbox:** a pack of layouts made with
-these tools was uploaded to real BC sandboxes and rendered by the real report engine — validated
-against **BC 28.0 and 28.3** (Cronus AU) in two rounds. Round 1 had five items, one of them built
-from scratch; round 2 had seven: three from-scratch builds (P01, P06, P07) and four edits of stock
-layouts. [`docs/FIDELITY-CHECKLIST.md`](docs/FIDELITY-CHECKLIST.md) records both runs and what they
-measured. Every item passed: BC accepts what these tools author, bindings resolve, repeaters
-expand, and the mock preview's structure matched the real render on the dimensions checked. That
-is what it proves — and no more: seven layouts, one BC version family, one localization. The mock preview remains a mock; the per-release
-fidelity procedure and its open manual dimensions live in the same checklist.
+**What has been validated against a real Business Central sandbox:** packs of layouts made with
+these tools were uploaded to real BC sandboxes and rendered by the real report engine, in three rounds
+on **BC 28** (Cronus AU). Rounds 1 and 2 (2026-08, BC 28.0 and 28.3) had five items, then seven, three
+of them from-scratch builds, and every item passed. Round 3 (2026-10) printed seventeen items covering
+what 2.0 writes, plus seven follow-up probes, and found four things the tools got wrong: a link to an
+external template that BC 28 newly refuses on upload, a template conversion that crashed BC's print, a
+detail row's formatting, and a work-description repeater shape BC did not print. Each is fixed in
+2.0.0 and printed correctly again. Round 3 also measured three behaviours the project had no evidence
+for: last-page-only field codes, a `storeItemID` naming no part, and the add-in's hide-if-empty controls.
+[`docs/FIDELITY-CHECKLIST.md`](docs/FIDELITY-CHECKLIST.md) records every round and what it measured.
+BC accepts what these tools author, bindings resolve, repeaters expand, and the mock preview's
+structure matched the real render on the dimensions checked. That is what it proves — and no more:
+one BC version family, one localization, the layouts in the pack. The mock preview remains a mock; the
+per-release fidelity procedure and its open manual dimensions live in the same checklist.
 
 ## Public contract and versioning
 
@@ -315,7 +324,8 @@ codes.** Removing or changing any of those is a breaking change and lands only i
 new tools, new optional parameters, new `data` fields, and new error codes are additive (minor).
 Error `message`/`hint` texts are not part of the contract — never parse them.
 
-- **Business Central versions:** validated against **BC 28.0 and 28.3** (see above). Word report layouts are
+- **Business Central versions:** validated against **BC 28**: 28.0 and 28.3 in rounds 1 and 2, a BC 28
+  sandbox in round 3 (see above). Word report layouts are
   a long-stable BC format, so the tools are *expected* to work with any BC version that supports
   Word layouts — reports of issues on other versions are welcome — but the compatibility commitment
   extends only to versions a validation has actually covered.
@@ -327,10 +337,16 @@ Error `message`/`hint` texts are not part of the contract — never parse them.
 ## Not supported
 
 - **Hide-if-empty BC add-in conditional controls** (Hide Field if Zero, Hide Empty Table, Hide Empty
-  Table Row, layout comment) — no `set_hide_if_empty` tool. The row and table variants are captured
-  in two corpus layouts and wait on a sandbox check of what BC treats as empty ([#123](https://github.com/TKapitan/bc-word-layout-mcp/issues/123));
-  Hide Field if Zero and layout comments wait on capturing the BC Word add-in's OOXML ([#8](https://github.com/TKapitan/bc-word-layout-mcp/issues/8),
-  [ADR-0005](docs/adr/0005-emit-only-observed-ooxml.md)).
+  Table Row, layout comment) — no `set_hide_if_empty` tool yet. What BC 28 does with the two captured
+  ones is measured ([#123](https://github.com/TKapitan/bc-word-layout-mcp/issues/123)): inside a repeater, *Hide Table Row If Empty* hides the whole
+  repeated item when its cell is empty, and outside a repeater it does nothing; *Hide Table If Empty*
+  around a cell does nothing. A tool is planned after 2.0; until then a hand edit in the captured shape
+  works. Hide Field if Zero and layout comments wait on capturing the BC Word add-in's OOXML
+  ([#8](https://github.com/TKapitan/bc-word-layout-mcp/issues/8), [ADR-0005](docs/adr/0005-emit-only-observed-ooxml.md)).
+- **Page-position-conditional content** (`IF PAGE = NUMPAGES`, e.g. text on the last page only) — no
+  tool yet. Business Central evaluates the field per page, as Word does (sandbox-verified on one- and
+  two-page documents), and a tool is planned after 2.0 ([#11](https://github.com/TKapitan/bc-word-layout-mcp/issues/11)); until then a
+  `templatePath` shell or a hand edit carrying it works.
 - **Repeaters in headers/footers** — nothing shows that BC renders a repeating section there, so
   `insert_repeater_table` only creates one in the document body and `wrap_in_repeater` only wraps body
   content; a pre-existing/hand-authored one is still detected by `validate_layout` with a warning

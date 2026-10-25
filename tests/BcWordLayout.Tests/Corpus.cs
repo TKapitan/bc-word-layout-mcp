@@ -92,4 +92,22 @@ public static class Corpus
 
         return full;
     }
+
+    /// <summary>
+    /// A temp copy of corpus layout <paramref name="fileName"/> without its external attached-template link: the state
+    /// every tool save leaves a layout in, since Business Central refuses the link (see
+    /// <see cref="BcWordLayout.Domain.AttachedTemplateLink"/>). For tests that expect a clean layout but edit through the
+    /// Domain layer, which does not unlink, or read a stock layout before any tool has saved it. The caller deletes it.
+    /// </summary>
+    public static string UnlinkedCopy(string fileName)
+    {
+        var copy = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"bcwl-unlinked-{Guid.NewGuid():N}.docx");
+        File.Copy(Path(fileName), copy, overwrite: true);
+        using (var doc = DocumentFormat.OpenXml.Packaging.WordprocessingDocument.Open(copy, true))
+        {
+            BcWordLayout.Domain.AttachedTemplateLink.Remove(doc);
+        }
+
+        return copy;
+    }
 }

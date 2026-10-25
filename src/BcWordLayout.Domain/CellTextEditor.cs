@@ -148,7 +148,8 @@ public static class CellTextEditor
             Col = location.Col!.Value,
             PreviousText = previousText,
             NewText = newText,
-            Summary = BuildSummary(operation, location, partName, previousText, newText, kept),
+            Summary = BuildSummary(operation, location, partName, previousText, newText, kept)
+                + RunFormatter.FontNote(format, doc),
         };
     }
 

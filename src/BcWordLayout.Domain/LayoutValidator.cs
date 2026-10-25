@@ -39,7 +39,7 @@ public static class LayoutValidator
         DatasetTree? schema = TryBuildSchema(main, scan, findings);
 
         var inventory = LayoutReader.Read(doc);
-        CheckStoreItemIds(inventory, bcPartItemId, findings);
+        CheckStoreItemIds(main, inventory, bcPartItemId, findings);
         CheckBindingNamespaces(inventory, schema, findings);
         CheckBindingPrefixMappings(inventory, schema, findings);
         CheckXPathsResolve(inventory, schema, findings);
@@ -52,6 +52,7 @@ public static class LayoutValidator
         CheckTableStylesResolve(main, findings);
         CheckCharacterStylesResolve(main, findings);
         CheckControlIdsUnique(main, findings);
+        CheckFontsInstalled(main, findings);
 
         return new ValidationResult { Level = "quick", Findings = findings };
     }
@@ -72,7 +73,7 @@ public static class LayoutValidator
                       + " This is the character-scaling value Microsoft Word itself writes into a content "
                       + "control's placeholder run (alongside w:sz=0), so it appears in any layout that has "
                       + "been opened and saved in Word. It renders correctly in both Word and Business "
-                      + "Central and there is no run-property tool to remove it, so it is reported as a "
+                      + "Central and no tool here edits character scaling, so it is reported as a "
                       + "warning rather than failing the layout."
                     : error.Description,
                 Location = error.Path?.XPath,
@@ -243,8 +244,14 @@ public static class LayoutValidator
         + "report's layout (or its exported schema .xml) as newSchemaSource: it replaces the part's content in "
         + "place and keeps its storeItemID, so every existing binding stays linked to it.";
 
-    // 3. Every binding's storeItemID matches the BC part's actual item ID.
-    private static void CheckStoreItemIds(LayoutInventory inventory, string? bcPartItemId, List<ValidationFinding> findings)
+    // 3. Every binding's storeItemID matches the BC part's actual item ID. Two mismatches behave differently
+    //    (GitHub issue #102): an ID that names ANOTHER custom XML part in the package binds the control to that
+    //    part's data - genuinely wrong, an ERROR - while an ID that names no part at all is re-bound to the BC
+    //    part by Word (XMLMapping.IsMapped) and by Business Central, which printed both such controls of
+    //    StandardSalesInvoiceVatSpec with their data (sandbox pack item P08, a BC 28 sandbox, 2026-10-24): a
+    //    WARNING, which refresh_xml_part repairs by re-pointing the ID.
+    private static void CheckStoreItemIds(
+        MainDocumentPart main, LayoutInventory inventory, string? bcPartItemId, List<ValidationFinding> findings)
     {
         if (bcPartItemId is null)
         {
@@ -253,26 +260,33 @@ public static class LayoutValidator
             return;
         }
 
+        var partItemIds = CustomXmlPartItemIds(main);
         foreach (var control in inventory.Controls)
         {
-            if (control.StoreItemId is null)
+            if (control.StoreItemId is null || GuidEquals(control.StoreItemId, bcPartItemId))
             {
                 continue;
             }
 
-            if (!GuidEquals(control.StoreItemId, bcPartItemId))
+            var namesAnotherPart = partItemIds.Any(id => GuidEquals(id, control.StoreItemId));
+            findings.Add(new ValidationFinding
             {
-                findings.Add(new ValidationFinding
-                {
-                    Check = "store-item-id",
-                    Severity = FindingSeverity.Error,
-                    Message = $"Binding storeItemID '{control.StoreItemId}' does not match the BC part item ID "
-                              + $"'{bcPartItemId}'.",
-                    Location = $"{control.Part}: {control.Alias ?? control.XPath}",
-                });
-            }
+                Check = "store-item-id",
+                Severity = namesAnotherPart ? FindingSeverity.Error : FindingSeverity.Warning,
+                Message = namesAnotherPart
+                    ? $"Binding storeItemID '{control.StoreItemId}' names another custom XML part, not the BC part "
+                      + $"'{bcPartItemId}': the control is bound to that part's data."
+                    : $"Binding storeItemID '{control.StoreItemId}' names no part in the package, not the BC part "
+                      + $"'{bcPartItemId}'. Word and Business Central re-bind such a control to the BC part, so it "
+                      + "prints; refresh_xml_part re-points the ID.",
+                Location = $"{control.Part}: {control.Alias ?? control.XPath}",
+            });
         }
     }
+
+    /// <summary>The <c>ds:itemID</c> of every custom XML part of <paramref name="main"/> that declares one.</summary>
+    internal static IReadOnlyList<string> CustomXmlPartItemIds(MainDocumentPart main) =>
+        main.CustomXmlParts.Select(SchemaProvider.ReadItemId).OfType<string>().ToList();
 
     // 3b. Every binding's prefixMappings names the layout's OWN BC dataset namespace.
     //
@@ -866,23 +880,24 @@ public static class LayoutValidator
         }
     }
 
-    // 7. External attachedTemplate relationship → warning (stale developer template path is common).
+    // 7. External attachedTemplate relationship → ERROR: Business Central refuses to upload a layout linking one
+    //    (UnsupportedExternalContentFields; see AttachedTemplateLink). It was a warning while BC still accepted
+    //    it - Microsoft's own stock layouts carry one - until a BC 28 sandbox refused the upload (2026-10-24).
+    //    Every tool that writes a layout removes the link, so this fires for a layout no tool has saved yet.
     private static void CheckAttachedTemplate(MainDocumentPart main, List<ValidationFinding> findings)
     {
-        var visited = new HashSet<OpenXmlPart>();
-        foreach (var rel in AllExternalRelationships(main, visited))
+        foreach (var (_, rel) in AttachedTemplateLink.Find(main))
         {
-            if (rel.RelationshipType.EndsWith("attachedTemplate", StringComparison.Ordinal))
+            findings.Add(new ValidationFinding
             {
-                findings.Add(new ValidationFinding
-                {
-                    Check = "attached-template",
-                    Severity = FindingSeverity.Warning,
-                    Message = "Layout has an external attachedTemplate relationship. This often points at a "
-                              + "stale developer path and is harmless for BC rendering, but consider removing it.",
-                    Location = rel.Uri?.ToString(),
-                });
-            }
+                Check = "attached-template",
+                Severity = FindingSeverity.Error,
+                Message = $"The layout links an external attached template ({AttachedTemplateLink.Describe(rel.Uri)}). "
+                          + "Business Central refuses to upload such a layout (UnsupportedExternalContentFields: "
+                          + "'ExternalRelationship:attachedTemplate'). Every tool that writes the layout removes the "
+                          + "link; for a layout that needs no other edit, refresh_xml_part against its own schema.",
+                Location = rel.Uri?.ToString(),
+            });
         }
     }
 
@@ -1013,7 +1028,120 @@ public static class LayoutValidator
         }
     }
 
+    // 10. Every font the layout names is one Business Central online has installed, or one the layout embeds
+    //     (BcOnlineFonts). BC prints text set in a font it lacks in a substitute: sandbox probe P13 (BC 28,
+    //     2026-10-24) printed a font that exists nowhere in a serif face. WARNING, not an error: the layout uploads
+    //     and prints, only not in that font, and an on-premises server may have it installed. The names read are
+    //     the w:rFonts ascii/hAnsi/cs/eastAsia of runs, controls, paragraph marks, styles, document defaults and
+    //     numbering - skipping one a theme attribute on the same element overrides, as Word does - plus the
+    //     theme's Latin heading and body fonts when some w:rFonts refers to them. One finding per font, naming
+    //     the parts that use it. No corpus layout trips it.
+    private static void CheckFontsInstalled(MainDocumentPart main, List<ValidationFinding> findings)
+    {
+        var embedded = BcOnlineFonts.EmbeddedIn(main);
+        var missing = new Dictionary<string, SortedSet<string>>(StringComparer.OrdinalIgnoreCase);
+        void Use(string? font, string partName)
+        {
+            var name = font?.Trim();
+            if (string.IsNullOrEmpty(name) || BcOnlineFonts.IsInstalled(name) || embedded.Contains(name))
+            {
+                return;
+            }
+
+            if (!missing.TryGetValue(name, out var parts))
+            {
+                missing[name] = parts = new SortedSet<string>(StringComparer.Ordinal);
+            }
+
+            parts.Add(partName);
+        }
+
+        var themeFonts = new HashSet<ThemeFontValues>();
+        foreach (var (root, partName) in FontCarryingParts(main))
+        {
+            foreach (var fonts in root.Descendants<RunFonts>())
+            {
+                if (fonts.AsciiTheme?.Value is { } asciiTheme)
+                {
+                    themeFonts.Add(asciiTheme);
+                }
+                else
+                {
+                    Use(fonts.Ascii?.Value, partName);
+                }
+
+                if (fonts.HighAnsiTheme?.Value is { } highAnsiTheme)
+                {
+                    themeFonts.Add(highAnsiTheme);
+                }
+                else
+                {
+                    Use(fonts.HighAnsi?.Value, partName);
+                }
+
+                if (fonts.ComplexScriptTheme is null)
+                {
+                    Use(fonts.ComplexScript?.Value, partName);
+                }
+
+                if (fonts.EastAsiaTheme is null)
+                {
+                    Use(fonts.EastAsia?.Value, partName);
+                }
+            }
+        }
+
+        if (main.ThemePart is { } themePart && themePart.Theme?.ThemeElements?.FontScheme is { } scheme)
+        {
+            var themeName = PartWalker.PartFileName(themePart);
+            if (themeFonts.Contains(ThemeFontValues.MajorAscii) || themeFonts.Contains(ThemeFontValues.MajorHighAnsi))
+            {
+                Use(scheme.MajorFont?.LatinFont?.Typeface?.Value, themeName);
+            }
+
+            if (themeFonts.Contains(ThemeFontValues.MinorAscii) || themeFonts.Contains(ThemeFontValues.MinorHighAnsi))
+            {
+                Use(scheme.MinorFont?.LatinFont?.Typeface?.Value, themeName);
+            }
+        }
+
+        foreach (var (font, parts) in missing)
+        {
+            findings.Add(new ValidationFinding
+            {
+                Check = "font-installed",
+                Severity = FindingSeverity.Warning,
+                Message = $"Font '{font}' is not one Business Central online has installed, and the layout does not "
+                          + "embed it, so BC prints the text set in it in a substitute font (a serif face in the "
+                          + "sandbox). Use an installed font - Microsoft's own layouts use Segoe UI; the list is at "
+                          + "learn.microsoft.com/dynamics365/business-central/ui-fonts - for instance with "
+                          + "set_text_format's format.fontName, or embed the font from Word (File > Options > Save). "
+                          + "An on-premises server renders with the fonts installed on it.",
+                Location = string.Join(", ", parts),
+            });
+        }
+    }
+
     // ---- helpers ----
+
+    /// <summary>The parts whose <c>w:rFonts</c> name fonts: the content parts, then the styles and numbering parts.</summary>
+    private static IEnumerable<(OpenXmlPartRootElement Root, string PartName)> FontCarryingParts(MainDocumentPart main)
+    {
+        foreach (var part in EnumerateContentParts(main))
+        {
+            yield return part;
+        }
+
+        if (main.StyleDefinitionsPart is { Styles: { } styles } stylesPart)
+        {
+            yield return (styles, PartWalker.PartFileName(stylesPart));
+        }
+
+        if (main.NumberingDefinitionsPart is { Numbering: { } numbering } numberingPart)
+        {
+            yield return (numbering, PartWalker.PartFileName(numberingPart));
+        }
+    }
 
     private static IEnumerable<(OpenXmlPartRootElement Root, string PartName)> EnumerateContentParts(MainDocumentPart main) =>
         PartWalker.ContentParts(main);
@@ -1054,40 +1182,6 @@ public static class LayoutValidator
 
         var id = SdtInspector.ChildVal(pr, "id", OoxmlNames.W);
         return id is null ? "(sdt)" : $"id {id}";
-    }
-
-    /// <summary>
-    /// <paramref name="depth"/> (0 at the package root's direct parts) enforces
-    /// <see cref="ResourceLimits.MaxPartGraphDepth"/> (an uncatchable <see cref="StackOverflowException"/>
-    /// would kill the server; a cap fails the call instead): the
-    /// <paramref name="visited"/> set already rules out an infinite CYCLE, but a crafted package could still
-    /// chain many thousands of otherwise-acyclic parts, making this hand-rolled recursive walk itself
-    /// arbitrarily deep.
-    /// </summary>
-    private static IEnumerable<ExternalRelationship> AllExternalRelationships(OpenXmlPart part, HashSet<OpenXmlPart> visited, int depth = 0)
-    {
-        if (depth > ResourceLimits.MaxPartGraphDepth)
-        {
-            throw ResourceLimits.DepthExceeded("Package part graph", ResourceLimits.MaxPartGraphDepth);
-        }
-
-        if (!visited.Add(part))
-        {
-            yield break;
-        }
-
-        foreach (var rel in part.ExternalRelationships)
-        {
-            yield return rel;
-        }
-
-        foreach (var child in part.Parts)
-        {
-            foreach (var rel in AllExternalRelationships(child.OpenXmlPart, visited, depth + 1))
-            {
-                yield return rel;
-            }
-        }
     }
 
     private static bool GuidEquals(string a, string b) => SchemaProvider.SameItemId(a, b);

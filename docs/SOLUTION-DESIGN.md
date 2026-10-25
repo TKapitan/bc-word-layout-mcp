@@ -45,8 +45,10 @@ unreliable in a file format where a single misplaced element silently corrupts t
   layout comments). Their OOXML encoding is undocumented, and this project does not emit OOXML it has not
   seen (§6). Two are captured: *Hide Empty Table Row* and *Hide Empty Table* appear in SalespersonCommission
   and SubcontractorDispatchList as a cell-level wrapper tagged `#BC:HideTableRowIfEmpty` /
-  `#BC:HideTableIfEmpty`, which the table tools see through ([#85](https://github.com/TKapitan/bc-word-layout-mcp/issues/85)). Authoring them waits on a
-  sandbox check of what BC treats as empty ([#123](https://github.com/TKapitan/bc-word-layout-mcp/issues/123)). *Hide Field if Zero* and layout comments
+  `#BC:HideTableIfEmpty`, which the table tools see through ([#85](https://github.com/TKapitan/bc-word-layout-mcp/issues/85)). What BC 28 does with them
+  is measured ([#123](https://github.com/TKapitan/bc-word-layout-mcp/issues/123)): inside a repeater the row variant hides the whole repeated item
+  when its cell is empty, outside one it does nothing, and the table variant around a cell does nothing.
+  Authoring them is planned after 2.0. *Hide Field if Zero* and layout comments
   have never been captured ([#8](https://github.com/TKapitan/bc-word-layout-mcp/issues/8)).
 - **Broad cosmetic formatting** (margins, page setup, branding). Text and cell formatting are supported
   (issue [#15](https://github.com/TKapitan/bc-word-layout-mcp/issues/15)): one `format` object (bold,
@@ -56,7 +58,8 @@ unreliable in a file format where a single misplaced element silently corrupts t
   no styling to inherit and would otherwise look obviously wrong. Where there IS
   styling to inherit, inline inserts take the run formatting of the text before them, as typing in Word
   does, so they match a stock layout's own runs without any knob (issue
-  [#122](https://github.com/TKapitan/bc-word-layout-mcp/issues/122)). Anything beyond that stays a
+  [#122](https://github.com/TKapitan/bc-word-layout-mcp/issues/122)). The row tools do the same per column: a new row's cells take the run
+  formatting and paragraph style of the row beside them. Anything beyond that stays a
   hand-edit, which `validate_layout` makes safe.
 
 ### Users and workflow context
@@ -120,7 +123,9 @@ index, and every row operation reasons through `gridBefore + Σ gridSpan + gridA
 **5. Real layouts ship with real defects.** Bindings pointing at a superseded or foreign report namespace,
 `storeItemID`s naming a part absent from the package, `prefixMappings` written as a bare URI with no
 `xmlns:` declaration, external `attachedTemplate` relationships pointing at a developer's desktop. Stock
-Microsoft layouts do all of this and BC prints them anyway. Validation must therefore distinguish "this
+Microsoft layouts do all of this and BC prints them anyway — except the `attachedTemplate` link, which BC
+began refusing on upload in 2026 (`UnsupportedExternalContentFields`, a BC 28 sandbox), so every tool that
+writes a layout now removes it and the validator reports one as an error. Validation must therefore distinguish "this
 layout is unusual" (warning) from "this edit broke something" (error) — see §6, principle 4.
 
 At runtime **BC — not Word — merges** the dataset into the layout and converts to the output format. The
@@ -274,9 +279,11 @@ layout.docx ──► MergeEngine ◄───────────┘
   sandbox render, which remains the sign-off step. Every preview response repeats this. Known gaps —
   caption translation, BC SaaS font substitution, pagination, locale formatting — and the per-release manual
   procedure are in [`FIDELITY-CHECKLIST.md`](FIDELITY-CHECKLIST.md). The bet was validated against real BC
-  sandboxes in two rounds (2026-08-01 and 2026-08-02; BC 28.0 and 28.3): five items, then seven, three of
-  them built from scratch — all passed. BC accepts what the tools author, and the mock's structure matched
-  the real render on the dimensions checked.
+  sandboxes in three rounds on BC 28: five items, then seven (2026-08, BC 28.0 and 28.3; all passed), then
+  seventeen plus seven follow-up probes (2026-10), which found four things the tools got wrong in 2.0,
+  all fixed in 2.0.0. BC accepts what the tools author, and the mock's structure matched the real render on
+  the dimensions checked; where it does not (generated data fills every field, hide-if-empty controls are
+  ignored), the checklist says so.
   Per-release manual fidelity dimensions remain open in the checklist.
 
 ## 6. Design principles
@@ -433,6 +440,6 @@ live list. The ones that would change this document:
 
 | Question | Issue |
 |---|---|
-| What does BC treat as "empty" for the captured *Hide Empty Table Row* / *Hide Empty Table* controls? Blocks authoring them. | [#123](https://github.com/TKapitan/bc-word-layout-mcp/issues/123) |
+| What does *Hide Empty Table* do around a whole table, the placement its placeholder text describes? The row variant and the table variant around a cell are measured; authoring them is planned after 2.0. | [#123](https://github.com/TKapitan/bc-word-layout-mcp/issues/123) |
 | What OOXML do *Hide Field if Zero* and layout comments produce? Needs the real BC add-in. | [#8](https://github.com/TKapitan/bc-word-layout-mcp/issues/8) |
 | Is the LibreOffice path good enough to be the non-Windows experience? | [#7](https://github.com/TKapitan/bc-word-layout-mcp/issues/7) |
