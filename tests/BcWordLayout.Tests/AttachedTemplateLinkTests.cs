@@ -34,6 +34,22 @@ public class AttachedTemplateLinkTests
 
     private static string TempPath() => Path.Combine(Path.GetTempPath(), $"bcwl-attached-template-{Guid.NewGuid():N}.docx");
 
+    /// <summary>Each package part's uncompressed content (base64), keyed by its name in the zip.</summary>
+    private static SortedDictionary<string, string> PartContents(string path)
+    {
+        using var zip = System.IO.Compression.ZipFile.OpenRead(path);
+        var parts = new SortedDictionary<string, string>(StringComparer.Ordinal);
+        foreach (var entry in zip.Entries)
+        {
+            using var stream = entry.Open();
+            using var bytes = new MemoryStream();
+            stream.CopyTo(bytes);
+            parts[entry.FullName] = Convert.ToBase64String(bytes.ToArray());
+        }
+
+        return parts;
+    }
+
     /// <summary>Every external attached-template relationship and <c>w:attachedTemplate</c> element in the file.</summary>
     private static (int Relationships, int Settings) Links(string path)
     {
@@ -99,13 +115,16 @@ public class AttachedTemplateLinkTests
         var path = CopyOfCorpus(Corpus.StandardStatement);
         try
         {
-            var before = File.ReadAllBytes(path);
+            var before = PartContents(path);
             using (var doc = WordprocessingDocument.Open(path, true, new OpenSettings { AutoSave = false }))
             {
                 Assert.Empty(AttachedTemplateLink.Remove(doc));
             }
 
-            Assert.Equal(before, File.ReadAllBytes(path));
+            // What the package holds, part by part, not the file's bytes: on Linux, System.IO.Packaging rewrites
+            // the zip container of a package opened for writing (its headers then say "made by Unix") even when
+            // no part changed.
+            Assert.Equal(before, PartContents(path));
         }
         finally
         {
