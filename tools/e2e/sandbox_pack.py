@@ -1848,7 +1848,7 @@ looks, a rule under every line - with the work description repeated per line (P1
 **P15-P17** print what no round has printed from the tools at all: totals rows inside a lines table and
 page numbers (P15), per-group subtotals (P16), and a layout created over a branded `.dotx` template (P17).
 
-**Round 3's re-run (2.0.0-rc.2)** follows the first round-3 prints (2026-10-24). P04 and P06 are corrected
+**Round 3's re-run** (2026-10-25) follows the first round-3 prints (2026-10-24). P04 and P06 are corrected
 (P04's column order and typography, P06's vendor address), P08 is a regression check of the #102 fix, and
 P09/P10 moved to the stock quote, where a quote with no lines gives the hide-if-empty wrappers an empty case.
 P11, P14 and P15 are unchanged, but their round-3 prints missed a case each: a one-page order (P11), a quote

@@ -7,6 +7,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-10-25
+
+A major release. Many tools take new argument shapes: the six entries marked **BREAKING** under
+*Changed* give the old and the new form of each change. Everything under *Fixed* was found or confirmed by printing the
+sandbox pack in a Business Central 28 sandbox (round 3, recorded in `docs/FIDELITY-CHECKLIST.md`).
+
 ### Added
 
 - **New tool `set_text_format`: restyle text that is already in the layout** (GitHub issue #15).
@@ -341,7 +347,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     part keeps its name, `word/document.xml`, and only its content type changes, as in Word's own
     Save As. Converted the way the OpenXML SDK does it, the main part moved to `word/document2.xml`,
     which Word opens; such a layout was accepted on upload and then failed to print in Business
-    Central with an internal server error (sandbox pack item P17, 2.0.0-rc.1).
+    Central with an internal server error (sandbox pack item P17).
   - A macro-enabled `templatePath` (`.dotm`/`.docm`) is refused with `invalid_argument` instead
     of having its macros silently dropped.
   - A new `validate_layout` check, `document-content-type` (error), flags any layout whose main

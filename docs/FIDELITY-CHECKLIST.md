@@ -164,7 +164,7 @@ passed**; the filled comparison sheet lives with the round's pack output.
 
 All seventeen items printed once two of them were repaired, and three research probes answered their
 questions. Every capability check printed what the mock showed. The round found one tool gap, two mistakes
-in the pack's own items, and three mock-data gaps, all fixed for 2.0.0-rc.2. Its re-run (2026-10-25,
+in the pack's own items, and three mock-data gaps, all fixed for 2.0.0. Its re-run (2026-10-25,
 P04, P06, P08–P11, P14, P15) printed the fixes as intended and filled in the cases the first prints missed,
 but one: P14's work description, a new finding below.
 
