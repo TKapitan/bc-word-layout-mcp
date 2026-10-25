@@ -105,6 +105,7 @@ public static class LayoutEditor
                 + "It is a plain run, not a content control, so it has no controlId and cannot be targeted by "
                 + "remove_control or used as an afterControl anchor."
                 + InheritedFormatNote(inherited)
+                + RunFormatter.FontNote(prepared, doc)
                 + (scaffolded
                     ? $" The layout had no {location.Part.ToString().ToLowerInvariant()} part, so an empty "
                       + $"{anchor.PartName} was created and wired into the page setup first."
@@ -183,6 +184,7 @@ public static class LayoutEditor
                 + "cannot be targeted by remove_control or used as an afterControl anchor. Word/BC "
                 + "recalculates the numbers on render; the visible '1' is only the cached placeholder."
                 + InheritedFormatNote(inherited)
+                + RunFormatter.FontNote(prepared, doc)
                 + (scaffolded
                     ? $" The layout had no {location.Part.ToString().ToLowerInvariant()} part, so an empty "
                       + $"{anchor.PartName} was created and wired into the page setup first."
@@ -785,7 +787,8 @@ public static class LayoutEditor
             Part = "document.xml",
             Summary = $"Added a nested '{normalizedChild}' detail row (id {controlId}) inside repeater "
                 + $"{parentRepeaterId}'s item - it expands once per parent row, below the line row."
-                + formatNote,
+                + formatNote
+                + RunFormatter.FontNote(prepared, doc),
         };
     }
 
@@ -856,7 +859,8 @@ public static class LayoutEditor
                 + $"repeater {parentRepeaterId}'s item - it renders once per group (per parent row), after "
                 + "the line row and any nested detail rows. Repeated calls stack further rows below it "
                 + "(the stock shape is a spacer row, then the bold subtotal row)."
-                + formatNote,
+                + formatNote
+                + RunFormatter.FontNote(prepared, doc),
         };
     }
 
@@ -1448,6 +1452,7 @@ public static class LayoutEditor
             Summary = $"Inserted {kind.ToString().ToLowerInvariant()} '{datasetPath}' (id {id}) at "
                 + $"{DescribeLocation(location, anchor.PartName)}."
                 + InheritedFormatNote(inherited)
+                + RunFormatter.FontNote(prepared, doc)
                 + (scaffolded
                     ? $" The layout had no {location.Part.ToString().ToLowerInvariant()} part, so an empty "
                       + $"{anchor.PartName} was created and wired into the page setup first."

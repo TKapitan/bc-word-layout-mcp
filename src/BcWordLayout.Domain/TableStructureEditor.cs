@@ -1123,6 +1123,7 @@ public static class TableStructureEditor
                 + $"with {cells.Count} cell(s) and {boundSummary}. It renders exactly once - it is a direct "
                 + "table row, not part of any repeating section."
                 + formatNote
+                + RunFormatter.FontNote(prepared, doc)
                 + $" Follow up with set_cell_format (row {target}) for the rule a BC totals row carries, or "
                 + "set_cell_text for a literal caption.",
         };

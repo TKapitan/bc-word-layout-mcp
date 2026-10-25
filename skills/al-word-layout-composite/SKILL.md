@@ -130,7 +130,9 @@ customer might pick instead (Calm, Default, Playful). In BC a missing id renders
 error. Within one file, `validate_layout` catches two of the three kinds: `table-style-resolves` (a
 `w:tblStyle`) and `character-style-resolves` (a `w:rStyle`, including one that names a paragraph style)
 warn about ids that file's own `styles.xml` does not define. `w:pStyle` ids, and every check against the
-theme file, stay manual. Watch for Word's duplicate ids (`BCLabel0`, `BCLabelNumber0`) that appear when a body was attached to
+theme file, stay manual. Fonts get the same care: `font-installed` warns about a font Business Central
+online does not have, including the theme's heading or body font when text refers to it, since BC prints
+such text in a substitute font. Watch for Word's duplicate ids (`BCLabel0`, `BCLabelNumber0`) that appear when a body was attached to
 a template in Word — no theme defines them [MS sample: WordBody_3].
 
 ## 6. Splitting one designed document into the three parts

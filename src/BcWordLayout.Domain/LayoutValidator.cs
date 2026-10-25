@@ -52,6 +52,7 @@ public static class LayoutValidator
         CheckTableStylesResolve(main, findings);
         CheckCharacterStylesResolve(main, findings);
         CheckControlIdsUnique(main, findings);
+        CheckFontsInstalled(main, findings);
 
         return new ValidationResult { Level = "quick", Findings = findings };
     }
@@ -1027,7 +1028,120 @@ public static class LayoutValidator
         }
     }
 
+    // 10. Every font the layout names is one Business Central online has installed, or one the layout embeds
+    //     (BcOnlineFonts). BC prints text set in a font it lacks in a substitute: sandbox probe P13 (BC 28,
+    //     2026-10-24) printed a font that exists nowhere in a serif face. WARNING, not an error: the layout uploads
+    //     and prints, only not in that font, and an on-premises server may have it installed. The names read are
+    //     the w:rFonts ascii/hAnsi/cs/eastAsia of runs, controls, paragraph marks, styles, document defaults and
+    //     numbering - skipping one a theme attribute on the same element overrides, as Word does - plus the
+    //     theme's Latin heading and body fonts when some w:rFonts refers to them. One finding per font, naming
+    //     the parts that use it. No corpus layout trips it.
+    private static void CheckFontsInstalled(MainDocumentPart main, List<ValidationFinding> findings)
+    {
+        var embedded = BcOnlineFonts.EmbeddedIn(main);
+        var missing = new Dictionary<string, SortedSet<string>>(StringComparer.OrdinalIgnoreCase);
+        void Use(string? font, string partName)
+        {
+            var name = font?.Trim();
+            if (string.IsNullOrEmpty(name) || BcOnlineFonts.IsInstalled(name) || embedded.Contains(name))
+            {
+                return;
+            }
+
+            if (!missing.TryGetValue(name, out var parts))
+            {
+                missing[name] = parts = new SortedSet<string>(StringComparer.Ordinal);
+            }
+
+            parts.Add(partName);
+        }
+
+        var themeFonts = new HashSet<ThemeFontValues>();
+        foreach (var (root, partName) in FontCarryingParts(main))
+        {
+            foreach (var fonts in root.Descendants<RunFonts>())
+            {
+                if (fonts.AsciiTheme?.Value is { } asciiTheme)
+                {
+                    themeFonts.Add(asciiTheme);
+                }
+                else
+                {
+                    Use(fonts.Ascii?.Value, partName);
+                }
+
+                if (fonts.HighAnsiTheme?.Value is { } highAnsiTheme)
+                {
+                    themeFonts.Add(highAnsiTheme);
+                }
+                else
+                {
+                    Use(fonts.HighAnsi?.Value, partName);
+                }
+
+                if (fonts.ComplexScriptTheme is null)
+                {
+                    Use(fonts.ComplexScript?.Value, partName);
+                }
+
+                if (fonts.EastAsiaTheme is null)
+                {
+                    Use(fonts.EastAsia?.Value, partName);
+                }
+            }
+        }
+
+        if (main.ThemePart is { } themePart && themePart.Theme?.ThemeElements?.FontScheme is { } scheme)
+        {
+            var themeName = PartWalker.PartFileName(themePart);
+            if (themeFonts.Contains(ThemeFontValues.MajorAscii) || themeFonts.Contains(ThemeFontValues.MajorHighAnsi))
+            {
+                Use(scheme.MajorFont?.LatinFont?.Typeface?.Value, themeName);
+            }
+
+            if (themeFonts.Contains(ThemeFontValues.MinorAscii) || themeFonts.Contains(ThemeFontValues.MinorHighAnsi))
+            {
+                Use(scheme.MinorFont?.LatinFont?.Typeface?.Value, themeName);
+            }
+        }
+
+        foreach (var (font, parts) in missing)
+        {
+            findings.Add(new ValidationFinding
+            {
+                Check = "font-installed",
+                Severity = FindingSeverity.Warning,
+                Message = $"Font '{font}' is not one Business Central online has installed, and the layout does not "
+                          + "embed it, so BC prints the text set in it in a substitute font (a serif face in the "
+                          + "sandbox). Use an installed font - Microsoft's own layouts use Segoe UI; the list is at "
+                          + "learn.microsoft.com/dynamics365/business-central/ui-fonts - for instance with "
+                          + "set_text_format's format.fontName, or embed the font from Word (File > Options > Save). "
+                          + "An on-premises server renders with the fonts installed on it.",
+                Location = string.Join(", ", parts),
+            });
+        }
+    }
+
     // ---- helpers ----
+
+    /// <summary>The parts whose <c>w:rFonts</c> name fonts: the content parts, then the styles and numbering parts.</summary>
+    private static IEnumerable<(OpenXmlPartRootElement Root, string PartName)> FontCarryingParts(MainDocumentPart main)
+    {
+        foreach (var part in EnumerateContentParts(main))
+        {
+            yield return part;
+        }
+
+        if (main.StyleDefinitionsPart is { Styles: { } styles } stylesPart)
+        {
+            yield return (styles, PartWalker.PartFileName(stylesPart));
+        }
+
+        if (main.NumberingDefinitionsPart is { Numbering: { } numbering } numberingPart)
+        {
+            yield return (numbering, PartWalker.PartFileName(numberingPart));
+        }
+    }
 
     private static IEnumerable<(OpenXmlPartRootElement Root, string PartName)> EnumerateContentParts(MainDocumentPart main) =>
         PartWalker.ContentParts(main);

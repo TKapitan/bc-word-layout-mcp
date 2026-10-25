@@ -24,6 +24,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Alignment goes on the target's paragraphs, or for an inline control or a text match on the line it
   sits in. A target given an argument it does not use is refused.
 
+- **A warning for fonts Business Central online does not have.** A BC 28 sandbox printed a line set in
+  a font that exists nowhere in a serif face (sandbox probe P13, 2026-10-24), and Microsoft documents
+  the fallback as the Normal style's font; custom fonts cannot be uploaded to BC online.
+  - `validate_layout`'s new `font-installed` warning names each font the layout uses that is not on
+    Microsoft's list of installed fonts (learn.microsoft.com/dynamics365/business-central/ui-fonts, 519
+    names) and is not embedded in the layout, with the parts that use it. It reads runs, controls,
+    paragraph marks, styles, document defaults and numbering, and the theme's heading and body fonts
+    where text refers to them. No stock layout in the corpus trips it.
+  - A tool given a `format.fontName` that BC online lacks still writes it, and says so in its summary.
+
 - **New skill `al-word-layout-from-design`: from a finished Word design to a bound layout.** A
   consultant who has the document designed in Word (colours, logo box, sample values) and the report's
   empty layout exported from BC gets a working layout without touching OOXML or AL: the skill covers
