@@ -195,7 +195,8 @@ commission % [verified: P07, P16].
 - Editing a stock layout: inline inserts take the run formatting of the text before them (#122), so a
   field or separator added to a stock line already matches its `Strong` or Segoe UI 8 pt neighbours.
   Pass `format` only to differ from them.
-- The row tools do the same per column: a new row's cells take the formatting of the row above them.
+- The row tools do the same per column: a new row's cells take the run formatting and paragraph style of
+  the row above them.
   A row built into a repeater item that has lost its own rows has nothing to take, so pass the stock
   rows' look as `format` (Job Quote's are Segoe UI 8 pt; a bare row printed at 11 pt [verified: P04]).
 - Pick installed fonts: a font Business Central online does not have prints in a substitute

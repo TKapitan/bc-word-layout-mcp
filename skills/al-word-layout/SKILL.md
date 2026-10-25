@@ -126,10 +126,12 @@ paragraph, or lands in a fresh `insert_table` cell, has nothing to take and stay
 The row tools (`insert_repeater_row`, `insert_subtotal_row`, `insert_table_row`) follow Word's rule for
 an inserted row instead: each new cell takes the run formatting of the cell in the same grid column of
 the row above it (the row below, for a row inserted at the top of a table), on its controls and on its
-paragraph mark, which is what sizes an empty spacer cell. So a detail row under a stock Segoe UI 8 pt
-line row is Segoe UI 8 pt, and a header row above makes the new row bold. `format` overrides it, member
-by member, and the summary names what was taken. A table whose rows carry no direct formatting (the
-stock quote's lines table, every tool-built table) gives nothing: the row shares their styles. Nor does
+paragraph mark, which is what sizes an empty spacer cell, and that cell's paragraph style (the stock VAT
+specification invoice sizes its lines through `LeftAlign`/`RightAlign`). So a detail row under a stock
+Segoe UI 8 pt line row is Segoe UI 8 pt, and a header row above makes the new row bold. `format`
+overrides the run formatting, member by member, a cell's `alignment` the style's alignment, and the
+summary names what was taken. A table whose rows carry no direct formatting or style (the stock quote's
+lines table, every tool-built table) gives nothing: the row shares their styles. Nor does
 a repeater item with no row of its own (Job Quote's task item, once its planning-line repeater is
 removed): the row above it is the caption row, so pass `format` there.
 

@@ -1274,14 +1274,18 @@ public static class LayoutEditor
     /// takes the formatting of the <paramref name="reference"/> row's cell in the same grid column
     /// (<see cref="InheritedRunFormat.ForRowCells"/>), with <paramref name="format"/> on top: on every control it
     /// holds, through the path <c>insert_field</c> uses (<see cref="StyleControl"/>), and on every paragraph mark,
-    /// which is what sizes an empty spacer cell's line. <paramref name="referenceSide"/> ("above"/"below") says
+    /// which is what sizes an empty spacer cell's line. Its paragraphs also take that cell's paragraph style
+    /// (<see cref="InheritedRunFormat.ParagraphStylesForRowCells"/>); the alignment a cell spec gives is direct
+    /// formatting, so it still wins over the style's. <paramref name="referenceSide"/> ("above"/"below") says
     /// where the reference row is, for the summary sentence this returns (empty when nothing was inherited).
     /// </summary>
     internal static string StyleNewRow(
         TableRow row, TableRow? reference, RunFormatter.Prepared? format, string referenceSide)
     {
         var cells = row.Elements<TableCell>().ToList();
-        var inherited = InheritedRunFormat.ForRowCells(reference, cells.Select(TableGridNavigator.GridSpanOf).ToList());
+        var spans = cells.Select(TableGridNavigator.GridSpanOf).ToList();
+        var inherited = InheritedRunFormat.ForRowCells(reference, spans);
+        var styles = InheritedRunFormat.ParagraphStylesForRowCells(reference, spans);
         for (var i = 0; i < cells.Count; i++)
         {
             foreach (var sdt in cells[i].Descendants<SdtRun>().ToList())
@@ -1291,6 +1295,12 @@ public static class LayoutEditor
 
             foreach (var paragraph in cells[i].Elements<Paragraph>())
             {
+                if (styles[i] is { } style && paragraph.ParagraphProperties?.ParagraphStyleId is null)
+                {
+                    (paragraph.ParagraphProperties ??= new ParagraphProperties()).ParagraphStyleId =
+                        new ParagraphStyleId { Val = style };
+                }
+
                 StyleParagraphMark(paragraph, inherited[i], format);
             }
         }
@@ -1300,7 +1310,13 @@ public static class LayoutEditor
             .Where(text => text.Length > 0)
             .Distinct(StringComparer.Ordinal)
             .ToList();
-        return inherited.All(rPr => rPr is null)
+        var styleNames = styles.OfType<string>().Distinct(StringComparer.Ordinal).Select(s => $"'{s}'").ToList();
+        if (styleNames.Count > 0)
+        {
+            traits.Add($"paragraph style {string.Join(", ", styleNames)}");
+        }
+
+        return inherited.All(rPr => rPr is null) && styleNames.Count == 0
             ? string.Empty
             : $" Each cell takes the formatting of the cell {referenceSide} it"
               + (traits.Count > 0 ? $" ({string.Join("; ", traits)})" : string.Empty)

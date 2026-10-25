@@ -283,6 +283,41 @@ public class RowFormatInheritanceTests
     }
 
     [Fact]
+    public void A_row_in_the_VAT_specification_invoice_takes_its_columns_paragraph_styles()
+    {
+        // StandardSalesInvoiceVatSpec sizes its line text through paragraph styles: grid column 0 is LeftAlign,
+        // 2 RightAlign (which carries the 10 pt), 3 LeftAlign. A row built without them printed a point larger (P22).
+        var path = CopyOfCorpus(Corpus.SalesInvoiceVatSpec);
+        try
+        {
+            using var doc = WordprocessingDocument.Open(path, true);
+            var lines = RepeaterId(doc, "/Header/Line");
+            var grid = TableGridNavigator.GridColumnCount(Control(doc, lines).Ancestors<Table>().First());
+
+            var result = LayoutEditor.InsertSubtotalRow(doc, lines,
+            [
+                new RepeaterRowCell { Span = 2 },
+                new RepeaterRowCell { Fields = ["/Header/Line/Quantity_Line"] },
+                new RepeaterRowCell { Fields = ["/Header/Line/Description_Line"], Alignment = "right", Span = grid - 3 },
+            ]);
+
+            Assert.Empty(new OpenXmlValidator(FileFormatVersions.Office2021).Validate(doc));
+            Assert.Contains("paragraph style 'LeftAlign', 'RightAlign'", result.Summary, StringComparison.Ordinal);
+            var paragraphs = Control(doc, lines).Descendants<TableRow>().Last()
+                .Elements<TableCell>().Select(c => Assert.Single(c.Elements<Paragraph>())).ToList();
+            Assert.Equal(["LeftAlign", "RightAlign", "LeftAlign"],
+                paragraphs.Select(p => p.ParagraphProperties?.ParagraphStyleId?.Val?.Value).ToList());
+
+            // The cell spec's own alignment is direct formatting, so it wins over the LeftAlign style.
+            Assert.Equal(JustificationValues.Right, paragraphs[2].ParagraphProperties?.Justification?.Val?.Value);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void A_table_whose_rows_carry_no_direct_formatting_gives_none()
     {
         var path = Corpus.UnlinkedCopy(Corpus.SalesInvoice);

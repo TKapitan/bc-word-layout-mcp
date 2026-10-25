@@ -301,11 +301,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     `insert_table_row` (the row after it for a row at the top of the table);
   - the formatting goes on the cell's controls and on its paragraph mark, which sets the line
     height of an empty spacer cell;
+  - the cell's paragraphs take that cell's paragraph style too, since some stock tables size their
+    text through styles: rows added under the stock VAT specification invoice's lines printed a point
+    larger without its `LeftAlign`/`RightAlign` (sandbox pack P22). A cell's `alignment` still wins;
   - `format`, now on all three tools, overrides it member by member, and the summary names what was
     taken.
 
   The rules of the inline inserts apply to what is copied. A table whose rows carry no direct
-  formatting (the stock quote's lines table, every tool-built table) gives nothing, and neither does a
+  formatting or style (the stock quote's lines table, every tool-built table) gives nothing, and neither does a
   repeater item with no row of its own. `format` used to style only the bound controls; it now styles
   the paragraph marks too.
 

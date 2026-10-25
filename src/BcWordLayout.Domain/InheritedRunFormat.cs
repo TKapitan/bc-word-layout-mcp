@@ -8,7 +8,8 @@ namespace BcWordLayout.Domain;
 /// so a separator, field, label or page number matches the text it lands beside (GitHub issue #122). The rule
 /// is Word's own for typing: new text takes the formatting of the character before it, and in an empty
 /// paragraph the formatting of the paragraph mark. The cells of a new table row take theirs from the row beside
-/// it, column by column (<see cref="ForRowCells"/>).
+/// it, column by column (<see cref="ForRowCells"/>), and the paragraph style with it
+/// (<see cref="ParagraphStylesForRowCells"/>).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -84,15 +85,39 @@ internal static class InheritedRunFormat
     /// formatting (the stock quote's lines table, every tool-built table) gives nothing, and the new row looks
     /// like its neighbours through the same styles they use.
     /// </remarks>
-    internal static IReadOnlyList<RunProperties?> ForRowCells(TableRow? reference, IReadOnlyList<int> spans)
+    internal static IReadOnlyList<RunProperties?> ForRowCells(TableRow? reference, IReadOnlyList<int> spans) =>
+        ReferenceCells(reference, spans).Select(cell => cell is null ? null : OfCell(cell)).ToList();
+
+    /// <summary>
+    /// The paragraph style each cell of a new table row takes from <paramref name="reference"/>: per entry of
+    /// <paramref name="spans"/>, the <c>w:pStyle</c> of the paragraph <see cref="ForRowCells"/> reads in the
+    /// same reference cell. An entry is null where that paragraph names no style, and every entry is null when
+    /// <paramref name="reference"/> is.
+    /// </summary>
+    /// <remarks>
+    /// WHY: some stock tables size their text through paragraph styles rather than on the runs.
+    /// StandardSalesInvoiceVatSpec's line row sets <c>LeftAlign</c>/<c>RightAlign</c> on each cell
+    /// (<c>RightAlign</c> carries the 10 pt), so a row built beside it printed a point larger with the run
+    /// formatting alone (sandbox pack P22, BC 28).
+    /// </remarks>
+    internal static IReadOnlyList<string?> ParagraphStylesForRowCells(TableRow? reference, IReadOnlyList<int> spans) =>
+        ReferenceCells(reference, spans)
+            .Select(cell => cell is null ? null : TextParagraphOf(cell)?.ParagraphProperties?.ParagraphStyleId?.Val?.Value)
+            .ToList();
+
+    /// <summary>
+    /// The cell of <paramref name="reference"/> each new cell takes its formatting from (see
+    /// <see cref="ForRowCells"/>), or null for every new cell when there is no reference row with cells.
+    /// </summary>
+    private static OpenXmlElement?[] ReferenceCells(TableRow? reference, IReadOnlyList<int> spans)
     {
         ArgumentNullException.ThrowIfNull(spans);
 
-        var inherited = new RunProperties?[spans.Count];
+        var sources = new OpenXmlElement?[spans.Count];
         var cells = reference is null ? [] : TableGridNavigator.Cells(reference);
         if (cells.Count == 0)
         {
-            return inherited;
+            return sources;
         }
 
         var firstColumn = TableGridNavigator.Coverage(reference!).Before;
@@ -100,11 +125,11 @@ internal static class InheritedRunFormat
         for (var i = 0; i < spans.Count; i++)
         {
             var source = CellCovering(cells, firstColumn, gridColumn);
-            inherited[i] = OfCell(source.InnerCell ?? source.CellChild);
+            sources[i] = source.InnerCell ?? source.CellChild;
             gridColumn += spans[i];
         }
 
-        return inherited;
+        return sources;
     }
 
     /// <summary>
@@ -128,8 +153,15 @@ internal static class InheritedRunFormat
         return cells[^1];
     }
 
-    /// <summary>The formatting of <paramref name="cell"/>'s text, as <see cref="ForRowCells"/> reads it.</summary>
-    private static RunProperties? OfCell(OpenXmlElement cell)
+    /// <summary>
+    /// The formatting of <paramref name="cell"/>'s text, as <see cref="ForRowCells"/> reads it: at the end of its
+    /// text paragraph (<see cref="TextParagraphOf"/>), whose own mark gives it when the paragraph is empty.
+    /// </summary>
+    private static RunProperties? OfCell(OpenXmlElement cell) =>
+        TextParagraphOf(cell) is { } paragraph ? Before(paragraph, insertAfter: null) : null;
+
+    /// <summary>The first paragraph of <paramref name="cell"/> holding text, else its first paragraph, else null.</summary>
+    private static Paragraph? TextParagraphOf(OpenXmlElement cell)
     {
         Paragraph? first = null;
         foreach (var paragraph in cell.Descendants<Paragraph>())
@@ -137,11 +169,11 @@ internal static class InheritedRunFormat
             first ??= paragraph;
             if (paragraph.ChildElements.Any(child => TryInline(child, out _)))
             {
-                return Before(paragraph, insertAfter: null);
+                return paragraph;
             }
         }
 
-        return first is null ? null : Usable(FromParagraphMark(first));
+        return first;
     }
 
     /// <summary>
