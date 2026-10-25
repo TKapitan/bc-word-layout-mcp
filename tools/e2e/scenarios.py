@@ -820,7 +820,7 @@ def s09(ctx: Ctx):
     # corpus-verified as a plain, non-repeater table whose BOTH rows are fully bound (a label row
     # over a field row) and which uses no gridSpan/gridAfter. Removing the last column drops two
     # bound cells - remove_column's documented drop-the-binding behavior - and must add no NEW
-    # findings beyond this layout's pre-existing storeItemID errors and attachedTemplate warning.
+    # findings beyond this layout's pre-existing storeItemID warnings and attached-template error.
     # Deliberately NOT the widest table: this layout's lines table uses w:gridAfter, which every
     # table-structure tool still refuses (see GitHub issue #9's history).
     info = ctx.info()

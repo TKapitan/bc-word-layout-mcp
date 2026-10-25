@@ -64,6 +64,31 @@ public sealed class RepointedBinding
 }
 
 /// <summary>
+/// One BC binding whose <c>w:storeItemID</c> named NO part in the package and which
+/// <see cref="BcWordLayout.Domain.LayoutRefresher.Refresh"/> re-pointed to the BC part's <c>ds:itemID</c>
+/// (GitHub issue #102). Word and Business Central already re-bind such a control to the BC part, so it printed
+/// before too (sandbox pack item P08); the re-point clears the <c>store-item-id</c> warning and makes the
+/// binding say what it does. A binding naming ANOTHER existing part is left alone: it is bound to that part.
+/// </summary>
+public sealed class RepointedStoreItemId
+{
+    /// <summary>The control's <c>w:alias</c>, when present (e.g. <c>#Nav: /Header/DocumentNo</c>).</summary>
+    public string? Alias { get; init; }
+
+    /// <summary>The control's binding XPath (raw, indexed, prefixed). Unchanged by the re-point.</summary>
+    public required string XPath { get; init; }
+
+    /// <summary>Which OOXML part the control lives in (e.g. <c>document.xml</c>, <c>header1.xml</c>).</summary>
+    public required string Part { get; init; }
+
+    /// <summary>The control's <c>w:id</c>.</summary>
+    public int? SdtId { get; init; }
+
+    /// <summary>The storeItemID the binding named before the re-point.</summary>
+    public required string PreviousStoreItemId { get; init; }
+}
+
+/// <summary>
 /// The result of <see cref="BcWordLayout.Domain.LayoutRefresher.Refresh"/>: old vs new report identity,
 /// whether the dataset namespace itself changed (triggering a <c>w:prefixMappings</c>/<c>w:tag</c> remap),
 /// how many existing bindings still resolve against the new schema ("remapped"), which no longer do
@@ -120,6 +145,12 @@ public sealed class RefreshResult
     /// report does not have still appears in <see cref="OrphanedBindings"/>.
     /// </summary>
     public required IReadOnlyList<RepointedBinding> RepointedForeignBindings { get; init; }
+
+    /// <summary>
+    /// BC bindings whose <c>w:storeItemID</c> named no part in the package, re-pointed to the BC part's
+    /// <c>ds:itemID</c>; see <see cref="RepointedStoreItemId"/>. Empty when the BC part declares no item ID.
+    /// </summary>
+    public required IReadOnlyList<RepointedStoreItemId> RepointedStoreItemIds { get; init; }
 
     /// <summary>
     /// Dataset paths (<see cref="DatasetColumn.Path"/>) of non-label leaf columns that are GENUINELY NEW as

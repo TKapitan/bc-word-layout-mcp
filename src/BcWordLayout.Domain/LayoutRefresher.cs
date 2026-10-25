@@ -138,6 +138,29 @@ public static class LayoutRefresher
             })
             .ToList();
 
+        // ---- storeItemIDs naming no part: captured BEFORE the re-point below rewrites them ----
+        //
+        // Only BC-namespaced bindings, and only an ID that names NO custom XML part: Word and Business Central
+        // re-bind those to the BC part anyway (sandbox pack item P08, GitHub issue #102), so pointing them at it
+        // is not a guess. One naming another existing part is bound to that part's data and stays as it is.
+        var partItemIds = LayoutValidator.CustomXmlPartItemIds(main);
+        var repointedStoreItemIds = oldStoreItemId is null
+            ? []
+            : inventory.Controls
+                .Where(c => c.XPath is not null
+                            && c.BindingNamespace is not null
+                            && c.StoreItemId is not null
+                            && !partItemIds.Any(id => SchemaProvider.SameItemId(id, c.StoreItemId)))
+                .Select(c => new RepointedStoreItemId
+                {
+                    Alias = c.Alias,
+                    XPath = c.XPath!,
+                    Part = c.Part,
+                    SdtId = c.SdtId,
+                    PreviousStoreItemId = c.StoreItemId!,
+                })
+                .ToList();
+
         // ---- new unbound fields: a genuine OLD-vs-NEW diff (non-label, new to this schema, still unbound) ----
         //
         // Empty when the old part could not be read: with no old schema there is no diff to compute, and
@@ -166,6 +189,10 @@ public static class LayoutRefresher
         // THIS refresh changed the report's own namespace. Gating on namespaceChanged left them untouched
         // whenever the refresh was a same-namespace one, which is the common case (GitHub issue #2).
         RepointToNewIdentity(main, newIdentity);
+        if (oldStoreItemId is not null && repointedStoreItemIds.Count > 0)
+        {
+            RepointDanglingStoreItemIds(main, oldStoreItemId, partItemIds);
+        }
 
         var quick = LayoutValidator.Quick(doc);
 
@@ -182,6 +209,7 @@ public static class LayoutRefresher
             RemappedCount = remappedCount,
             OrphanedBindings = orphaned,
             RepointedForeignBindings = repointedForeign,
+            RepointedStoreItemIds = repointedStoreItemIds,
             NewUnboundFields = newUnboundFields,
             RepairedUnreadablePart = target.Unreadable?.Describe(),
             QuickValidation = quick,
@@ -370,6 +398,36 @@ public static class LayoutRefresher
         foreach (var (root, _) in PartWalker.ContentParts(main))
         {
             RepointPart(root, newIdentity.Namespace, newTag);
+        }
+    }
+
+    /// <summary>
+    /// Points every BC-namespaced binding whose <c>w:storeItemID</c> names none of <paramref name="partItemIds"/>
+    /// at <paramref name="bcItemId"/>, in the same three-part scope as <see cref="RepointToNewIdentity"/>.
+    /// Runs after it, so every BC binding already names the new namespace.
+    /// </summary>
+    private static void RepointDanglingStoreItemIds(MainDocumentPart main, string bcItemId, IReadOnlyList<string> partItemIds)
+    {
+        bool Dangling(string? storeItemId) =>
+            storeItemId is not null && !partItemIds.Any(id => SchemaProvider.SameItemId(id, storeItemId));
+
+        foreach (var (root, _) in PartWalker.ContentParts(main))
+        {
+            foreach (var pr in root.Descendants<SdtProperties>())
+            {
+                switch (SdtInspector.FindBinding(pr))
+                {
+                    case DataBinding w when SdtInspector.ExtractBcNamespace(w.PrefixMappings?.Value) is not null
+                                            && Dangling(w.StoreItemId?.Value):
+                        w.StoreItemId = bcItemId;
+                        break;
+
+                    case Office2013Word.DataBinding w15 when SdtInspector.ExtractBcNamespace(w15.PrefixMappings?.Value) is not null
+                                                            && Dangling(w15.StoreItemId?.Value):
+                        w15.StoreItemId = bcItemId;
+                        break;
+                }
+            }
         }
     }
 

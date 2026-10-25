@@ -314,6 +314,12 @@ public sealed record CreateResultDto(
     ValidationSummaryDto QuickValidation,
     IReadOnlyList<string>? UnlinkedAttachedTemplates = null);
 
+/// <summary>
+/// A BC binding whose <c>w:storeItemID</c> named no part in the package, re-pointed by <c>refresh_xml_part</c> to the
+/// BC part's item ID (GitHub issue #102); <c>previousStoreItemId</c> is what it named before.
+/// </summary>
+public sealed record RepointedStoreItemIdDto(string? Alias, string XPath, string Part, int? SdtId, string PreviousStoreItemId);
+
 /// <summary>An existing control binding that no longer resolves against the NEW schema — left in place, reported.</summary>
 /// <remarks><c>SdtId</c> is the control's <c>w:id</c>, ready to pass straight to <c>remove_control</c> (which
 /// requires it) without a second <c>get_layout_info</c> lookup.</remarks>
@@ -361,6 +367,7 @@ public sealed record RefreshResultDto(
     int RemappedCount,
     IReadOnlyList<OrphanedBindingDto> OrphanedBindings,
     IReadOnlyList<RepointedBindingDto> RepointedForeignBindings,
+    IReadOnlyList<RepointedStoreItemIdDto> RepointedStoreItemIds,
     IReadOnlyList<string> NewUnboundFields,
     ValidationSummaryDto QuickValidation,
     string? RepairedUnreadablePart,

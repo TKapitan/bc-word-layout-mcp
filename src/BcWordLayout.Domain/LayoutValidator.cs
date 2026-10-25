@@ -39,7 +39,7 @@ public static class LayoutValidator
         DatasetTree? schema = TryBuildSchema(main, scan, findings);
 
         var inventory = LayoutReader.Read(doc);
-        CheckStoreItemIds(inventory, bcPartItemId, findings);
+        CheckStoreItemIds(main, inventory, bcPartItemId, findings);
         CheckBindingNamespaces(inventory, schema, findings);
         CheckBindingPrefixMappings(inventory, schema, findings);
         CheckXPathsResolve(inventory, schema, findings);
@@ -72,7 +72,7 @@ public static class LayoutValidator
                       + " This is the character-scaling value Microsoft Word itself writes into a content "
                       + "control's placeholder run (alongside w:sz=0), so it appears in any layout that has "
                       + "been opened and saved in Word. It renders correctly in both Word and Business "
-                      + "Central and there is no run-property tool to remove it, so it is reported as a "
+                      + "Central and no tool here edits character scaling, so it is reported as a "
                       + "warning rather than failing the layout."
                     : error.Description,
                 Location = error.Path?.XPath,
@@ -243,8 +243,14 @@ public static class LayoutValidator
         + "report's layout (or its exported schema .xml) as newSchemaSource: it replaces the part's content in "
         + "place and keeps its storeItemID, so every existing binding stays linked to it.";
 
-    // 3. Every binding's storeItemID matches the BC part's actual item ID.
-    private static void CheckStoreItemIds(LayoutInventory inventory, string? bcPartItemId, List<ValidationFinding> findings)
+    // 3. Every binding's storeItemID matches the BC part's actual item ID. Two mismatches behave differently
+    //    (GitHub issue #102): an ID that names ANOTHER custom XML part in the package binds the control to that
+    //    part's data - genuinely wrong, an ERROR - while an ID that names no part at all is re-bound to the BC
+    //    part by Word (XMLMapping.IsMapped) and by Business Central, which printed both such controls of
+    //    StandardSalesInvoiceVatSpec with their data (sandbox pack item P08, a BC 28 sandbox, 2026-10-24): a
+    //    WARNING, which refresh_xml_part repairs by re-pointing the ID.
+    private static void CheckStoreItemIds(
+        MainDocumentPart main, LayoutInventory inventory, string? bcPartItemId, List<ValidationFinding> findings)
     {
         if (bcPartItemId is null)
         {
@@ -253,26 +259,33 @@ public static class LayoutValidator
             return;
         }
 
+        var partItemIds = CustomXmlPartItemIds(main);
         foreach (var control in inventory.Controls)
         {
-            if (control.StoreItemId is null)
+            if (control.StoreItemId is null || GuidEquals(control.StoreItemId, bcPartItemId))
             {
                 continue;
             }
 
-            if (!GuidEquals(control.StoreItemId, bcPartItemId))
+            var namesAnotherPart = partItemIds.Any(id => GuidEquals(id, control.StoreItemId));
+            findings.Add(new ValidationFinding
             {
-                findings.Add(new ValidationFinding
-                {
-                    Check = "store-item-id",
-                    Severity = FindingSeverity.Error,
-                    Message = $"Binding storeItemID '{control.StoreItemId}' does not match the BC part item ID "
-                              + $"'{bcPartItemId}'.",
-                    Location = $"{control.Part}: {control.Alias ?? control.XPath}",
-                });
-            }
+                Check = "store-item-id",
+                Severity = namesAnotherPart ? FindingSeverity.Error : FindingSeverity.Warning,
+                Message = namesAnotherPart
+                    ? $"Binding storeItemID '{control.StoreItemId}' names another custom XML part, not the BC part "
+                      + $"'{bcPartItemId}': the control is bound to that part's data."
+                    : $"Binding storeItemID '{control.StoreItemId}' names no part in the package, not the BC part "
+                      + $"'{bcPartItemId}'. Word and Business Central re-bind such a control to the BC part, so it "
+                      + "prints; refresh_xml_part re-points the ID.",
+                Location = $"{control.Part}: {control.Alias ?? control.XPath}",
+            });
         }
     }
+
+    /// <summary>The <c>ds:itemID</c> of every custom XML part of <paramref name="main"/> that declares one.</summary>
+    internal static IReadOnlyList<string> CustomXmlPartItemIds(MainDocumentPart main) =>
+        main.CustomXmlParts.Select(SchemaProvider.ReadItemId).OfType<string>().ToList();
 
     // 3b. Every binding's prefixMappings names the layout's OWN BC dataset namespace.
     //

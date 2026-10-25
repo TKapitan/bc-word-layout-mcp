@@ -672,6 +672,47 @@ public class LayoutRefresherTests
         }
     }
 
+    [Fact]
+    public void Refresh_re_points_the_stock_storeItemIDs_that_name_no_part_to_the_BC_part()
+    {
+        // The same two StandardSalesInvoiceVatSpec bindings also carry a storeItemID that names no part of the
+        // package (GitHub issue #102). Word and Business Central re-bind them to the BC part anyway - sandbox pack
+        // item P08 printed both with their data - so the refresh points them at it and the warnings go.
+        var path = CopyOfCorpus(Corpus.SalesInvoiceVatSpec);
+        try
+        {
+            var before = LayoutValidator.Quick(path).Findings.Where(f => f.Check == "store-item-id").ToList();
+            Assert.Equal(2, before.Count);
+            Assert.All(before, f => Assert.Equal(FindingSeverity.Warning, f.Severity));
+
+            RefreshResult result;
+            using (var doc = WordprocessingDocument.Open(path, true))
+            {
+                result = LayoutRefresher.Refresh(doc, Corpus.Path(Corpus.SalesInvoiceVatSpec));
+                SaveAllParts(doc);
+            }
+
+            Assert.Equal(
+                new int?[] { -1454010444, 573011813 },
+                result.RepointedStoreItemIds.Select(r => r.SdtId).OrderBy(id => id).ToArray());
+            Assert.All(result.RepointedStoreItemIds,
+                r => Assert.False(SchemaProvider.SameItemId(result.StoreItemId!, r.PreviousStoreItemId)));
+
+            using (var reopened = WordprocessingDocument.Open(path, false))
+            {
+                Assert.All(
+                    LayoutReader.Read(reopened).Controls.Where(c => c.SdtId is 573011813 or -1454010444),
+                    c => Assert.True(SchemaProvider.SameItemId(result.StoreItemId!, c.StoreItemId!)));
+            }
+
+            Assert.DoesNotContain(LayoutValidator.Quick(path).Findings, f => f.Check == "store-item-id");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     // ---- error paths ----
 
     [Fact]

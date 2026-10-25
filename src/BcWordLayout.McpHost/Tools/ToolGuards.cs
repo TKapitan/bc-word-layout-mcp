@@ -692,6 +692,9 @@ internal static class ToolGuards
                 result.RepointedForeignBindings
                     .Select(r => new RepointedBindingDto(r.Alias, r.XPath, r.Part, r.SdtId, r.PreviousNamespace))
                     .ToList(),
+                result.RepointedStoreItemIds
+                    .Select(r => new RepointedStoreItemIdDto(r.Alias, r.XPath, r.Part, r.SdtId, r.PreviousStoreItemId))
+                    .ToList(),
                 result.NewUnboundFields,
                 new ValidationSummaryDto("quick", quick.Passed, quick.ErrorCount, quick.WarningCount),
                 result.RepairedUnreadablePart,

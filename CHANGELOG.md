@@ -211,6 +211,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **A binding whose storeItemID names no part is a warning, and `refresh_xml_part` re-points it**
+  (GitHub issue #102). Any mismatch between a binding's `w:storeItemID` and the BC part's item ID was
+  one error, although the two cases behave differently. An ID that names another custom XML part binds
+  the control to that part's data: still an error. An ID that names no part at all is re-bound to the BC
+  part by Word and by Business Central, which printed Microsoft's own StandardSalesInvoiceVatSpec
+  controls of that kind with their data (sandbox pack item P08): now a warning. `refresh_xml_part` points
+  such BC bindings at the BC part and lists them in the new `repointedStoreItemIds`; it leaves a binding
+  that names another part alone.
+
 - **Layouts the tools write no longer link an external attached template, which Business Central now
   refuses on upload.** A BC 28 sandbox refused a layout built on Microsoft's stock invoice layout
   (2026-10-24): "UnsupportedExternalContentFields: The Word layout contains unsupported fields or external
