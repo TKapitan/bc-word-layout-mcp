@@ -256,6 +256,25 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   names what was taken. An insert that opens a new paragraph, or lands in a fresh `insert_table`
   cell, has nothing to take and is unchanged.
 
+- **The row tools take the formatting of the row beside the new row, and `insert_repeater_row`
+  takes `format`.** A BC 28 sandbox printed the detail row `insert_repeater_row` built in Job Quote
+  at 11 pt between Segoe UI 8 pt rows (sandbox pack item P04, 2026-10-24): the tool had no `format`
+  argument, and the row tools built bare runs. Stock rows format each cell on its own, so
+  `insert_repeater_row`, `insert_subtotal_row` and `insert_table_row` now follow Word's rule for an
+  inserted row:
+  - each new cell copies the run formatting of the cell in the same grid column of the row above
+    it: the repeater item's last row for the two repeater tools, the row before `atRow` for
+    `insert_table_row` (the row after it for a row at the top of the table);
+  - the formatting goes on the cell's controls and on its paragraph mark, which sets the line
+    height of an empty spacer cell;
+  - `format`, now on all three tools, overrides it member by member, and the summary names what was
+    taken.
+
+  The rules of the inline inserts apply to what is copied. A table whose rows carry no direct
+  formatting (the stock quote's lines table, every tool-built table) gives nothing, and neither does a
+  repeater item with no row of its own. `format` used to style only the bound controls; it now styles
+  the paragraph marks too.
+
 - **Inserts that would land inside a data-bound field, label or picture control are refused**
   (GitHub issue #76). Three locations could resolve inside a bound control's content:
   - `afterControl` on a cell-level field;

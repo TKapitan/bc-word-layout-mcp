@@ -1008,9 +1008,10 @@ public static class TableStructureEditor
     /// than the separate totals table that used to be the only buildable route. Cell construction is
     /// <see cref="SdtFactory.BuildStaticRow"/>'s (each <see cref="RepeaterRowCell.Fields"/> entry a FULL
     /// dataset path; label-shaped paths become labels); the spans must cover the grid exactly, which the
-    /// grid-consistency guard also enforces mechanically before anything reaches disk. The optional
-    /// <paramref name="format"/> styles every bound cell's runs (the corpus grand-total rows are bold) via
-    /// the same path <c>insert_field</c> uses; a literal caption or a rule above the row are follow-up
+    /// grid-consistency guard also enforces mechanically before anything reaches disk. Each cell takes the
+    /// formatting of the row above it (below it, for a row put at the top), column by column, and the optional
+    /// <paramref name="format"/> goes on top (the corpus grand-total rows are bold) — see
+    /// <see cref="LayoutEditor.StyleNewRow"/>; a literal caption or a rule above the row are follow-up
     /// <c>set_cell_text</c>/<c>set_cell_format</c> calls on the reported row.
     /// </summary>
     /// <remarks>
@@ -1081,15 +1082,18 @@ public static class TableStructureEditor
         var nextId = LayoutEditor.MakeIdGenerator(doc);
         var row = SdtFactory.BuildStaticRow(schema, cells, widths, nextId);
 
-        var boundControlIds = new List<int>();
-        foreach (var sdt in row.Descendants<SdtRun>())
-        {
-            LayoutEditor.ApplyControlRunFormat(sdt, prepared);
-            if (SdtInspector.ReadControlId(sdt) is { } id)
-            {
-                boundControlIds.Add(id);
-            }
-        }
+        // Word's rule for an inserted row: it keeps the formatting of the row it was inserted from - the one
+        // above, or the one below for a row put at the top.
+        var above = rowSlots.Take(target).LastOrDefault(slot => slot.InnerRow is not null).InnerRow;
+        var formatNote = above is not null
+            ? LayoutEditor.StyleNewRow(row, above, prepared, "above")
+            : LayoutEditor.StyleNewRow(
+                row, rowSlots.Skip(target).FirstOrDefault(slot => slot.InnerRow is not null).InnerRow, prepared, "below");
+
+        var boundControlIds = row.Descendants<SdtRun>()
+            .Select(SdtInspector.ReadControlId)
+            .OfType<int>()
+            .ToList();
 
         if (target == rowSlots.Count)
         {
@@ -1117,8 +1121,10 @@ public static class TableStructureEditor
             ColumnCountAfter = gridCount,
             Summary = $"Inserted a static (non-repeating) row at row index {target} of table {tableIndex} "
                 + $"with {cells.Count} cell(s) and {boundSummary}. It renders exactly once - it is a direct "
-                + "table row, not part of any repeating section. Follow up with set_cell_format (row "
-                + $"{target}) for the rule a BC totals row carries, or set_cell_text for a literal caption.",
+                + "table row, not part of any repeating section."
+                + formatNote
+                + $" Follow up with set_cell_format (row {target}) for the rule a BC totals row carries, or "
+                + "set_cell_text for a literal caption.",
         };
     }
 
