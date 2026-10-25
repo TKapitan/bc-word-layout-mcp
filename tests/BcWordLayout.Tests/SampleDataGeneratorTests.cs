@@ -175,6 +175,86 @@ public class SampleDataGeneratorTests
     }
 
     [Theory]
+    // "Capt" is the caption abbreviation older reports use; without it JobTaskNoCapt rendered as the code
+    // "JOBT-3695" where BC prints "Project Task No." (sandbox round 3).
+    [InlineData("JobTaskNoCapt", "Job Task No")]
+    [InlineData("PurchLineOutstandgQtyCapt", "Purch Line Outstandg Qty")]
+    [InlineData("LineDiscountPctCaption", "Line Discount Pct")]
+    public void Capt_and_percent_captions_are_captions(string columnName, string expected)
+    {
+        var schema = SchemaWithHeaderColumns(columnName);
+        var dataset = SampleDataGenerator.Generate(schema, new SampleDataOptions { Seed = 3, Rows = 1 });
+
+        XNamespace ns = schema.Report.Namespace;
+        Assert.Equal(expected, dataset.Xml.Root!.Element(ns + "Header")!.Element(ns + columnName)!.Value);
+    }
+
+    [Fact]
+    public void A_percent_formatted_as_text_gets_a_short_percent_not_a_caption()
+    {
+        // LineDiscountPercentText_Line carries the caption word "Text"; as a caption it read "Line Discount
+        // Percent Line" and wrapped to five lines per row in the stock quote's narrow discount column.
+        const string column = "LineDiscountPercentText_Line";
+        var schema = SchemaWithHeaderColumns(column);
+
+        foreach (var seed in new[] { 1, 7, 42 })
+        {
+            var dataset = SampleDataGenerator.Generate(schema, new SampleDataOptions { Seed = seed, Rows = 3 });
+            XNamespace ns = schema.Report.Namespace;
+            foreach (var header in dataset.Xml.Root!.Elements(ns + "Header"))
+            {
+                Assert.Matches(@"^\d{1,2}%$", header.Element(ns + column)!.Value);
+            }
+        }
+    }
+
+    [Theory]
+    // The data item's own name is noise in a value: it made "Cust Ledger Entry Customer Name Draft 1" wrap
+    // three times in a narrow column (sandbox round 3, report 115).
+    [InlineData("Cust_Ledger_Entry", "CustLedgerEntry_CustomerName", "Customer Name ")]
+    [InlineData("Line", "Description_Line", "Description ")]
+    [InlineData("Salesperson_Purchaser", "Salesperson_Purchaser_Name", "Name ")]
+    [InlineData("Line", "Outline", "Outline ")]
+    [InlineData("Line", "Line", "Line ")]
+    public void Name_echo_text_leaves_out_the_data_items_name(string dataItem, string columnName, string expectedStart)
+    {
+        var value = SingleColumnValue(dataItem, columnName);
+
+        Assert.StartsWith(expectedStart, value, StringComparison.Ordinal);
+        Assert.Matches(@"^[A-Za-z ]+ \d+$", value);
+    }
+
+    [Theory]
+    [InlineData("ContractBillingDetailsPositionDescription")]
+    [InlineData("ShipmentMethodDescription")]
+    [InlineData("AVeryLongColumnNameThatGoesOnAndOnWithoutAnyTypeWord")]
+    public void Name_echo_text_stays_within_a_line_table_cells_length(string columnName)
+    {
+        var value = SingleColumnValue("Header", columnName);
+
+        Assert.InRange(value.Length, 1, 30);
+        Assert.Matches(@" \d+$", value); // the row number is always kept
+    }
+
+    [Fact]
+    public void A_name_that_fits_keeps_all_its_words()
+    {
+        Assert.StartsWith("Shipment Method Description ", SingleColumnValue("Header", "ShipmentMethodDescription"), StringComparison.Ordinal);
+    }
+
+    private static string SingleColumnValue(string dataItem, string columnName)
+    {
+        var schema = MinimalSchema();
+        var item = new DataItem { Name = dataItem, Path = $"/{dataItem}" };
+        item.Columns.Add(new DatasetColumn { Name = columnName, Path = $"/{dataItem}/{columnName}" });
+        schema.Root.Children.Add(item);
+
+        var dataset = SampleDataGenerator.Generate(schema, new SampleDataOptions { Seed = 5, Rows = 1 });
+        XNamespace ns = schema.Report.Namespace;
+        return dataset.Xml.Root!.Element(ns + dataItem)!.Element(ns + columnName)!.Value;
+    }
+
+    [Theory]
     // Precedence fixes from the 2026-07-31 corpus preview sweep: identifiers, flags, and percentages
     // whose names ALSO contain an amount token must not be sampled as free-range decimals.
     [InlineData("CompanyVATRegistrationNo")]

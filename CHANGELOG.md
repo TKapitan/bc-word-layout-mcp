@@ -221,6 +221,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **The preview's sample data no longer makes tables far taller than Business Central prints them.**
+  The round-3 sandbox prints (BC 28, 2026-10-24) showed three generated values the real data never has:
+  - a percent formatted as text (`LineDiscountPercentText_Line` in the stock quote and invoices) was
+    sampled as a caption, "Line Discount Percent Line", which wrapped to five lines per row in its
+    narrow column. It gets a short percent such as `5%` now;
+  - `Capt`, the caption abbreviation older reports use (`JobTaskNoCapt` in Job Quote), was not a
+    caption word, so Job Quote's first column header showed the fake code `JOBT-3695`. It reads
+    "Job Task No" now;
+  - name-echo text repeated the data item's name and grew to 40 characters ("Cust Ledger Entry
+    Customer Name Draft 1"), three lines in a narrow column. It leaves the data item's name out and
+    stays within 30 characters ("Customer Name Draft 1").
+
 - **A binding whose storeItemID names no part is a warning, and `refresh_xml_part` re-points it**
   (GitHub issue #102). Any mismatch between a binding's `w:storeItemID` and the BC part's item ID was
   one error, although the two cases behave differently. An ID that names another custom XML part binds

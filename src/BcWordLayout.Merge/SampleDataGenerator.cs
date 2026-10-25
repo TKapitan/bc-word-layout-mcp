@@ -134,7 +134,7 @@ public static class SampleDataGenerator
 
         foreach (var column in item.Columns)
         {
-            element.Add(new XElement(ctx.Ns + column.Name, GenerateLeafValue(column, ctx.Rng, instanceIndex)));
+            element.Add(new XElement(ctx.Ns + column.Name, GenerateLeafValue(column, item.Name, ctx.Rng, instanceIndex)));
         }
 
         foreach (var child in item.Children)
@@ -198,7 +198,7 @@ public static class SampleDataGenerator
     /// PICTURE control — <c>w:picture</c>, filled by <see cref="MergeEngine"/> with the
     /// placeholder PNG — gets a real image), so the short marker is the honest substitute.
     /// </remarks>
-    private static string GenerateLeafValue(DatasetColumn column, Random rng, int instanceIndex)
+    private static string GenerateLeafValue(DatasetColumn column, string dataItemName, Random rng, int instanceIndex)
     {
         if (column.IsLabel)
         {
@@ -207,6 +207,18 @@ public static class SampleDataGenerator
 
         var name = column.Name;
         var words = Tokenize(name);
+
+        // A percent formatted as text holds the percent, not a caption about it, although its name carries the
+        // caption word "Text": LineDiscountPercentText_Line in the stock sales quote and invoices prints a short
+        // percent, or nothing. The caption rule below made it "Line Discount Percent Line", which wrapped to five
+        // lines per row in its narrow column, so the mock's line tables came out five times taller than BC's
+        // (sandbox round 3, 2026-10-24). A name that also says Caption/Label/Lbl/Capt is a caption.
+        if (HasAnyWordToken(words, "Text")
+            && HasAnyWordToken(words, PercentTokens)
+            && !HasAnyWordToken(words, "Caption", "Label", "Lbl", "Capt"))
+        {
+            return GeneratePercentText(rng, instanceIndex);
+        }
 
         // Caption-indicator words trump every TYPE token below, deliberately checked first (2026-07-31
         // preview sweep): BC's standard layouts bind whole header rows to columns like
@@ -269,7 +281,7 @@ public static class SampleDataGenerator
             return GenerateCode(name, rng, instanceIndex);
         }
 
-        if (HasAnyWordToken(words, "Pct", "Percent", "Percentage"))
+        if (HasAnyWordToken(words, PercentTokens))
         {
             return GeneratePercent(rng, instanceIndex);
         }
@@ -300,7 +312,7 @@ public static class SampleDataGenerator
             return GenerateQuantity(rng, instanceIndex);
         }
 
-        return GenerateFallbackText(name, rng, instanceIndex);
+        return GenerateFallbackText(name, dataItemName, rng, instanceIndex);
     }
 
     private static string GenerateDate(Random rng, int instanceIndex)
@@ -343,6 +355,15 @@ public static class SampleDataGenerator
         return (hundredths / 100m).ToString("0.00", CultureInfo.InvariantCulture);
     }
 
+    private static readonly string[] PercentTokens = ["Pct", "Percent", "Percentage"];
+
+    /// <summary>A percent formatted as text, as the stock reports print a line discount: a whole number and a '%'.</summary>
+    private static string GeneratePercentText(Random rng, int instanceIndex)
+    {
+        var percent = ((rng.Next(1, 20) + instanceIndex) % 20) + 1;
+        return percent.ToString(CultureInfo.InvariantCulture) + "%";
+    }
+
     /// <summary>Boolean flag sample, in the "Yes"/"No" spelling BC's report datasets use for booleans.</summary>
     private static string GenerateYesNo(Random rng, int instanceIndex)
     {
@@ -382,24 +403,149 @@ public static class SampleDataGenerator
         return $"{prefix}-{numberText}";
     }
 
-    private static string GenerateFallbackText(string name, Random rng, int instanceIndex)
+    /// <summary>
+    /// The longest text <see cref="GenerateFallbackText"/> writes: a little over a stock item description
+    /// ("PARIS Guest Chair, black", 24 characters), the longest text real Cronus data puts in a line table.
+    /// </summary>
+    private const int MaxFallbackLength = 30;
+
+    /// <summary>
+    /// Name-echo text for a column no type rule claims: the column's humanized name without its data item's own
+    /// name, a filler word and the row number (<c>CustLedgerEntry_CustomerName</c> in <c>Cust_Ledger_Entry</c> →
+    /// "Customer Name Draft 1"). The data item's name is noise in a value, and it made the text long enough to
+    /// wrap three times in a narrow column (sandbox round 3: "Cust Ledger Entry Customer Name Draft 1"). Text
+    /// still longer than <see cref="MaxFallbackLength"/> drops the filler, then its leading words.
+    /// </summary>
+    private static string GenerateFallbackText(string name, string dataItemName, Random rng, int instanceIndex)
     {
-        var humanized = HumanizeWords(name);
+        var humanized = HumanizeWords(WithoutDataItemName(name, dataItemName));
         var filler = FillerWords[rng.Next(FillerWords.Length)];
         var instanceText = (instanceIndex + 1).ToString(CultureInfo.InvariantCulture);
-        return string.IsNullOrEmpty(humanized)
-            ? $"{filler} {instanceText}"
-            : $"{humanized} {filler} {instanceText}";
+        if (string.IsNullOrEmpty(humanized))
+        {
+            return $"{filler} {instanceText}";
+        }
+
+        var full = $"{humanized} {filler} {instanceText}";
+        if (full.Length <= MaxFallbackLength)
+        {
+            return full;
+        }
+
+        var kept = new List<string>();
+        var length = instanceText.Length;
+        foreach (var word in humanized.Split(' ').Reverse())
+        {
+            if (kept.Count > 0 && length + 1 + word.Length > MaxFallbackLength)
+            {
+                break;
+            }
+
+            kept.Insert(0, word);
+            length += 1 + word.Length;
+        }
+
+        return $"{string.Join(' ', kept)} {instanceText}";
     }
+
+    /// <summary>
+    /// <paramref name="name"/> without <paramref name="dataItemName"/> at its start or its end, compared on letters
+    /// and digits only and ignoring case, and only where a word starts or ends: <c>Description_Line</c> in
+    /// <c>Line</c> → <c>Description</c>, <c>CustLedgerEntry_CustomerName</c> in <c>Cust_Ledger_Entry</c> →
+    /// <c>CustomerName</c>, <c>Outline</c> in <c>Line</c> unchanged. Unchanged too when nothing would be left.
+    /// </summary>
+    private static string WithoutDataItemName(string name, string dataItemName)
+    {
+        var item = dataItemName.Where(char.IsLetterOrDigit).ToArray();
+        if (item.Length == 0)
+        {
+            return name;
+        }
+
+        var rest = name;
+        var end = MatchedPrefixEnd(rest, item);
+        if (end > 0 && HasLetterOrDigit(rest[end..]))
+        {
+            rest = rest[end..];
+        }
+
+        var start = MatchedSuffixStart(rest, item);
+        if (start > 0 && HasLetterOrDigit(rest[..start]))
+        {
+            rest = rest[..start];
+        }
+
+        return rest.Trim('_');
+    }
+
+    /// <summary>The index just past <paramref name="item"/> at the start of <paramref name="name"/>, or -1.</summary>
+    private static int MatchedPrefixEnd(string name, char[] item)
+    {
+        var matched = 0;
+        for (var i = 0; i < name.Length; i++)
+        {
+            if (!char.IsLetterOrDigit(name[i]))
+            {
+                continue;
+            }
+
+            if (char.ToUpperInvariant(name[i]) != char.ToUpperInvariant(item[matched]))
+            {
+                return -1;
+            }
+
+            if (++matched == item.Length)
+            {
+                // A word must start right after it: an underscore, a capital, a digit or the end.
+                var next = i + 1;
+                return next == name.Length || name[next] == '_' || char.IsUpper(name[next]) || char.IsDigit(name[next])
+                    ? next
+                    : -1;
+            }
+        }
+
+        return -1;
+    }
+
+    /// <summary>The index where <paramref name="item"/> starts at the end of <paramref name="name"/>, or -1.</summary>
+    private static int MatchedSuffixStart(string name, char[] item)
+    {
+        var matched = 0;
+        for (var i = name.Length - 1; i >= 0; i--)
+        {
+            if (!char.IsLetterOrDigit(name[i]))
+            {
+                continue;
+            }
+
+            if (char.ToUpperInvariant(name[i]) != char.ToUpperInvariant(item[^(matched + 1)]))
+            {
+                return -1;
+            }
+
+            if (++matched == item.Length)
+            {
+                // It must start a word: after an underscore, or with a capital or a digit.
+                return i > 0 && (name[i - 1] == '_' || char.IsUpper(name[i]) || char.IsDigit(name[i])) ? i : -1;
+            }
+        }
+
+        return -1;
+    }
+
+    private static bool HasLetterOrDigit(string text) => text.Any(char.IsLetterOrDigit);
 
     // ---- naming helpers ----
 
     /// <summary>
     /// Whole-word tokens that mark a column as holding DISPLAY TEXT about a value rather than the value
     /// itself (<c>DueDateCaption</c>, <c>TotalText</c>, <c>*_Lbl</c> mid-name). Matched before every type
-    /// token in <see cref="GenerateLeafValue"/> — see the comment at that call site.
+    /// token in <see cref="GenerateLeafValue"/> — see the comment at that call site. <c>Capt</c> is the
+    /// abbreviation older reports use (<c>JobTaskNoCapt</c> in Job Quote, four columns in Subcontractor
+    /// Dispatch List): without it the first header cell of Job Quote's lines table showed a fake code,
+    /// "JOBT-3695", where Business Central prints "Project Task No." (sandbox round 3, 2026-10-24).
     /// </summary>
-    private static readonly string[] CaptionIndicatorTokens = ["Caption", "Label", "Lbl", "Text"];
+    private static readonly string[] CaptionIndicatorTokens = ["Caption", "Label", "Lbl", "Capt", "Text"];
 
     /// <summary>
     /// Caption-style sample for a caption-indicator column: the humanized name minus the indicator words
