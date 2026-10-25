@@ -1006,12 +1006,11 @@ public static class SdtFactory
     /// </summary>
     /// <remarks>
     /// WHY: every nested block repeater in the corpus holds its values as block-level controls (see
-    /// <see cref="BuildBlockRepeater"/>), and the inline form has no witness. It is also the one difference from
-    /// the stock shape in a work-description repeater that Business Central 28 did not print, although the quote
-    /// had a work description and Word's mock printed every line (sandbox pack P14, 2026-10-25; P18 prints the
-    /// inline form on the stock layout to confirm the cause). A paragraph holding anything else beside the field
-    /// (text, a second control, a bookmark) has no block-level form that keeps it, and a picture control is not
-    /// a text field, so both stay as they are.
+    /// <see cref="BuildBlockRepeater"/>), and Business Central 28 prints nothing for the inline form: the stock
+    /// quote printed its work description, and the same layout with only that field made inline printed none,
+    /// although Word's mock printed every line (sandbox pack P14 and P18, 2026-10-25). A paragraph holding
+    /// anything else beside the field (text, a second control, a bookmark) has no block-level form that keeps it,
+    /// and a picture control is not a text field, so both stay as they are.
     /// </remarks>
     private static OpenXmlElement LiftLoneField(OpenXmlElement block)
     {

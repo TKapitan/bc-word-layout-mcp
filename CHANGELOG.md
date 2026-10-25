@@ -230,7 +230,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   controls around their paragraphs. Over a nested item, a paragraph holding nothing but one field now
   becomes that field as a block-level control, with the same binding, id and formatting, and the
   summary counts them. A paragraph holding more than the field is kept as it is. Sandbox pack P18
-  prints the inline shape on the stock quote to confirm it was the cause.
+  confirmed the cause: the stock quote printed its work description, and the same layout with only
+  that field made inline printed none. The rebuilt P14 printed it.
 
 - **The preview's sample data no longer makes tables far taller than Business Central prints them.**
   The round-3 sandbox prints (BC 28, 2026-10-24) showed three generated values the real data never has:

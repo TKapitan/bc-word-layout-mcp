@@ -233,7 +233,7 @@ commission % [verified: P07, P16].
 | Stock idiom | Why no tool | Route |
 |---|---|---|
 | Page-position-CONDITIONAL content (`IF PAGE = NUMPAGES`) | BC evaluates it per page [verified: P11, on a two-page and a one-page order], but no tool writes it yet (#11); plain `PAGE`/`NUMPAGES` itself IS buildable — `insert_page_number` (§4 Chrome) | `templatePath` shell carrying the construct, or hand-edit + `validate_layout` |
-| Hide-if-empty add-in controls | Row/table variants captured [stock: 115, SubcontractorDispatchList] but BC's "empty" rule unverified (#123): around a row outside a repeater whose first child record is missing, neither hides anything [verified: P09, P10]; *Hide Field if Zero* never captured (#8) | Reserve the rows/cells; stock layouts render empty lines too |
+| Hide-if-empty add-in controls | Row/table variants captured [stock: 115, SubcontractorDispatchList] but BC's "empty" rule unverified (#123): around a row outside a repeater neither hides anything, for a missing first child record [verified: P09, P10] or an empty value [verified: P19]; *Hide Field if Zero* never captured (#8) | Reserve the rows/cells; stock layouts render empty lines too |
 
 ## 6. Design-time mock caveats
 

@@ -1442,7 +1442,7 @@ def p17(b: Build):
 
 # P18-P20 follow the round-3 re-run (2026-10-25): P18 checks why P14 printed no work description, and P19/P20
 # carry #123 on after P09/P10 showed that neither hide-if-empty wrapper acts on a row outside a repeater whose
-# bound record is missing.
+# bound record is missing - P19 with an empty value outside a repeater, P20 inside one.
 
 def inline_work_description_field(xml: str) -> str:
     """The stock quote's work-description field, a BLOCK-level control around its paragraph, becomes the INLINE
@@ -1519,50 +1519,72 @@ def p19(b: Build):
            "shape")
 
 
+# P20's three rows, per invoice line: the caption, then the dataset path of the one cell the wrapper encloses.
+HIDE_INSIDE_REPEATER_ROWS = [
+    ("P20 A - first assembly line (no record):", "/Header/Line/AssemblyLine/Description_AssemblyLine"),
+    ("P20 B - line discount text (empty):", "/Header/Line/LineDiscountPercentText_Line"),
+    ("P20 C - description (has a value):", "/Header/Line/Description_Line"),
+]
+
+
 @item(
     id="p20", title="Hide Table Row If Empty inside a repeater",
-    report="1016 - Job Quote", base="JobQuote.docx",
-    purpose="GitHub issue #123, the captured shape itself: Salesperson Commission wraps a cell of the PARENT "
-            "repeater's row bound to a column of the CHILD item's first record, but report 115 prints only "
-            "salespeople with entries, so it never had an empty case. Job Quote prints the job's tasks, and a task "
-            "can have no planning lines. insert_subtotal_row adds a row to each task (task no., description, and the "
-            "type of its FIRST planning line), and the type cell is wrapped in the add-in's 'Hide Table Row If "
-            "Empty' control - first turned into a cell-level control, the shape the wrapper encloses. A task without "
-            "planning lines leaves that cell empty. The row takes the stock rows' Segoe UI 8 pt by itself (the row "
-            "tools copy the row above).",
+    report="1306 - Standard Sales Invoice", base="StandardSalesInvoiceVatSpec.docx",
+    purpose="GitHub issue #123, inside a repeater. P09, P10 and P19 showed that BC 28 acts on neither "
+            "hide-if-empty wrapper OUTSIDE a repeater, whether the bound record is missing or its value is empty. "
+            "The one capture of the row wrapper sits in a repeater's row, so this asks there, on data every sandbox "
+            "has: P08's invoice layout gets three rows under each invoice line (insert_subtotal_row), each with a "
+            "caption and one cell wrapped in 'Hide Table Row If Empty' - first turned into a cell-level control, the "
+            "captured shape. A binds the line's first ASSEMBLY line, a missing record on an ordinary invoice: the "
+            "exact shape captured in Salesperson Commission. B binds the line's discount text, present but empty "
+            "when the line has no discount. C binds its description, never empty: the control.",
     asks=[
-        "A task WITHOUT planning lines: is its added row (task no., description) left out? (Without the wrapper "
-        "it would print with an empty type.)",
-        "A task WITH planning lines: does its row print after its lines, with the first line's type?",
-        "Is anything else hidden?",
+        "Row A (P20 A - first assembly line): is it left out under every line, or printed with nothing after "
+        "the caption?",
+        "Row B (P20 B - line discount text): left out, or printed empty?",
+        "Row C (P20 C - description): printed under every line, with the description? It must be: if it is "
+        "missing too, the wrapper hides the row whatever the value.",
     ],
     bc_steps=[
-        "A job with at least one task that has planning lines and one that has none (a heading or total task, or "
-        "add a task with no lines).",
-        "Report Layouts > New layout for report 1016, upload this .docx, then run Job Quote for that job.",
+        "The same posted invoice as P08 (any posted sales invoice with a few item lines and no line discounts "
+        "works; it needs no assembly items).",
+        "Report Layouts > New layout for report 1306, upload this .docx, then Print the posted invoice with it.",
     ],
 )
 def p20(b: Build):
+    # P08's repair first: the stock capture's title and number bindings name a foreign namespace BC rejects.
+    b.edit("refresh_xml_part",
+           newSchemaSource=os.path.join(CORPUS_DIR, "StandardSalesInvoiceVatSpec.docx"))
+    b.note("refresh_xml_part against the layout's own schema, as P08: the foreign-namespace bindings BC rejects "
+           "on upload are re-pointed")
+
     info = b.info()
-    task = Build.repeater(info, "/Job/Job_Task")
+    lines = Build.repeater(info, "/Header/Line")
+    table = Build.line_table(info, lines)
     grid = next(t for t in info["tables"]
-                if t["tableIndex"] == task["tableIndex"] and t["part"] == task["part"])["columnCount"]
-    paths = Build.paths(b.dataset())
-    before = {c["sdtId"] for c in info["controls"]}
-    first_type = "/Job/Job_Task/Job_Planning_Line/Type"
-    b.edit("insert_subtotal_row", parentControlId=task["sdtId"],
-           cells=[{"fields": [Build.pick(paths, "/Job/Job_Task/JobTaskNo_JobTask")]},
-                  {"fields": [Build.pick(paths, "/Job/Job_Task/Description_Job")]},
-                  {"fields": [first_type]},
-                  {"span": grid - 3}])
-    added = [c for c in b.info()["controls"]
-             if c["sdtId"] not in before and str(c.get("alias", "")).endswith(first_type)]
-    if len(added) != 1:
-        raise ItemFailure(f"expected one new control bound to {first_type}, found {len(added)}")
-    wrapper_id = wrap_in_hide_if_empty(b, *HIDE_ROW_WRAPPER, control_id=added[0]["sdtId"], lift=True)
-    b.note(f"insert_subtotal_row on the Job_Task repeater: a row per task with its no., description and the type of "
-           f"its first planning line, then (hand edit) that type cell turned into a cell-level control and wrapped in "
-           f"a 'Hide Table Row If Empty' control (id {wrapper_id}), the shape captured in Salesperson Commission")
+                if t["tableIndex"] == table and t["part"] == "document.xml")["columnCount"]
+    wrapped = []
+    for caption, path in HIDE_INSIDE_REPEATER_ROWS:
+        before = {c["sdtId"] for c in b.info()["controls"]}
+        b.edit("insert_subtotal_row", parentControlId=lines["sdtId"],
+               cells=[{"span": 4}, {"fields": [path], "span": 4}, {"span": grid - 8}])
+        info = b.info()
+        added = [c for c in info["controls"] if c["sdtId"] not in before]
+        if len(added) != 1:
+            raise ItemFailure(f"expected one new control bound to {path}, found {len(added)}")
+        rows = next(t for t in info["tables"] if t["tableIndex"] == table and t["part"] == "document.xml")["rows"]
+        row = next(r["rowIndex"] for r in rows
+                   if any(added[0]["sdtId"] in (cell.get("innerControlIds") or []) for cell in r["cells"]))
+        b.edit("set_cell_text", tableIndex=table, row=row, col=0, text=caption)
+        wrapped.append((added[0]["sdtId"], caption.split(" - ")[0], path))
+    b.note(f"insert_subtotal_row x3 on the /Header/Line repeater (+ set_cell_text captions): rows "
+           f"{', '.join(label for _, label, _ in wrapped)} under each invoice line, binding "
+           f"{', '.join(path for _, _, path in wrapped)}")
+
+    for control_id, label, path in wrapped:
+        wrapper_id = wrap_in_hide_if_empty(b, *HIDE_ROW_WRAPPER, control_id=control_id, lift=True)
+        b.note(f"hand edit: {label}'s cell ({path}) turned into a cell-level control and wrapped in a 'Hide Table Row "
+               f"If Empty' control (id {wrapper_id}), the shape captured in Salesperson Commission")
 
 
 # ---------------------------------------------------------------- runner
@@ -1589,8 +1611,21 @@ def strip_attached_template(path: str) -> list[str]:
     return targets
 
 
+def clear_generated(out_dir: str):
+    """Deletes what an earlier build of the item wrote - its layout and template, the merged copies, the mock
+    and its page images - so a rebuild that changes the report or the page count leaves nothing stale behind.
+    A reviewer's own files (INSTRUCTIONS.md, steps 4-5) are kept."""
+    for name in os.listdir(out_dir):
+        path = os.path.join(out_dir, name)
+        if name.endswith((".docx", ".dotx")) or name == "mock-preview.pdf":
+            os.remove(path)
+        elif name == "mock-pages" and os.path.isdir(path):
+            shutil.rmtree(path)
+
+
 def build_item(entry: dict, out_dir: str) -> dict:
     os.makedirs(out_dir, exist_ok=True)
+    clear_generated(out_dir)
     name = entry["report"].split(" - ", 1)[-1].replace(" ", "")
     work = os.path.join(out_dir, f"{name}.docx")
     server = McpServer(env=entry["env"] or None)
