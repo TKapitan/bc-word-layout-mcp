@@ -1474,14 +1474,14 @@ YOUR_REFERENCE_XPATH = "/ns0:NavWordReportXmlPart[1]/ns0:Header[1]/ns0:YourRefer
             "the control experiment. If the built-in layout prints the work description and this one does not, "
             "the inline form was the cause, and wrap_in_repeater's new block form (rebuilt P14) is the fix.",
     asks=[
-        "Quote 1003 with its work description: does THIS layout print the work description (between the info "
+        "The quote with its work description: does THIS layout print the work description (between the info "
         "grid and the lines table), as the built-in layout does?",
         "P14, rebuilt: does it print the work description below its totals now?",
     ],
     bc_steps=[
-        "Keep the work description on quote 1003 (two or three lines).",
+        "Give the quote P01/P05/P13 use a work description of two or three lines (P14 needs it too).",
         "Report Layouts > New layout for report 1304, upload this .docx and the rebuilt P14.",
-        "Print quote 1003 three times: with the BUILT-IN layout (the reference), with this layout, and with P14.",
+        "Print that quote three times: with the BUILT-IN layout (the reference), with this layout, and with P14.",
     ],
 )
 def p18(b: Build):
@@ -1507,7 +1507,7 @@ def p18(b: Build):
     ],
     bc_steps=[
         "Report Layouts > New layout for report 1304, upload this .docx.",
-        "Print quote 1003 with it as it is (Your Reference empty), then fill in Your Reference on the quote and "
+        "Print the quote P01/P05/P13 use with it as it is (Your Reference empty), then fill in Your Reference on it and "
         "print it again.",
     ],
 )
