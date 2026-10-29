@@ -16,6 +16,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `ServerInfo` nullable, because a server may now omit its identity; this server still sends its
   name and product version, and the test that checks it now asserts that it is present.
 
+### Fixed
+
+- **`set_cell_format` keeps a rule's colour when it draws over it** (GitHub issue #144). Redrawing an
+  edge the cell already had, for example to make it thicker, replaced it with a black `auto` rule and
+  dropped any theme colour, tint or shade, while the summary only said the rule was drawn. Drawing over
+  an existing rule now changes its line and thickness only. A new rule, or one drawn after
+  `borderStyle: "none"` cleared the edge, is black as before.
+
 ## [2.0.0] - 2026-10-25
 
 A major release. Many tools take new argument shapes: the six entries marked **BREAKING** under
