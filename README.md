@@ -461,7 +461,7 @@ Or write the requests to a file of your own and pipe it (`Get-Content requests.j
 | `src/BcWordLayout.Merge` | `SampleDataGenerator` (seeded, type-aware fakes), `MergeEngine` (binding fill, repeater expansion incl. nested/re-anchored XPaths, picture placeholders), `FullValidator` (the dry-run merge behind `validate_layout level=full`). |
 | `src/BcWordLayout.Render` | `IPdfConverter` + `WordComConverter` (primary) / `LibreOfficeConverter` (fallback) + `PdfConverterFactory` (auto-selection) + PDF output sanity checks. |
 | `src/BcWordLayout.McpHost` | The MCP stdio server (console app): the 28 tool definitions (`Tools/ReadTools.cs`, `Tools/EditTools.cs`, `Tools/TableTools.cs`, `Tools/LifecycleTools.cs`, sharing `Tools/ToolGuards.cs`), their structured arguments (`Tools/TableArguments.cs`, `Tools/TextFormatArgument.cs`, the enum lists in `Tools/AllowedValueAttributes.cs`), the `{ok,data,error}` envelope (`ToolContracts.cs`), the call filter that keeps malformed calls inside it (`ToolCallBoundary.cs`), and the schema correction that puts a list parameter's allowed values and range on its items (`ToolInputSchemas.cs`). |
-| `tests/BcWordLayout.Tests` | xUnit tests: the 10 real corpus layouts in `tests/corpus/` plus synthetic fixtures — reader/validator/merge/editor/refresher/converter coverage, snapshot tests, MCP host tool tests, packaging-manifest guards, and the fidelity harness. |
+| `tests/BcWordLayout.Tests` | xUnit tests: the 13 real corpus layouts in `tests/corpus/` plus synthetic fixtures — reader/validator/merge/editor/refresher/converter coverage, snapshot tests, MCP host tool tests, packaging-manifest guards, and the fidelity harness. |
 
 ## Contributing and security
 

@@ -109,8 +109,8 @@ public static class SchemaProvider
     /// literal form of the first of them.
     /// </summary>
     /// <remarks>
-    /// SOLUTION-DESIGN §2.1: the BC part "may carry no itemProps/DataStoreItem at all" — four of the ten corpus
-    /// layouts ship that way, among them the stock SalespersonCommission and StandardStatement — and every
+    /// SOLUTION-DESIGN §2.1: the BC part "may carry no itemProps/DataStoreItem at all" — four of the thirteen
+    /// corpus layouts ship that way, among them the stock SalespersonCommission and StandardStatement — and every
     /// bound insert used to fail on them, with a hint naming internal C# methods (GitHub issue #93). Their
     /// bindings are unanimous (45 of 45, 82 of 82), and a new binding that names the same storeItemID is bound
     /// exactly as they are: no more and no less verifiable, and whatever Business Central does with their
