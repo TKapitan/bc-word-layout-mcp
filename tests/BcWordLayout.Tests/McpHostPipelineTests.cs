@@ -69,7 +69,9 @@ public sealed class McpHostPipelineTests(McpHostPipeline pipeline) : IClassFixtu
         var assembly = typeof(ServerIdentity).Assembly;
         var informational = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()!.InformationalVersion;
 
+        // Nullable since SDK 2.3.0: a server may send no identity at all (GitHub issue #153). Ours must send one.
         var serverInfo = pipeline.Client.ServerInfo;
+        Assert.NotNull(serverInfo);
 
         Assert.Equal("BcWordLayout.McpHost", serverInfo.Name);
         Assert.Equal(ServerIdentity.WithoutBuildMetadata(informational), serverInfo.Version);

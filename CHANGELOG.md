@@ -7,6 +7,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **`ModelContextProtocol` SDK 2.2.0 → 2.3.0** (Dependabot #141, GitHub issue #153). Tool lookup,
+  argument binding, the call-tool filter and the advertised schemas are unchanged; the host-level
+  tests that pin them pass on both versions. The SDK now lists tools in the order they are registered
+  (SDK #1924), so a client may see `tools/list` in a different order. 2.3.0 also makes the client's
+  `ServerInfo` nullable, because a server may now omit its identity; this server still sends its
+  name and product version, and the test that checks it now asserts that it is present.
+
 ## [2.0.0] - 2026-10-25
 
 A major release. Many tools take new argument shapes: the six entries marked **BREAKING** under
