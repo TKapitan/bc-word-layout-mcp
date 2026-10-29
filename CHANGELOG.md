@@ -7,6 +7,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Target Business Central version** (GitHub issue #152, ADR-0007). Some layout features need a newer
+  BC, so every call now resolves the *minimum* BC version the layout must work on: the `application`
+  of the nearest AL `app.json` above the layout (the walk stops at the repository root), else the new
+  `BCWL_BC_VERSION` environment variable, else unknown. The server stores none.
+  - `get_layout_info` and `validate_layout` report it as `target` (`bcVersion`, `source`, `detail`).
+  - A new `bc-version` validation check reports a feature the target lacks. A header/footer layout
+    bound to Tenant Report Defaults (report themes, BC 29) is an error for a lower target and a
+    warning for an unknown one, so such layouts outside an AL project now draw a warning. Theme
+    colours and paragraph styles already in a layout are not flagged.
+  - A new error code, `bc_version_unsupported`, refuses a call that would write a feature the target
+    lacks, or any such call when the target is unknown. No shipped tool writes one yet: theme colours
+    and paragraph styles (#145, #146) will. The README lists the features and their versions.
+
 ### Changed
 
 - **`ModelContextProtocol` SDK 2.2.0 → 2.3.0** (Dependabot #141, GitHub issue #153). Tool lookup,

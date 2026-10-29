@@ -11,6 +11,11 @@ gives every report the same colours, fonts and table looks. Defaults can be set 
 per report or per layout. Microsoft's announcements describe the feature but not the file rules; the
 rules below come from Microsoft's own sample files and from one end-to-end case.
 
+**Needs BC 29.0 or later.** Set the target first: `application` of at least `29.0.0.0` in the AL
+project's `app.json`, or `BCWL_BC_VERSION=29` for files outside a project (al-word-layout §1, "Target
+Business Central version"). With a lower target, `validate_layout` reports the header/footer layout
+as a `bc-version` error, and with an unknown one as a warning.
+
 Evidence tags:
 - **[MS sample]** — observed in Microsoft's composable samples: themes *Calm*, *Default*, *Playful*
   (`.dotx`), header/footer *ExternalDefaultDetailedHFDesign*, bodies *WordBody_1/2/3*. Not in
@@ -154,7 +159,8 @@ becoming a plain shaded panel.
 ## 7. Checks
 
 1. Body and header/footer: `validate_layout level=full`, `preview_layout`, `render_preview_pages` —
-   each part alone. The theme has no bindings; open it and look at the preview table.
+   each part alone. The theme has no bindings; open it and look at the preview table. A `bc-version`
+   finding on the header/footer means the target is below 29 or unknown (see the top of this skill).
 2. The style contract (§5).
 3. No tool composes the three parts; a faithful offline approximation is: body `document.xml` + the
    header/footer parts and `w:sectPr` references + the theme's `styles.xml` and `theme1.xml`, then

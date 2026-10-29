@@ -390,6 +390,15 @@ fragile code in the codebase, in the one place (`LayoutBuilder`'s atomic build) 
 a broken layout, bought for a difference no consumer observes. **Deliberately not done.** If a future SDK
 version exposes part-URI control, adopting it is a one-line change and this note comes out.
 
+**10. The target BC version is resolved per call, never stored.** Some layout features need a newer Business
+Central (report themes and themable formatting need 29). The target — the *minimum* version a layout must work
+on — is resolved on every call from the nearest AL `app.json` above the layout (`application`), then
+`BCWL_BC_VERSION`, else unknown. There is no init tool and no per-call parameter: the project already states the
+version, and a stored or per-call one could disagree with it. A gated feature is refused below its version *and*
+for an unknown target (principle 3's refuse-rather-than-guess); the validator's `bc-version` check reports a
+catalog feature a layout already has. Each `BcFeatures` entry carries the evidence for its boundary. See
+[ADR-0007](adr/0007-target-bc-version-resolved-per-call.md) and GitHub issue #152.
+
 ## 7. Testing strategy
 
 - **Corpus**: 10 real BC layouts in `tests/corpus/` (provenance per file in

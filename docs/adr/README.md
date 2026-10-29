@@ -13,3 +13,4 @@ code disagree, one of the two is a bug.
 | [0004](0004-uniform-response-envelope.md) | One `{ok, data, error}` envelope; nothing throws across the MCP boundary |
 | [0005](0005-emit-only-observed-ooxml.md) | Emit only OOXML observed in a real BC layout |
 | [0006](0006-schema-transplanted-never-synthesized.md) | The dataset schema is transplanted from a BC-produced artifact, never synthesized |
+| [0007](0007-target-bc-version-resolved-per-call.md) | The target BC version is resolved per call from the project, never stored |

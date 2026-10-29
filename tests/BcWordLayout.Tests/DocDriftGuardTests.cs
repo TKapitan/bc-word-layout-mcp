@@ -276,6 +276,20 @@ public class DocDriftGuardTests
     }
 
     [Fact]
+    public void The_readme_version_table_lists_exactly_the_bc_feature_catalog()
+    {
+        // GitHub issue #152: each BcFeatures entry is a row of the README's version table, with its kind and the
+        // version it starts at, in catalog order.
+        var section = Section(RepoFiles.Read("README.md"), "### Target Business Central version");
+        var rows = Regex.Matches(section, @"^\| `(?<id>[a-z-]+)` \| (?<kind>[a-z]+) \| (?<since>\d+\.\d+) \|", RegexOptions.Multiline)
+            .Select(m => $"{m.Groups["id"].Value} {m.Groups["kind"].Value} {m.Groups["since"].Value}");
+
+        Assert.Equal(
+            BcWordLayout.Domain.BcFeatures.All.Select(f => $"{f.Id} {f.Kind.ToString().ToLowerInvariant()} {f.Since}"),
+            rows);
+    }
+
+    [Fact]
     public void No_envelope_spells_its_error_code_as_a_literal()
     {
         var literal = new Regex("\"(" + string.Join("|", LiveErrorCodes().Select(Regex.Escape)) + ")\"");
