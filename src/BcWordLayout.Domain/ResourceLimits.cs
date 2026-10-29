@@ -70,6 +70,13 @@ internal static class ResourceLimits
     internal const long MaxCustomXmlPartBytes = 16L * 1024 * 1024;
 
     /// <summary>
+    /// Byte ceiling for the AL <c>app.json</c> <see cref="TargetVersionResolver"/> reads above a layout. A real
+    /// one is a few KB; a larger file makes the target unknown, with the size in the reason, rather than being
+    /// parsed.
+    /// </summary>
+    internal const long MaxAppJsonBytes = 1L * 1024 * 1024;
+
+    /// <summary>
     /// Hard ceiling on the NUMBER of custom XML parts <see cref="SchemaProvider.FindBcPart"/>/
     /// <see cref="SchemaProvider.FindBcParts"/> will even attempt to enumerate. The per-part byte cap above
     /// bounds any ONE part's cost, but a package could still carry an enormous NUMBER of small,
