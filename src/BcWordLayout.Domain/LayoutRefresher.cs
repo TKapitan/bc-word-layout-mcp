@@ -20,7 +20,7 @@ namespace BcWordLayout.Domain;
 /// </summary>
 /// <remarks>
 /// <para>
-/// The <c>w16sdtdh:storeItemChecksum</c> Word 2021+ writes on a binding (6 of the 10 corpus layouts carry
+/// The <c>w16sdtdh:storeItemChecksum</c> Word 2021+ writes on a binding (7 of the 13 corpus layouts carry
 /// them) is deliberately left alone, although swapping the part's content leaves it stale (GitHub issue #6).
 /// It is a hash of the DATA PART's content, not of the binding: every control bound to the same part carries
 /// the same value. Measured 2026-10-17 on JobQuote.docx through Word for Microsoft 365:

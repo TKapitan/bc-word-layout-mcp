@@ -13,8 +13,8 @@ namespace BcWordLayout.Domain;
 /// </summary>
 /// <remarks>
 /// <para>
-/// WHAT EACH MEMBER WRITES, and the corpus evidence for it (ADR-0005; counts over the ten corpus layouts, direct
-/// runs plus the controls' own <c>w:sdtPr/w:rPr</c>):
+/// WHAT EACH MEMBER WRITES, and the corpus evidence for it (ADR-0005; counts over the ten layouts the corpus held
+/// when GitHub issue #15 was designed, direct runs plus the controls' own <c>w:sdtPr/w:rPr</c>):
 /// <list type="bullet">
 /// <item><c>Bold</c>: <c>w:b</c>. False removes it, or writes <c>w:b w:val="0"</c> when the run carries a
 /// character style, since removing <c>w:b</c> cannot un-bold <c>Strong</c> (GitHub issue #122). The explicit off

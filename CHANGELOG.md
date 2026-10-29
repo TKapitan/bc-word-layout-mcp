@@ -7,6 +7,46 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Target Business Central version** (GitHub issue #152, ADR-0007). Some layout features need a newer
+  BC, so every call now resolves the *minimum* BC version the layout must work on: the `application`
+  of the nearest AL `app.json` above the layout (the walk stops at the repository root), else the new
+  `BCWL_BC_VERSION` environment variable, else unknown. The server stores none.
+  - `get_layout_info` and `validate_layout` report it as `target` (`bcVersion`, `source`, `detail`).
+  - A new `bc-version` validation check reports a feature the target lacks. A header/footer layout
+    bound to Tenant Report Defaults (report themes, BC 29) is an error for a lower target and a
+    warning for an unknown one, so such layouts outside an AL project now draw a warning. Theme
+    colours and paragraph styles already in a layout are not flagged.
+  - A new error code, `bc_version_unsupported`, refuses a call that would write a feature the target
+    lacks, or any such call when the target is unknown. No shipped tool writes one yet: theme colours
+    and paragraph styles (#145, #146) will. The README lists the features and their versions.
+
+### Changed
+
+- **`ModelContextProtocol` SDK 2.2.0 → 2.3.0** (Dependabot #141, GitHub issue #153). Tool lookup,
+  argument binding, the call-tool filter and the advertised schemas are unchanged; the host-level
+  tests that pin them pass on both versions. The SDK now lists tools in the order they are registered
+  (SDK #1924), so a client may see `tools/list` in a different order. 2.3.0 also makes the client's
+  `ServerInfo` nullable, because a server may now omit its identity; this server still sends its
+  name and product version, and the test that checks it now asserts that it is present.
+
+### Fixed
+
+- **`set_cell_format` keeps a rule's colour when it draws over it** (GitHub issue #144). Redrawing an
+  edge the cell already had, for example to make it thicker, replaced it with a black `auto` rule and
+  dropped any theme colour, tint or shade, while the summary only said the rule was drawn. Drawing over
+  an existing rule now changes its line and thickness only. A new rule, or one drawn after
+  `borderStyle: "none"` cleared the edge, is black as before.
+- **A binding namespace that contains spaces is read whole** (GitHub issue #154). Microsoft's themable
+  Sales Shipment and Return Receipt layouts declare an older namespace form,
+  `…/reports/Standard Sales - Shipment/1308/`, and the tools read it only up to the first space.
+  `validate_layout` then reported the binding twice with opposite repairs (`binding-namespace` naming
+  `…/reports/Standard` and suggesting `refresh_xml_part`, `binding-prefix-mapping` saying the refresh
+  would not help), and `refresh_xml_part` reported success while writing
+  `…/Standard_Sales_Shipment/1308/ Sales - Shipment/1308/`. A declared namespace is now the whole
+  quoted value: the binding draws one `binding-namespace` Error, and the refresh replaces the URI.
+
 ## [2.0.0] - 2026-10-25
 
 A major release. Many tools take new argument shapes: the six entries marked **BREAKING** under

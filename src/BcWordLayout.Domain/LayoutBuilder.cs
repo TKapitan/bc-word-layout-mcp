@@ -62,6 +62,11 @@ public static class LayoutBuilder
     /// untouched. A Word template (<c>.dotx</c>) is accepted and converted to a document package; a
     /// macro-enabled one is refused (see <see cref="EnsureDocumentPackage"/>).
     /// </param>
+    /// <param name="target">
+    /// The BC version the layout must work on, for <see cref="CreateResult.QuickValidation"/>'s <c>bc-version</c>
+    /// check (see <see cref="LayoutValidator.Quick(WordprocessingDocument, TargetVersion?)"/>); null skips that
+    /// check. It never refuses the build: a <c>bc-version</c> Error is reported, not counted as a stale template.
+    /// </param>
     /// <exception cref="ArgumentException">
     /// A path argument is empty; <paramref name="templatePath"/> is a macro-enabled Word package
     /// (<c>.dotm</c>/<c>.docm</c>); or <paramref name="outputPath"/> resolves to <paramref name="schemaSource"/>
@@ -98,7 +103,8 @@ public static class LayoutBuilder
     /// is open in Word or another program, is read-only, or is not writable by this account.
     /// <paramref name="outputPath"/> is unchanged when this is thrown.
     /// </exception>
-    public static CreateResult Create(string schemaSource, string outputPath, string? templatePath = null, string? headingText = null)
+    public static CreateResult Create(
+        string schemaSource, string outputPath, string? templatePath = null, string? headingText = null, TargetVersion? target = null)
     {
         if (string.IsNullOrWhiteSpace(schemaSource))
         {
@@ -207,7 +213,7 @@ public static class LayoutBuilder
                     EnsureDocumentPackage(doc, templatePath!);
 
                     (storeItemId, replacedExistingBcPart, unlinkedTemplates, quick) =
-                        AttachEverything(doc, datasetBytes, identity, headingText, scaffoldBlankDefaults: false);
+                        AttachEverything(doc, datasetBytes, identity, headingText, scaffoldBlankDefaults: false, target);
                 }
                 catch (System.Xml.XmlException ex)
                 {
@@ -229,7 +235,7 @@ public static class LayoutBuilder
                 main.Document = new Document(new Body());
 
                 (storeItemId, replacedExistingBcPart, unlinkedTemplates, quick) =
-                    AttachEverything(doc, datasetBytes, identity, headingText, scaffoldBlankDefaults: true);
+                    AttachEverything(doc, datasetBytes, identity, headingText, scaffoldBlankDefaults: true, target);
             }
 
             // REFUSE rather than half-succeed: a template that already carried its
@@ -246,16 +252,19 @@ public static class LayoutBuilder
             // true for that case. (Zero controls is the ONLY replace-and-succeed shape - the fresh part
             // always carries a newly minted storeItemID, so any surviving bound control fails the
             // store-item-id check regardless of schema similarity.)
-            if (replacedExistingBcPart && quick.ErrorCount > 0)
+            // A bc-version Error is about the target BC version, not about stale controls, so it never counts here.
+            var staleErrorCount = quick.Findings.Count(
+                f => f.Severity == FindingSeverity.Error && f.Check != LayoutValidator.BcVersionCheck);
+            if (replacedExistingBcPart && staleErrorCount > 0)
             {
                 throw new TemplateNotUnboundException(
                     $"templatePath '{templatePath}' is a full BC layout, not an unbound shell: it already "
                     + "carries its own BC dataset custom XML part AND bound content controls built against "
                     + $"that part's original schema/storeItemID. Replacing the part with the one built from "
                     + "schemaSource (which create_layout always does) would leave those controls stale "
-                    + $"({quick.ErrorCount} post-build quick-validation errors, mostly attributable to the "
+                    + $"({staleErrorCount} post-build quick-validation errors, mostly attributable to the "
                     + "stale bindings). Nothing was written.",
-                    quick.ErrorCount);
+                    staleErrorCount);
             }
 
             // Only now - once the built layout has passed OpenXmlValidator (inside AttachEverything) and the
@@ -460,7 +469,7 @@ public static class LayoutBuilder
     /// </summary>
     private static (string StoreItemId, bool Replaced, IReadOnlyList<string> UnlinkedTemplates, ValidationResult Quick) AttachEverything(
         WordprocessingDocument doc, byte[] datasetBytes, ReportIdentity identity, string? headingText,
-        bool scaffoldBlankDefaults)
+        bool scaffoldBlankDefaults, TargetVersion? target)
     {
         var main = doc.MainDocumentPart!;
         var replaced = RemoveExistingBcParts(main);
@@ -503,7 +512,7 @@ public static class LayoutBuilder
                 + $"to only ever emit valid OOXML), so nothing was written. First error(s): {preview}");
         }
 
-        var quick = LayoutValidator.Quick(doc);
+        var quick = LayoutValidator.Quick(doc, target);
         return (storeItemId, replaced, unlinkedTemplates, quick);
     }
 

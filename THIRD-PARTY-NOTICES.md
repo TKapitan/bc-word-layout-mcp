@@ -41,10 +41,10 @@ missing from the runtime table, so a new dependency cannot ship without its noti
 
 ## Corpus layouts
 
-Nine of the ten Word layout files in `tests/corpus/` are captures of report layouts Microsoft
-publishes as open source in [`microsoft/BCApps`](https://github.com/microsoft/BCApps) under the
+Twelve of the thirteen Word layout files in `tests/corpus/` are captures or copies of report layouts
+Microsoft publishes as open source in [`microsoft/BCApps`](https://github.com/microsoft/BCApps) under the
 **MIT License, Copyright (c) Microsoft Corporation**. The per-file source mapping is recorded in
-[`tests/corpus/PROVENANCE.md`](tests/corpus/PROVENANCE.md); the tenth file is this project's own
+[`tests/corpus/PROVENANCE.md`](tests/corpus/PROVENANCE.md); the thirteenth file is this project's own
 material, published under the repository license.
 
 ## Optional external programs (not bundled)

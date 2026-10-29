@@ -32,6 +32,16 @@ internal static class EnvironmentConfig
     public const string LabelsDataItemVariable = "BCWL_LABELS_DATA_ITEM";
 
     /// <summary>
+    /// The target Business Central version for layouts outside an AL project, e.g. <c>29</c> or <c>29.1</c>
+    /// (GitHub issue #152). Read once at host startup by <c>Program.cs</c> into
+    /// <c>Tools.ToolGuards.BcVersionEnvironmentValue</c>; every call then resolves its own target with
+    /// <see cref="BcWordLayout.Domain.TargetVersionResolver"/>, where the nearest <c>app.json</c> above the layout
+    /// wins over this variable. An invalid value is not dropped: it makes the target unknown, with the reason in
+    /// <c>get_layout_info</c>'s and <c>validate_layout</c>'s <c>target</c>.
+    /// </summary>
+    public const string BcVersionVariable = BcWordLayout.Domain.TargetVersionResolver.EnvironmentVariable;
+
+    /// <summary>
     /// Parses <paramref name="rawValue"/> (the raw <see cref="LabelSuffixesVariable"/> value) into an
     /// ordered, de-duplicated, trimmed suffix list. Returns null for a null/blank/whitespace-only value, or
     /// one that reduces to nothing usable after trimming/de-duplication (e.g. <c>","</c> or <c>" , "</c>) —

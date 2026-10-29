@@ -73,6 +73,23 @@ internal static class ToolGuards
     internal static object EditLockFor(string layoutPath) =>
         EditLocks.GetOrAdd(PathIdentity.Canonical(layoutPath), static _ => new object());
 
+    // ---- target BC version (GitHub issue #152, ADR-0007) ----
+
+    /// <summary>
+    /// The raw <see cref="EnvironmentConfig.BcVersionVariable"/> value, set once by <c>Program.cs</c> at startup;
+    /// null when the variable is not set. Settable so a test can stand in for the server's <c>env</c> block (run
+    /// such tests in the <c>bc-version-environment-seam</c> collection, since every call reads it).
+    /// </summary>
+    internal static string? BcVersionEnvironmentValue { get; set; }
+
+    /// <summary>
+    /// The target BC version for a call on <paramref name="layoutPath"/> (for <c>create_layout</c>, its output
+    /// path): the nearest <c>app.json</c> above it, then <see cref="BcVersionEnvironmentValue"/>, else unknown.
+    /// Resolved again on every call and never stored, so editing <c>app.json</c> takes effect on the next call.
+    /// </summary>
+    internal static TargetVersion ResolveTarget(string layoutPath) =>
+        TargetVersionResolver.Resolve(layoutPath, BcVersionEnvironmentValue);
+
     /// <summary>
     /// Shared choreography for all 22 mutating tools — every tool that writes through <see cref="GuardEdit"/>,
     /// <see cref="GuardCellEdit"/>, <see cref="GuardTableEdit"/> or <see cref="GuardRefresh"/>: copy
@@ -154,6 +171,9 @@ internal static class ToolGuards
                 {
                     throw new FileNotFoundException("layoutPath does not point to an existing file.", layoutPath);
                 }
+
+                // Once per call, for the post-edit validation's bc-version check.
+                var target = ResolveTarget(layoutPath);
 
                 // Cross-process half of the edit lock: acquired INSIDE the
                 // in-process lock above, never instead of it — see CrossProcessLock's own remarks for why
@@ -322,7 +342,7 @@ internal static class ToolGuards
 
                         // Computed exactly ONCE here, for every mutating tool alike - see this method's own
                         // "Structural guarantee" doc-comment remark above.
-                        quick = LayoutValidator.Quick(doc);
+                        quick = LayoutValidator.Quick(doc, target);
                     }
 
                     // Commit: stage the validated result IN layoutPath's OWN DIRECTORY (guaranteeing the
@@ -740,7 +760,14 @@ internal static class ToolGuards
     /// is serialized, exactly as for the mutating tools.
     /// </para>
     /// </remarks>
-    internal static ToolResponse GuardRead(string layoutPath, Func<ToolResponse> body)
+    internal static ToolResponse GuardRead(string layoutPath, Func<ToolResponse> body) =>
+        GuardRead(layoutPath, _ => body());
+
+    /// <summary>
+    /// <see cref="GuardRead(string, Func{ToolResponse})"/> for a read tool that validates: the target BC version is
+    /// resolved once for the call, under the same locks, and passed to <paramref name="body"/>.
+    /// </summary>
+    internal static ToolResponse GuardRead(string layoutPath, Func<TargetVersion, ToolResponse> body)
     {
         return Guard(() =>
         {
@@ -758,7 +785,7 @@ internal static class ToolGuards
                     return CrossProcessLockTimeoutFailure(layoutPath, CrossProcessLock.ReadTimeout);
                 }
 
-                return body();
+                return body(ResolveTarget(layoutPath));
             }
             finally
             {
@@ -912,6 +939,9 @@ internal static class ToolGuards
 
     internal static ReportInfoDto ToReportDto(ReportIdentity r) =>
         new(r.ReportName, r.ReportId, r.Namespace, r.StoreItemId);
+
+    internal static TargetVersionDto ToTargetDto(TargetVersion t) =>
+        new(t.Version?.ToString(), t.SourceName, t.Detail);
 
     internal static ControlDto ToControlDto(LayoutControl c) =>
         new(c.Kind.ToString(), c.Alias, c.Tag, c.XPath, c.StoreItemId, c.Part, c.SdtId, c.UsesW15Binding,
@@ -1201,6 +1231,12 @@ internal static class ToolGuards
             // keyed off the typed Defect, never ex.Message, exactly like NotFoundException's TargetKind.
             return ToolResponse.Failure(ErrorCodes.InvalidLayout, ex.Message, LayoutDefectHintFor(ex.Defect));
         }
+        catch (UnsupportedBcVersionException ex)
+        {
+            // The call would author a feature the target BC version lacks, or the target is unknown (GitHub issue
+            // #152). The hint is built from the typed feature and target, never from ex.Message.
+            return ToolResponse.Failure(ErrorCodes.BcVersionUnsupported, ex.Message, BcVersionUnsupportedHint(ex.Feature, ex.Target));
+        }
         catch (ArgumentException ex)
         {
             return ToolResponse.Failure(
@@ -1222,6 +1258,23 @@ internal static class ToolGuards
                 + "persists against a known-good file, this likely indicates a bug in the tool itself and is "
                 + "worth reporting together with the full error message above.");
         }
+    }
+
+    /// <summary>
+    /// The <c>bc_version_unsupported</c> hint: what <paramref name="feature"/> needs, the target in use and where
+    /// it came from, and the two ways to change it.
+    /// </summary>
+    internal static string BcVersionUnsupportedHint(BcFeature feature, TargetVersion target)
+    {
+        var needs = $"'{feature.Id}' needs {feature.Since.Describe()} or later";
+        var current = target.Version is null
+            ? $"the target is unknown: {target.Detail}"
+            : $"the target is {target.Version.Value.Describe()}, from {target.SourceName} ({target.Detail})";
+        return $"{needs}, and {current}. The target is the MINIMUM BC version the layout must work on. Set "
+               + "`application` in the AL project's app.json (the nearest one above the layout wins), or "
+               + $"{EnvironmentConfig.BcVersionVariable} in the server's env block for a layout outside an AL project, "
+               + $"to {feature.Since} or later if the layout is only for those versions. If it must also work on an "
+               + "older BC, leave this feature out; get_layout_info's target shows the version a call resolves.";
     }
 
     /// <summary>

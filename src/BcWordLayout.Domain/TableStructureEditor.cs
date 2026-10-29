@@ -287,7 +287,8 @@ public static class TableStructureEditor
     /// as a single line of the requested thickness or, for <see cref="CellBorderOptions.Remove"/>, set to an
     /// explicit <c>nil</c> — never deleted, since a deleted edge silently reappears in a table whose
     /// <c>w:tblBorders</c> the cell inherits from. Shared with <see cref="SdtFactory.BuildRepeaterTable"/>'s
-    /// BC look so a freshly authored header rule and one drawn later are byte-identical.
+    /// BC look so a freshly authored header rule and one drawn later are byte-identical. Drawing over a rule
+    /// the cell already has keeps that rule's colour (see <see cref="Edge{TEdge}"/>).
     /// </summary>
     internal static void ApplyCellBorders(TableCell cell, CellBorderOptions options)
     {
@@ -304,38 +305,53 @@ public static class TableStructureEditor
 
         if (options.Top)
         {
-            borders.TopBorder = Edge<TopBorder>(options);
+            borders.TopBorder = Edge(options, borders.TopBorder);
         }
 
         if (options.Bottom)
         {
-            borders.BottomBorder = Edge<BottomBorder>(options);
+            borders.BottomBorder = Edge(options, borders.BottomBorder);
         }
 
         if (options.Left)
         {
-            borders.LeftBorder = Edge<LeftBorder>(options);
+            borders.LeftBorder = Edge(options, borders.LeftBorder);
         }
 
         if (options.Right)
         {
-            borders.RightBorder = Edge<RightBorder>(options);
+            borders.RightBorder = Edge(options, borders.RightBorder);
         }
     }
 
     /// <summary>
     /// One border edge in the exact corpus shape — <c>w:val="single" w:sz="4" w:space="0" w:color="auto"</c>
     /// — or an explicit <c>w:val="nil"</c> when clearing (see <see cref="ApplyCellBorders"/>).
+    /// <para>
+    /// Drawing over a rule <paramref name="existing"/> already draws changes only its line and thickness: the
+    /// colour stays, a literal one or a theme slot with its tint or shade. Redrawing an edge to make it thicker
+    /// used to turn a coloured rule black (GitHub issue #144). A cleared or absent edge has no colour to keep.
+    /// </para>
     /// </summary>
-    private static TEdge Edge<TEdge>(CellBorderOptions options)
-        where TEdge : BorderType, new() =>
-        new()
+    private static TEdge Edge<TEdge>(CellBorderOptions options, TEdge? existing)
+        where TEdge : BorderType, new()
+    {
+        if (!options.Remove && existing?.Val?.Value is { } line && line != BorderValues.Nil && line != BorderValues.None)
+        {
+            var redrawn = (TEdge)existing.CloneNode(true);
+            redrawn.Val = BorderValues.Single;
+            redrawn.Size = (uint)options.SizeEighthPoints;
+            return redrawn;
+        }
+
+        return new()
         {
             Val = options.Remove ? BorderValues.Nil : BorderValues.Single,
             Size = (uint)options.SizeEighthPoints,
             Space = 0,
             Color = "auto",
         };
+    }
 
     /// <summary>
     /// Inserts ONE new grid column into the <paramref name="tableIndex"/>-th table at grid position

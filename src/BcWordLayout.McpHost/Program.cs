@@ -52,6 +52,19 @@ if (!string.IsNullOrWhiteSpace(rawLabelSuffixes) || !string.IsNullOrWhiteSpace(r
     }
 }
 
+// Optional target Business Central version for layouts outside an AL project (GitHub issue #152): BCWL_BC_VERSION,
+// e.g. "29". Every call resolves its own target - the nearest app.json above the layout wins over this value - so
+// it is only stored here, never parsed into server state. An invalid value is kept as-is: it makes the target
+// unknown, and the responses that report the target name the reason.
+var rawBcVersion = Environment.GetEnvironmentVariable(EnvironmentConfig.BcVersionVariable);
+BcWordLayout.McpHost.Tools.ToolGuards.BcVersionEnvironmentValue = rawBcVersion;
+if (!string.IsNullOrWhiteSpace(rawBcVersion) && !BcVersion.TryParse(rawBcVersion, out _))
+{
+    Console.Error.WriteLine(
+        $"[bc-word-layout-mcp] {EnvironmentConfig.BcVersionVariable}='{rawBcVersion}' is not a Business Central "
+        + "version (expected e.g. 29 or 29.1); layouts outside an AL project get an unknown target.");
+}
+
 var builder = Host.CreateApplicationBuilder(args);
 
 builder.Logging.AddConsole(options =>

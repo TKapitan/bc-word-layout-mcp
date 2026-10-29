@@ -72,6 +72,29 @@ public static class Corpus
     /// </summary>
     public const string SubcontractorDispatchList = "SubcontractorDispatchList.docx";
 
+    // ---- 2026-10-29 themable additions (source files from microsoft/BCApps, see PROVENANCE.md). Each colours
+    // through the theme slot accent1 instead of literal colours.
+
+    /// <summary>
+    /// <c>Standard_Sales_Invoice/1306</c>, Blue Simple themable — the themable twin of
+    /// <see cref="SalesInvoiceVatSpec"/>: <c>accent1</c> on 26 text colours, 8 cell fills and 25 table rules, and
+    /// <c>Heading1</c>/<c>Heading2</c> title lines. Its embedded theme's <c>accent1</c> is <c>F24F4F</c>.
+    /// </summary>
+    public const string SalesInvoiceBlueSimpleThemable = "StandardSalesInvoiceBlueSimpleThemable.docx";
+
+    /// <summary>
+    /// <c>Standard_Sales_Shipment/1308</c>, Blue themable — carries one <c>w15:dataBinding</c> whose
+    /// <c>w:prefixMappings</c> names a namespace with spaces (<c>…/Standard Sales - Shipment/1308/</c>, GitHub
+    /// issue #154), and two captions its conversion left in a literal colour.
+    /// </summary>
+    public const string SalesShipmentBlueThemable = "StandardSalesShipmentBlueThemable.docx";
+
+    /// <summary>
+    /// <c>Standard_Purchase_Order/1322</c> themable — a colour-only twin of <see cref="StandardPurchaseOrder"/> (same
+    /// styles and theme), and the corpus's only <c>w:fldSimple</c> page field.
+    /// </summary>
+    public const string StandardPurchaseOrderThemable = "StandardPurchaseOrderThemable.docx";
+
     // QuantityExplosionofBOM.docx was REMOVED from the corpus (2026-08-01). Business Central rejected it
     // on upload — InvalidPrefixMapping on nine bindings naming Quantity_Explosion_of_BOM/50000 and
     // QuantityExplosionofBOM/50013, neither of which is the report it claims to be (99000753) — and report

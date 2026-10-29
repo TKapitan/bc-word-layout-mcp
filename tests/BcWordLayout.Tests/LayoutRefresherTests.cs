@@ -673,6 +673,41 @@ public class LayoutRefresherTests
     }
 
     [Fact]
+    public void Refresh_re_points_a_namespace_with_spaces_whole()
+    {
+        // StandardSalesShipmentBlueThemable's UnitOfMeasure_Lbl binding declares an older form of the namespace,
+        // `…/reports/Standard Sales - Shipment/1308/`. Read only up to its first space, it was re-pointed as
+        // `…/reports/Standard`, which left `Sales - Shipment/1308/` behind inside the new URI (GitHub issue #154).
+        const string spacedNamespace = "urn:microsoft-dynamics-nav/reports/Standard Sales - Shipment/1308/";
+        var path = Corpus.UnlinkedCopy(Corpus.SalesShipmentBlueThemable);
+        try
+        {
+            RefreshResult result;
+            using (var doc = WordprocessingDocument.Open(path, true))
+            {
+                result = LayoutRefresher.Refresh(doc, Corpus.Path(Corpus.SalesShipmentBlueThemable));
+                SaveAllParts(doc);
+            }
+
+            var repointed = Assert.Single(result.RepointedForeignBindings, r => r.PreviousNamespace == spacedNamespace);
+
+            using var reopened = WordprocessingDocument.Open(path, false);
+            var expected = SchemaProvider.FromLayout(reopened).Report.Namespace;
+            var control = Assert.Single(LayoutReader.Read(reopened).Controls, c => c.SdtId == repointed.SdtId);
+            Assert.Equal($"xmlns:ns0='{expected}' ", control.PrefixMappings);
+
+            // With the stock defects the refresh repairs (two bare Mini_Sales_Invoice mappings, dangling
+            // storeItemIDs) and the template link already gone, nothing is left to fail.
+            var after = LayoutValidator.Quick(path);
+            Assert.True(after.Passed, string.Join(" | ", after.Findings.Select(f => $"{f.Check}: {f.Message}")));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void Refresh_re_points_the_stock_storeItemIDs_that_name_no_part_to_the_BC_part()
     {
         // The same two StandardSalesInvoiceVatSpec bindings also carry a storeItemID that names no part of the

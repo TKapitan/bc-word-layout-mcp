@@ -4,7 +4,7 @@ using BcWordLayout.Domain.Models;
 namespace BcWordLayout.Merge;
 
 /// <summary>
-/// Full-level layout validation: combines <see cref="LayoutValidator.Quick(string)"/>'s structural/binding
+/// Full-level layout validation: combines <see cref="LayoutValidator.Quick(string, TargetVersion?)"/>'s structural/binding
 /// findings with a real dry-run merge (<see cref="MergeEngine.Merge(string, string, MergeOptions?)"/>)
 /// against a throwaway temp output, surfacing every <see cref="MergeWarning"/> as a <see cref="ValidationFinding"/>.
 /// This lives in the Merge project (not Domain) because Domain must not depend on Merge (Merge depends on
@@ -18,28 +18,29 @@ public static class FullValidator
     /// <paramref name="layoutPath"/>. The dry-run's merged .docx is written to a temp file that is always
     /// deleted afterward (try/finally), whether or not the merge succeeds. Only the dry-run MERGE step is
     /// wrapped in a try/catch: a merge-time exception is captured as a single <c>dry-run-merge</c> error
-    /// finding rather than propagating. <see cref="LayoutValidator.Quick(string)"/> runs outside that
+    /// finding rather than propagating. <see cref="LayoutValidator.Quick(string, TargetVersion?)"/> runs outside that
     /// try/catch, on purpose — a missing file or an unopenable/malformed package still throws straight out
     /// of this method, exactly as it does at quick level, so the caller (<c>ToolGuards</c>'s <c>Guard</c>)
     /// turns it into the same structured <c>file_not_found</c>/<c>invalid_layout</c> error envelope that
     /// <c>validate_layout level=quick</c> would produce for that same broken file, instead of it being
-    /// buried as an ordinary validation finding.
+    /// buried as an ordinary validation finding. <paramref name="target"/> is passed to the quick checks, for
+    /// their <c>bc-version</c> check.
     /// <para>
     /// SECURITY: the dry-run merge below deliberately leaves
     /// <see cref="MergeOptions.StripExternalReferences"/> at its default <c>false</c>. Unlike
     /// <c>preview_layout</c>, this merge's output (<c>tempOutput</c>) is never handed to a PDF converter and
     /// is always deleted in the <c>finally</c> block below regardless of outcome - so no renderer could ever
     /// dereference a poisoned layout's external relationship here, and stripping them would only add cost
-    /// with no security benefit. <see cref="LayoutValidator.Quick(string)"/> (invoked above, and included in
+    /// with no security benefit. <see cref="LayoutValidator.Quick(string, TargetVersion?)"/> (invoked above, and included in
     /// this method's own findings either way) already surfaces a real <c>attachedTemplate</c> relationship
     /// as its own <c>attached-template</c> warning finding.
     /// </para>
     /// </summary>
-    public static ValidationResult Full(string layoutPath)
+    public static ValidationResult Full(string layoutPath, TargetVersion? target = null)
     {
         var findings = new List<ValidationFinding>();
 
-        var quick = LayoutValidator.Quick(layoutPath);
+        var quick = LayoutValidator.Quick(layoutPath, target);
         findings.AddRange(quick.Findings);
 
         var tempOutput = Path.Combine(Path.GetTempPath(), $"bcwl-full-validate-{Guid.NewGuid():N}.docx");

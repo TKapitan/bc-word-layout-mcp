@@ -6,7 +6,7 @@ namespace BcWordLayout.Tests;
 
 /// <summary>
 /// GitHub issue #93: every tool that writes a binding took its storeItemID from the BC dataset part's
-/// itemProps, so on a layout whose part has none — 4 of the 10 corpus layouts, among them the stock
+/// itemProps, so on a layout whose part has none — 4 of the 13 corpus layouts, among them the stock
 /// SalespersonCommission and StandardStatement — every bound insert failed with an invalid_argument whose hint
 /// named internal C# methods. Those layouts' existing bindings agree on one storeItemID (45 of 45 and 82 of
 /// 82), and a new binding now reuses it; with no bindings, or disagreeing ones, the call is refused with a hint

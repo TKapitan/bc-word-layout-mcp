@@ -739,7 +739,7 @@ public class InvalidArgumentHintCoverageTests
 
     // ---- "schema" — SdtFactory's storeItemID guard (schema.Report.StoreItemId null/empty). No tool call
     // reaches it any more. It used to be reached by every bound insert on a layout whose dataset part has no
-    // itemProps - 4 of the 10 corpus layouts, stock ones included - with a hint naming internal C# methods
+    // itemProps - 4 of the 13 corpus layouts, stock ones included - with a hint naming internal C# methods
     // (GitHub issue #93). Every tool that builds a bound control now takes its schema from
     // SchemaProvider.FromLayoutForBinding, which supplies the part's itemID or the storeItemID the layout's
     // existing bindings agree on, and otherwise refuses with invalid_layout (StoreItemIdFallbackTests covers

@@ -240,16 +240,39 @@ public class LayoutValidatorTests
     [InlineData(Corpus.SalesInvoiceVatSpec)]
     [InlineData(Corpus.PaymentPracticeByPeriod)]
     [InlineData(Corpus.SubcontractorDispatchList)]
+    [InlineData(Corpus.SalesInvoiceBlueSimpleThemable)]
+    [InlineData(Corpus.SalesShipmentBlueThemable)]
+    [InlineData(Corpus.StandardPurchaseOrderThemable)]
     public void No_corpus_layout_trips_the_binding_prefix_mapping_check(string fileName)
     {
-        // binding-prefix-mapping is an ERROR, and an unmodified capture must not gain one. All 631 corpus
+        // binding-prefix-mapping is an ERROR, and an unmodified capture must not gain one. All 832 corpus
         // bindings are rooted at NavWordReportXmlPart and declare xmlns:ns0='...' for an ns0-only XPath, except
-        // StandardSalesInvoiceVatSpec's two bare Mini_Sales_Invoice mappings - which name a foreign BC
-        // namespace and so stay binding-namespace's to report - and the foreign-namespace bindings of
-        // PaymentPracticeByPeriod/SubcontractorDispatchList, likewise left to binding-namespace.
+        // the bare Mini_Sales_Invoice mappings of StandardSalesInvoiceVatSpec and the two themable Blue layouts -
+        // which name a foreign BC namespace and so stay binding-namespace's to report - and the foreign-namespace
+        // bindings of PaymentPracticeByPeriod/SubcontractorDispatchList and StandardSalesShipmentBlueThemable's
+        // namespace with spaces, likewise left to binding-namespace.
         var result = LayoutValidator.Quick(Corpus.Path(fileName));
 
         Assert.DoesNotContain(result.Findings, f => f.Check == "binding-prefix-mapping");
+    }
+
+    [Fact]
+    public void A_foreign_namespace_with_spaces_is_reported_whole_and_once()
+    {
+        // StandardSalesShipmentBlueThemable's UnitOfMeasure_Lbl binding declares an older form of the namespace,
+        // `…/reports/Standard Sales - Shipment/1308/`. Cut at the first space, it drew a binding-namespace Error
+        // naming `…/reports/Standard` with a refresh_xml_part repair AND a binding-prefix-mapping Error saying the
+        // refresh would not repair it (GitHub issue #154).
+        var findings = LayoutValidator.Quick(Corpus.Path(Corpus.SalesShipmentBlueThemable)).Findings
+            .Where(f => f.Check is "binding-namespace" or "binding-prefix-mapping"
+                        && f.Location!.Contains("UnitOfMeasure_Lbl", StringComparison.Ordinal))
+            .ToList();
+
+        var finding = Assert.Single(findings);
+        Assert.Equal("binding-namespace", finding.Check);
+        Assert.Equal(FindingSeverity.Error, finding.Severity);
+        Assert.Contains(
+            "'urn:microsoft-dynamics-nav/reports/Standard Sales - Shipment/1308/'", finding.Message, StringComparison.Ordinal);
     }
 
     private const string JobQuoteNamespace = "urn:microsoft-dynamics-nav/reports/Job_Quote/1016/";

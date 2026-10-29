@@ -292,6 +292,100 @@ public class CellFormatTests
         }
     }
 
+    /// <summary>The cells of grid row <paramref name="row"/>, through a row-level control if there is one.</summary>
+    private static List<TableCell> SlotCells(WordprocessingDocument doc, int tableIndex, int row) =>
+        TableGridNavigator.Cells(
+                TableGridNavigator.Rows(TableGridNavigator.Tables(doc.MainDocumentPart!.Document!.Body!)[tableIndex])[row].InnerRow!)
+            .Select(s => s.InnerCell)
+            .OfType<TableCell>()
+            .ToList();
+
+    [Fact]
+    public void Redrawing_a_coloured_rule_changes_its_thickness_and_keeps_its_colour()
+    {
+        // GitHub issue #144's repro: in the stock Blue invoice's line table, row 2's bottom rule is tinted text2 and
+        // the total row's is 002060. Redrawing either one used to turn it into an auto (black) rule.
+        var path = CopyOfCorpus(Corpus.SalesInvoiceVatSpec);
+        try
+        {
+            Assert.True(TableTools.SetCellFormat(path, tableIndex: 2, row: 3, edges: ["bottom"], borderSize: 8).Ok);
+            Assert.True(TableTools.SetCellFormat(path, tableIndex: 2, row: 2, edges: ["bottom"]).Ok);
+
+            using var reopened = WordprocessingDocument.Open(path, false);
+            Assert.All(SlotCells(reopened, 2, 3), cell =>
+            {
+                var bottom = cell.TableCellProperties!.TableCellBorders!.BottomBorder!;
+                Assert.Equal(BorderValues.Single, bottom.Val!.Value);
+                Assert.Equal(8u, bottom.Size!.Value);
+                Assert.Equal("002060", bottom.Color!.Value);
+            });
+            Assert.All(SlotCells(reopened, 2, 2), cell =>
+            {
+                var bottom = cell.TableCellProperties!.TableCellBorders!.BottomBorder!;
+                Assert.Equal(4u, bottom.Size!.Value);
+                Assert.Equal("9B9482", bottom.Color!.Value);
+                Assert.Equal(ThemeColorValues.Text2, bottom.ThemeColor!.Value);
+                Assert.Equal("99", bottom.ThemeTint!.Value);
+            });
+            Assert.Empty(OpenXmlErrors(reopened));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Redrawing_a_theme_coloured_rule_keeps_its_theme_slot()
+    {
+        // The themable twin colours the same rules through accent1, which a BC report theme may recolour (#142).
+        var path = CopyOfCorpus(Corpus.SalesInvoiceBlueSimpleThemable);
+        try
+        {
+            Assert.True(TableTools.SetCellFormat(path, tableIndex: 2, row: 3, edges: ["bottom"], borderSize: 12).Ok);
+
+            using var reopened = WordprocessingDocument.Open(path, false);
+            var cells = SlotCells(reopened, 2, 3);
+            Assert.NotEmpty(cells);
+            Assert.All(cells, cell =>
+            {
+                var bottom = cell.TableCellProperties!.TableCellBorders!.BottomBorder!;
+                Assert.Equal(12u, bottom.Size!.Value);
+                Assert.Equal(ThemeColorValues.Accent1, bottom.ThemeColor!.Value);
+                Assert.Equal("F24F4F", bottom.Color!.Value);
+            });
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Clearing_a_coloured_rule_and_drawing_it_again_gives_the_plain_corpus_rule()
+    {
+        // Only a DRAWN rule keeps its colour: a cleared edge has none, so drawing it again starts from auto.
+        var path = CopyOfCorpus(Corpus.SalesInvoiceVatSpec);
+        try
+        {
+            Assert.True(TableTools.SetCellFormat(path, tableIndex: 2, row: 3, edges: ["bottom"], borderStyle: "none").Ok);
+            Assert.True(TableTools.SetCellFormat(path, tableIndex: 2, row: 3, edges: ["bottom"]).Ok);
+
+            using var reopened = WordprocessingDocument.Open(path, false);
+            Assert.All(SlotCells(reopened, 2, 3), cell =>
+            {
+                var bottom = cell.TableCellProperties!.TableCellBorders!.BottomBorder!;
+                Assert.Equal(BorderValues.Single, bottom.Val!.Value);
+                Assert.Equal("auto", bottom.Color!.Value);
+                Assert.Null(bottom.ThemeColor);
+            });
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     [Theory]
     [InlineData(null, null, null, "set_cell_format has nothing to change")]
     [InlineData(null, "none", null, "borderStyle and borderSize describe the edges you name")]

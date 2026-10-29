@@ -167,6 +167,35 @@ value is ignored (logged to stderr) and the default kept:
 }
 ```
 
+### Target Business Central version
+
+Some layout features need a newer Business Central. The **target** is the *minimum* BC version a layout
+must work on, and every call resolves it again ([ADR-0007](docs/adr/0007-target-bc-version-resolved-per-call.md));
+the first match wins:
+
+1. **The nearest AL `app.json` above the layout** (above `outputPath` for `create_layout`): its
+   `application`, e.g. `29.0.0.0`. The walk stops at the first `app.json`, at a folder containing `.git`,
+   or at the drive root. An `app.json` that cannot be read, or names something that is not a version,
+   makes the target unknown; one with no `application` falls through to the variable.
+2. **`BCWL_BC_VERSION`** (e.g. `29` or `29.1`) in the server's `env` block, for layouts outside an AL
+   project. A project-scoped `.mcp.json` can set it per repository. An invalid value makes the target
+   unknown (logged to stderr at startup).
+3. **Unknown.**
+
+`get_layout_info` and `validate_layout` report it as `target: { bcVersion, source, detail }`, e.g.
+`29.0` from `app.json` (`…pp.json: application 29.0.0.0`). What it controls:
+
+- A tool that would write a feature from the table below refuses with `bc_version_unsupported` below
+  the feature's version and when the target is unknown. No shipped tool writes one yet.
+- `validate_layout`'s `bc-version` check reports such a feature a layout already has: a header/footer
+  layout bound to Tenant Report Defaults is an error below 29.0 and a warning for an unknown target.
+  Theme colours and paragraph styles already in a layout are not flagged: BC 28 prints them.
+
+| Feature | Kind | Since | Covers | Evidence |
+|---|---|---|---|---|
+| `report-themes` | capability | 29.0 | report theme `.dotx` files, header/footer layouts bound to `Tenant_Report_Defaults` | 2026 release wave 2; a composite body + header/footer + theme set printed on 2026-10-17 |
+| `themable-formatting` | capability | 29.0 | theme-slot colours for text, cell fills and borders, and paragraph styles | decided with report themes, 2026-10-27 (#152) |
+
 ## Supported platforms
 
 **Windows (x64 / arm64) is the supported platform.** PDF preview conversion uses Microsoft Word via
@@ -186,9 +215,9 @@ other tool is conversion-free and works everywhere the server runs.
 
 | Tool | Purpose |
 |---|---|
-| `get_layout_info` | Inspect a layout: report name/id, dataset namespace, `storeItemID`, the full control inventory (kind, alias, tag, `xPath`, part, parent repeater), per-part details (kind, header/footer role `default`/`first`/`even`, and which part a `partName`-less header/footer edit targets) plus a `hasTitlePage` flag, every table's rows (one per `w:tr`, so each row of a multi-row repeater item is addressable, tagged with the repeater it repeats with) and cells — each cell with both its physical `colIndex` (what the cell tools take) and its `gridColumn`/`gridSpan` (what the column tools take; they differ on any spanned row), each row with its `gridBefore`/`gridAfter` — and a quick validation summary. |
+| `get_layout_info` | Inspect a layout: report name/id, dataset namespace, `storeItemID`, the full control inventory (kind, alias, tag, `xPath`, part, parent repeater), per-part details (kind, header/footer role `default`/`first`/`even`, and which part a `partName`-less header/footer edit targets) plus a `hasTitlePage` flag, every table's rows (one per `w:tr`, so each row of a multi-row repeater item is addressable, tagged with the repeater it repeats with) and cells — each cell with both its physical `colIndex` (what the cell tools take) and its `gridColumn`/`gridSpan` (what the column tools take; they differ on any spanned row), each row with its `gridBefore`/`gridAfter` — a quick validation summary, and the [target BC version](#target-business-central-version) the call resolved. |
 | `list_dataset_fields` | List the dataset hierarchy (data items + columns) from a `.docx` layout or a standalone schema `.xml`; flags labels and, for a layout, bound/unbound columns. |
-| `validate_layout` | Validate a layout: `level=quick` (structural + binding checks, including a `repeater-downgraded` error for a repeater a Word save turned into a plain content control, a `top-level-repeater-group` error for a block-level repeater over the top-level data item without the `w:group` wrapper Business Central needs to print it, an `attached-template` error for a layout that links an external Word template (Business Central refuses to upload one), a warning when a layout containing repeaters declares a Word compatibility mode below 15, a `duplicate-control-id` warning when two content controls share a `w:id`, and a `font-installed` warning for a font Business Central online does not have) or `level=full` (adds a dry-run merge that surfaces every unresolved binding as a finding). |
+| `validate_layout` | Validate a layout: `level=quick` (structural + binding checks, including a `repeater-downgraded` error for a repeater a Word save turned into a plain content control, a `top-level-repeater-group` error for a block-level repeater over the top-level data item without the `w:group` wrapper Business Central needs to print it, an `attached-template` error for a layout that links an external Word template (Business Central refuses to upload one), a warning when a layout containing repeaters declares a Word compatibility mode below 15, a `duplicate-control-id` warning when two content controls share a `w:id`, a `font-installed` warning for a font Business Central online does not have, and a `bc-version` finding for a feature the [target BC version](#target-business-central-version) lacks) or `level=full` (adds a dry-run merge that surfaces every unresolved binding as a finding). Reports the target it used. |
 | `preview_layout` | Mock preview: merges deterministic (or supplied) sample data into a working copy and converts it to PDF via Word COM or LibreOffice. |
 | `render_preview_pages` | Render pages of a preview PDF (the `pdfPath` from `preview_layout`) as PNG images returned inline as MCP image content blocks, so the calling agent can visually inspect the preview (default 3 pages, cap 10 per call; page onward via `firstPage`; each page capped at 5000 px a side and 20 MP, a larger one rendered smaller and flagged `downscaled`). Pass `outputDir` to also write each page as a `.png` a human can open — optionally with `inlineImages=false` to skip the token cost of the inline copies. |
 | `create_layout` | Create a new blank layout `.docx` from a schema, optionally starting from a branded/styled (unbound) template. A blank build ships deterministic default typography (Calibri 11 pt via a scaffolded styles part) so it renders with the same font in Word and in BC, plus a settings part declaring `compatibilityMode` 15 so its repeaters survive being opened and saved in Word. |
@@ -461,7 +490,7 @@ Or write the requests to a file of your own and pipe it (`Get-Content requests.j
 | `src/BcWordLayout.Merge` | `SampleDataGenerator` (seeded, type-aware fakes), `MergeEngine` (binding fill, repeater expansion incl. nested/re-anchored XPaths, picture placeholders), `FullValidator` (the dry-run merge behind `validate_layout level=full`). |
 | `src/BcWordLayout.Render` | `IPdfConverter` + `WordComConverter` (primary) / `LibreOfficeConverter` (fallback) + `PdfConverterFactory` (auto-selection) + PDF output sanity checks. |
 | `src/BcWordLayout.McpHost` | The MCP stdio server (console app): the 28 tool definitions (`Tools/ReadTools.cs`, `Tools/EditTools.cs`, `Tools/TableTools.cs`, `Tools/LifecycleTools.cs`, sharing `Tools/ToolGuards.cs`), their structured arguments (`Tools/TableArguments.cs`, `Tools/TextFormatArgument.cs`, the enum lists in `Tools/AllowedValueAttributes.cs`), the `{ok,data,error}` envelope (`ToolContracts.cs`), the call filter that keeps malformed calls inside it (`ToolCallBoundary.cs`), and the schema correction that puts a list parameter's allowed values and range on its items (`ToolInputSchemas.cs`). |
-| `tests/BcWordLayout.Tests` | xUnit tests: the 10 real corpus layouts in `tests/corpus/` plus synthetic fixtures — reader/validator/merge/editor/refresher/converter coverage, snapshot tests, MCP host tool tests, packaging-manifest guards, and the fidelity harness. |
+| `tests/BcWordLayout.Tests` | xUnit tests: the 13 real corpus layouts in `tests/corpus/` plus synthetic fixtures — reader/validator/merge/editor/refresher/converter coverage, snapshot tests, MCP host tool tests, packaging-manifest guards, and the fidelity harness. |
 
 ## Contributing and security
 

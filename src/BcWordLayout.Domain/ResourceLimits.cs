@@ -70,6 +70,13 @@ internal static class ResourceLimits
     internal const long MaxCustomXmlPartBytes = 16L * 1024 * 1024;
 
     /// <summary>
+    /// Byte ceiling for the AL <c>app.json</c> <see cref="TargetVersionResolver"/> reads above a layout. A real
+    /// one is a few KB; a larger file makes the target unknown, with the size in the reason, rather than being
+    /// parsed.
+    /// </summary>
+    internal const long MaxAppJsonBytes = 1L * 1024 * 1024;
+
+    /// <summary>
     /// Hard ceiling on the NUMBER of custom XML parts <see cref="SchemaProvider.FindBcPart"/>/
     /// <see cref="SchemaProvider.FindBcParts"/> will even attempt to enumerate. The per-part byte cap above
     /// bounds any ONE part's cost, but a package could still carry an enormous NUMBER of small,
@@ -136,7 +143,7 @@ internal static class ResourceLimits
     /// <summary>
     /// Max element nesting depth of ANY XML part in a package, checked by
     /// <see cref="EnsurePackageWithinLimits"/> before the OpenXml SDK parses the part into its (recursive)
-    /// DOM. The deepest part in the ten-layout corpus nests 31 levels; the SDK's own load overflows the
+    /// DOM. The deepest part in the corpus nests 31 levels; the SDK's own load overflows the
     /// stack at roughly 2,250. 512 is 16x the corpus and about 4x under the crash, and stays above twice
     /// <see cref="MaxElementNestingDepth"/> (a content-control level is two XML levels, <c>w:sdt</c> plus
     /// <c>w:sdtContent</c>), so this repo's own walkers keep their own, more specific, depth error.
