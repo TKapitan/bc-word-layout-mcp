@@ -210,8 +210,8 @@ internal static class SdtInspector
     /// <remarks>
     /// The attribute's normal form is <c>xmlns:ns0='&lt;uri&gt;'</c>, but real base-app layouts also ship it
     /// as a BARE uri with no <c>xmlns:</c> declaration at all while the XPath still uses the <c>ns0:</c>
-    /// prefix (`StandardSalesInvoiceVatSpec.docx`'s Mini_Sales_Invoice bindings) — so the URI is extracted by
-    /// pattern rather than by parsing an xmlns declaration. A single prefixMappings may declare several
+    /// prefix (`StandardSalesInvoiceVatSpec.docx`'s Mini_Sales_Invoice bindings) — so
+    /// <see cref="ExtractBcNamespace"/> reads both forms. A single prefixMappings may declare several
     /// prefixes; only the BC one is of interest here, and only the first is returned (no real layout declares
     /// two different BC namespaces in one binding).
     /// </remarks>
@@ -238,14 +238,25 @@ internal static class SdtInspector
             return null;
         }
 
+        // A declared URI is the whole quoted value, spaces included. An older form of a BC namespace names the
+        // report with them (`…/reports/Standard Sales - Shipment/1308/` in StandardSalesShipmentBlueThemable.docx),
+        // and cutting it at the first space read it as `…/reports/Standard` (GitHub issue #154). Reading it with
+        // BindingXPath.PrefixDeclarations, as binding-prefix-mapping and the merge do, keeps the three agreeing.
+        foreach (var (_, uri) in BindingXPath.PrefixDeclarations(prefixMappings))
+        {
+            if (uri.StartsWith(OoxmlNames.BcNamespacePrefix, StringComparison.Ordinal))
+            {
+                return uri;
+            }
+        }
+
         var start = prefixMappings.IndexOf(OoxmlNames.BcNamespacePrefix, StringComparison.Ordinal);
         if (start < 0)
         {
             return null;
         }
 
-        // The URI runs to the first delimiter that cannot be part of it: the closing quote of an xmlns
-        // declaration, or whitespace when it is bare. A BC namespace itself never contains either.
+        // A BARE uri has no quotes around it, so it runs to the first whitespace (or a stray quote).
         var end = start;
         while (end < prefixMappings.Length
                && prefixMappings[end] is not ('\'' or '"')

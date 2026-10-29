@@ -23,6 +23,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   dropped any theme colour, tint or shade, while the summary only said the rule was drawn. Drawing over
   an existing rule now changes its line and thickness only. A new rule, or one drawn after
   `borderStyle: "none"` cleared the edge, is black as before.
+- **A binding namespace that contains spaces is read whole** (GitHub issue #154). Microsoft's themable
+  Sales Shipment and Return Receipt layouts declare an older namespace form,
+  `…/reports/Standard Sales - Shipment/1308/`, and the tools read it only up to the first space.
+  `validate_layout` then reported the binding twice with opposite repairs (`binding-namespace` naming
+  `…/reports/Standard` and suggesting `refresh_xml_part`, `binding-prefix-mapping` saying the refresh
+  would not help), and `refresh_xml_part` reported success while writing
+  `…/Standard_Sales_Shipment/1308/ Sales - Shipment/1308/`. A declared namespace is now the whole
+  quoted value: the binding draws one `binding-namespace` Error, and the refresh replaces the URI.
 
 ## [2.0.0] - 2026-10-25
 

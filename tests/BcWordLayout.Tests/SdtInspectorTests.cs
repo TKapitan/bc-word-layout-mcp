@@ -413,6 +413,10 @@ public class SdtInspectorTests
     // Several prefixes declared; only the BC one is of interest and it is not first.
     [InlineData("xmlns:a='http://example.com/x' xmlns:ns0='urn:microsoft-dynamics-nav/reports/R/1/'",
                 "urn:microsoft-dynamics-nav/reports/R/1/")]
+    // An older namespace form with spaces in the report name (StandardSalesShipmentBlueThemable.docx): a declared
+    // URI is the whole quoted value, not cut at the first space (GitHub issue #154).
+    [InlineData("xmlns:ns0='urn:microsoft-dynamics-nav/reports/Standard Sales - Shipment/1308/' ",
+                "urn:microsoft-dynamics-nav/reports/Standard Sales - Shipment/1308/")]
     public void ExtractBcNamespace_finds_the_bc_uri_in_every_prefixMappings_shape(string mappings, string expected)
     {
         Assert.Equal(expected, SdtInspector.ExtractBcNamespace(mappings));
