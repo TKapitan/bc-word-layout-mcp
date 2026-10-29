@@ -55,6 +55,14 @@ public sealed record ReportInfoDto(string ReportName, string ReportId, string Na
 public sealed record ValidationSummaryDto(string Level, bool Passed, int ErrorCount, int WarningCount);
 
 /// <summary>
+/// The target Business Central version a call resolved (GitHub issue #152): the minimum version the layout must
+/// work on. <see cref="BcVersion"/> is major.minor (<c>29.0</c>), absent when the target is unknown;
+/// <see cref="Source"/> is <c>app.json</c>, <c>environment</c> or <c>unknown</c>; <see cref="Detail"/> is what it was
+/// read from (<c>C:\Repo\app\app.json: application 29.0.0.0</c>) or why there is none.
+/// </summary>
+public sealed record TargetVersionDto(string? BcVersion, string Source, string Detail);
+
+/// <summary>
 /// One control in the flat inventory. <see cref="Level"/> is the structural <c>w:sdt</c> kind
 /// (<c>run</c>/<c>block</c>/<c>cell</c>/<c>row</c>/<c>runRuby</c>) — a <c>cell</c>/<c>row</c> control wraps a
 /// table cell/row that defines the grid, which is what a caller must know before removing it.
@@ -150,7 +158,8 @@ public sealed record PartInfoDto(string Name, string Kind, string? Role, bool Is
 /// frequently NOT the everyday default one (see <see cref="PartInfoDto"/>). <see cref="HasTitlePage"/> is
 /// true when the first section renders a DIFFERENT FIRST PAGE (<c>w:titlePg</c>): page 1 then shows the
 /// <c>first</c>-role header/footer (or none), not the <c>default</c> one — the reason a correctly
-/// inserted default-header field can be invisible on a one-page render (GitHub issue #5).
+/// inserted default-header field can be invisible on a one-page render (GitHub issue #5). <see cref="Target"/>
+/// is the target BC version the call resolved, which <see cref="Validation"/>'s <c>bc-version</c> check used.
 /// </summary>
 public sealed record LayoutInfoDto(
     ReportInfoDto Report,
@@ -160,7 +169,8 @@ public sealed record LayoutInfoDto(
     IReadOnlyList<ControlDto> Controls,
     IReadOnlyList<TableDto> Tables,
     IReadOnlyList<PartInfoDto> PartDetails,
-    bool HasTitlePage);
+    bool HasTitlePage,
+    TargetVersionDto Target);
 
 public sealed record ColumnDto(string Name, string Path, bool IsLabel, bool? Bound);
 
@@ -175,12 +185,14 @@ public sealed record DatasetFieldsDto(string SourceType, ReportInfoDto Report, D
 
 public sealed record FindingDto(string Check, string Severity, string Message, string? Location);
 
+/// <summary><c>validate_layout</c>'s payload. <see cref="Target"/> is the target BC version the <c>bc-version</c> check used.</summary>
 public sealed record ValidationResultDto(
     string Level,
     bool Passed,
     int ErrorCount,
     int WarningCount,
-    IReadOnlyList<FindingDto> Findings);
+    IReadOnlyList<FindingDto> Findings,
+    TargetVersionDto Target);
 
 public sealed record PreviewStatsDto(int FieldsFilled, int RepeatersExpanded, int RowsGenerated, int Unresolved, int PicturesFilled);
 

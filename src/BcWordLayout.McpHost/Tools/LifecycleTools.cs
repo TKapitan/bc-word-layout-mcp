@@ -147,7 +147,8 @@ public static class LifecycleTools
                     return CrossProcessLockTimeoutFailure(outputPath, CrossProcessLock.MutatingTimeout);
                 }
 
-                var result = LayoutBuilder.Create(schemaSource, outputPath, templatePath, headingText);
+                // The target comes from above outputPath: the AL project the new layout will belong to.
+                var result = LayoutBuilder.Create(schemaSource, outputPath, templatePath, headingText, ResolveTarget(outputPath));
                 var dto = new CreateResultDto(
                     result.OutputPath,
                     result.ReportName,
@@ -422,7 +423,7 @@ public static class LifecycleTools
                     TryDeleteFile(pdfPath);
                 }
 
-                var quick = LayoutValidator.Quick(layoutPath);
+                var quick = LayoutValidator.Quick(layoutPath, ResolveTarget(layoutPath));
 
                 var dto = new PreviewResultDto(
                     MergedDocxPath: Path.GetFullPath(mergedDocxPath),

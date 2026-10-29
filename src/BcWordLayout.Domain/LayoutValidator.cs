@@ -13,8 +13,11 @@ namespace BcWordLayout.Domain;
 /// </summary>
 public static class LayoutValidator
 {
-    /// <summary>Runs the quick checks against a layout and returns findings plus an overall pass/fail.</summary>
-    public static ValidationResult Quick(string docxPath)
+    /// <summary>
+    /// Runs the quick checks against a layout and returns findings plus an overall pass/fail. With a
+    /// <paramref name="target"/>, the <c>bc-version</c> check runs too (see <see cref="Quick(WordprocessingDocument, TargetVersion?)"/>).
+    /// </summary>
+    public static ValidationResult Quick(string docxPath, TargetVersion? target = null)
     {
         if (!File.Exists(docxPath))
         {
@@ -22,11 +25,17 @@ public static class LayoutValidator
         }
 
         using var doc = LayoutPackage.Open(docxPath, isEditable: false);
-        return Quick(doc);
+        return Quick(doc, target);
     }
 
-    /// <summary>Runs the quick checks against an already-open layout package (lets callers share one handle).</summary>
-    public static ValidationResult Quick(WordprocessingDocument doc)
+    /// <summary>
+    /// Runs the quick checks against an already-open layout package (lets callers share one handle).
+    /// <paramref name="target"/> is the BC version the layout must work on, resolved for this call by
+    /// <see cref="TargetVersionResolver"/>; every tool passes one. Without it the <c>bc-version</c> check does not
+    /// run: a Domain-level caller with no project context (<see cref="LayoutRefresher"/>'s own result) has no
+    /// target to measure against, and an unknown one would warn about something the caller never asked.
+    /// </summary>
+    public static ValidationResult Quick(WordprocessingDocument doc, TargetVersion? target = null)
     {
         var findings = new List<ValidationFinding>();
         var main = doc.MainDocumentPart
@@ -53,8 +62,60 @@ public static class LayoutValidator
         CheckCharacterStylesResolve(main, findings);
         CheckControlIdsUnique(main, findings);
         CheckFontsInstalled(main, findings);
+        CheckBcVersion(schema, target, findings);
 
         return new ValidationResult { Level = "quick", Findings = findings };
+    }
+
+    /// <summary>The check id of <see cref="CheckBcVersion"/>, which a caller can tell apart from the structural checks.</summary>
+    public const string BcVersionCheck = "bc-version";
+
+    /// <summary>The report a header/footer layout for report themes binds to (al-word-layout-composite §1).</summary>
+    private const string TenantReportDefaultsName = "Tenant_Report_Defaults";
+
+    private const string TenantReportDefaultsId = "2000000001";
+
+    // bc-version. The layout already uses a feature from the BcFeatures catalog that the target BC version lacks
+    // (GitHub issue #152). The one catalog feature a layout can carry today is report-themes: a header/footer
+    // layout bound to Tenant_Report_Defaults, which BC has from 29.0. ERROR for a known target below that: the
+    // layout cannot be used there. WARNING for an unknown target: nothing tells the tools which BC it is for.
+    //
+    // Theme colours and paragraph styles in a layout are NOT flagged, although themable-formatting gates the
+    // tools that write them: BC 28 prints them, and Microsoft's own BC 28 layouts carry both (StandardStatement,
+    // SalesInvoiceForSubscriptionBilling). Skipped without a target, and without a schema (TryBuildSchema has
+    // reported that one).
+    private static void CheckBcVersion(DatasetTree? schema, TargetVersion? target, List<ValidationFinding> findings)
+    {
+        if (target is null
+            || schema is null
+            || !string.Equals(schema.Report.ReportName, TenantReportDefaultsName, StringComparison.Ordinal)
+            || !string.Equals(schema.Report.ReportId, TenantReportDefaultsId, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        var feature = BcFeatures.ReportThemes;
+        if (target.Version is { } version && feature.AppliesTo(version))
+        {
+            return;
+        }
+
+        var uses = $"This layout is bound to {TenantReportDefaultsName} (report {TenantReportDefaultsId}): a "
+                   + $"header/footer layout for report themes ('{feature.Id}'), which Business Central has from "
+                   + $"{feature.Since.Describe()}.";
+        findings.Add(new ValidationFinding
+        {
+            Check = BcVersionCheck,
+            Severity = target.Version is null ? FindingSeverity.Warning : FindingSeverity.Error,
+            Message = target.Version is null
+                ? $"{uses} The target BC version is {target.Describe()}, so the tools cannot tell whether Business "
+                  + $"Central can use it. Set application in the AL project's app.json, or "
+                  + $"{TargetVersionResolver.EnvironmentVariable}, to the minimum BC version the layout must work on."
+                : $"{uses} The target is {target.Describe()}, and Business Central before "
+                  + $"{feature.Since} cannot use this layout. If the layout is only for {feature.Since} or later, "
+                  + "raise the target to that.",
+            Location = schema.Report.Namespace,
+        });
     }
 
     // 1. OpenXML structural validity.

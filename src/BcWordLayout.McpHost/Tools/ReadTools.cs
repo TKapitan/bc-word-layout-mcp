@@ -42,8 +42,11 @@ public static class ReadTools
                  + "columns, a PART DETAILS section giving "
                  + "each OOXML part's kind and header/footer ROLE (default/first/even - plus isDefaultTarget, "
                  + "the part a header/footer edit with no partName lands in) alongside hasTitlePage (whether "
-                 + "page 1 renders the 'first'-role parts INSTEAD of the default ones), and a quick "
-                 + "validation status summary. IMPORTANT for editing: a control whose level is 'cell' wraps "
+                 + "page 1 renders the 'first'-role parts INSTEAD of the default ones), a quick "
+                 + "validation status summary, and TARGET: the Business Central version the layout must work on - "
+                 + "bcVersion (absent when unknown), source (app.json - the nearest AL app.json above the layout - "
+                 + "environment - BCWL_BC_VERSION - or unknown) and detail (what it was read from, or why there is "
+                 + "none). Read target before using a feature that needs a newer BC. IMPORTANT for editing: a control whose level is 'cell' wraps "
                  + "a whole table cell (one column) - e.g. BC header address fields; removing it is safe "
                  + "(remove_control never deletes the cell/column), but use this table detail to understand "
                  + "what a control occupies before editing. Check partDetails BEFORE any header/footer edit: "
@@ -52,7 +55,7 @@ public static class ReadTools
     public static ToolResponse GetLayoutInfo(
         [Description("Absolute path to the .docx layout file.")] string layoutPath)
     {
-        return GuardRead(layoutPath, () =>
+        return GuardRead(layoutPath, target =>
         {
             if (!File.Exists(layoutPath))
             {
@@ -64,7 +67,7 @@ public static class ReadTools
             using var doc = LayoutPackage.Open(layoutPath, isEditable: false);
             var tree = SchemaProvider.FromLayout(doc);
             var inventory = LayoutReader.Read(doc);
-            var validation = LayoutValidator.Quick(doc);
+            var validation = LayoutValidator.Quick(doc, target);
 
             var controls = inventory.Controls.Select(ToControlDto).ToList();
             var summary = new ControlSummaryDto(
@@ -83,7 +86,8 @@ public static class ReadTools
                 Controls: controls,
                 Tables: inventory.Tables.Select(ToTableDto).ToList(),
                 PartDetails: inventory.PartDetails.Select(ToPartInfoDto).ToList(),
-                HasTitlePage: inventory.HasTitlePage);
+                HasTitlePage: inventory.HasTitlePage,
+                Target: ToTargetDto(target));
 
             return ToolResponse.Success(dto);
         });
@@ -166,7 +170,10 @@ public static class ReadTools
                  + "rather than act on the first match, and a font-installed WARNING when a font the layout names "
                  + "(on runs, styles, numbering, or the theme's heading/body font where text refers to it) is not "
                  + "one Business Central online has installed and the layout does not embed it - BC prints that "
-                 + "text in a substitute font. One structural complaint is reported as a WARNING rather than an error: "
+                 + "text in a substitute font, and a bc-version finding when the layout uses a feature the target "
+                 + "Business Central version lacks: a header/footer layout bound to Tenant_Report_Defaults (report "
+                 + "themes, BC 29.0 and later) is an ERROR for a lower target and a WARNING for an unknown one. The "
+                 + "result's target says which version was used and where it came from. One structural complaint is reported as a WARNING rather than an error: "
                  + "w:rPr/w:w=0, the character scaling Word writes into a content control's placeholder run, which "
                  + "renders correctly in Word and BC and cannot be edited by any tool here. level='full' "
                  + "additionally runs a real dry-run merge (sample data fill + repeater expansion) against "
@@ -188,18 +195,19 @@ public static class ReadTools
                 + "checks, 'full' additionally dry-run merges sample data and surfaces merge warnings."), layoutPath);
         }
 
-        return GuardRead(layoutPath, () =>
+        return GuardRead(layoutPath, target =>
         {
             // FullValidator.Full also reads layoutPath (via a File.Copy dry-run merge) on top of the quick
             // checks it starts with, so the SAME lock pair covers both levels rather than only the quick one.
-            var result = full ? FullValidator.Full(layoutPath) : LayoutValidator.Quick(layoutPath);
+            var result = full ? FullValidator.Full(layoutPath, target) : LayoutValidator.Quick(layoutPath, target);
 
             var dto = new ValidationResultDto(
                 result.Level,
                 result.Passed,
                 result.ErrorCount,
                 result.WarningCount,
-                result.Findings.Select(f => new FindingDto(f.Check, f.Severity.ToString(), f.Message, f.Location)).ToList());
+                result.Findings.Select(f => new FindingDto(f.Check, f.Severity.ToString(), f.Message, f.Location)).ToList(),
+                ToTargetDto(target));
 
             return ToolResponse.Success(dto);
         });

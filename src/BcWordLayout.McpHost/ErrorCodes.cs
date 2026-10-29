@@ -35,6 +35,12 @@ internal static class ErrorCodes
     /// <summary><c>render_preview_pages</c>: the PDF could not be rendered (or the page range is past its end).</summary>
     internal const string RasterizeFailed = "rasterize_failed";
 
+    /// <summary>
+    /// The call would author a feature the target Business Central version lacks, or the target is unknown
+    /// (GitHub issue #152); nothing was changed.
+    /// </summary>
+    internal const string BcVersionUnsupported = "bc_version_unsupported";
+
     /// <summary>A bug in the server, not in the call.</summary>
     internal const string InternalError = "internal_error";
 }
