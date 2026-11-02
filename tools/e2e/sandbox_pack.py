@@ -699,7 +699,7 @@ def p07(b: Build):
 
 def rewrite_parts(path: str, pattern: str, transform) -> list[str]:
     """Rewrites every package part whose name matches `pattern` through `transform(xml) -> xml`, for the
-    probes whose shape no tool emits (P09-P11, P18-P20). Returns the rewritten part names."""
+    probes whose shape no tool emits (P09-P11, P18-P29). Returns the rewritten part names."""
     rewritten = []
     tmp = path + ".tmp"
     with zipfile.ZipFile(path) as zin, zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as zout:
@@ -827,17 +827,37 @@ def lift_inline_field_to_cell(xml: str, start: int) -> str:
     return xml[:tc_start] + cell_control + xml[tc_stop:]
 
 
+def new_wrapper_id(b: Build) -> int:
+    """An id no control in the package has, for a hand-made add-in wrapper."""
+    with zipfile.ZipFile(b.work) as package:
+        xml_parts = "".join(package.read(n).decode("utf-8", "replace") for n in package.namelist()
+                            if n.startswith("word/") and n.endswith(".xml"))
+    used = set(re.findall(r'<w:id w:val="(-?\d+)"', xml_parts))
+    return next(n for n in range(1_230_000_001, 1_230_100_000) if str(n) not in used)
+
+
+def wrapper_sdt(alias: str, tag: str, wrapper_id: int, doc_part: str, content: str) -> str:
+    """The add-in's conditional wrapper as captured: no binding, the add-in's orange w15:color FFA500, and a placeholder
+    entry (the wrapped control's: BC does not read it, round 3 showed)."""
+    return (f'<w:sdt><w:sdtPr><w:alias w:val="{alias}"/><w:tag w:val="{tag}"/><w:id w:val="{wrapper_id}"/>'
+            f'<w:placeholder><w:docPart w:val="{doc_part}"/></w:placeholder><w15:color w:val="FFA500"/>'
+            f"</w:sdtPr><w:sdtContent>{content}</w:sdtContent></w:sdt>")
+
+
+def placeholder_of(control: str) -> str:
+    match = re.search(r'<w:docPart w:val="([^"]+)"\s*/>', control)
+    if match is None:
+        raise ItemFailure("the wrapped control has no placeholder entry to reuse")
+    return match.group(1)
+
+
 def wrap_in_hide_if_empty(b: Build, alias: str, tag: str, *, xpath: str | None = None,
                           control_id: int | None = None, lift: bool = False) -> int:
     """Wraps a cell-level control in the add-in's hide-if-empty control, in the captured shape: a cell-level w:sdt
     with no binding and w15:color FFA500, reusing the wrapped control's placeholder entry, with an id no control in
     the package has. lift first turns an inline field alone in its cell into that cell-level control. No tool
     writes either, so it is a hand edit. Returns the wrapper's id."""
-    with zipfile.ZipFile(b.work) as package:
-        xml_parts = "".join(package.read(n).decode("utf-8", "replace") for n in package.namelist()
-                            if n.startswith("word/") and n.endswith(".xml"))
-    used = set(re.findall(r'<w:id w:val="(-?\d+)"', xml_parts))
-    wrapper_id = next(n for n in range(1_230_000_001, 1_230_100_000) if str(n) not in used)
+    wrapper_id = new_wrapper_id(b)
 
     def wrap(xml: str) -> str:
         if lift:
@@ -847,11 +867,45 @@ def wrap_in_hide_if_empty(b: Build, alias: str, tag: str, *, xpath: str | None =
         control = xml[start:end]
         if "<w:sdtContent><w:tc>" not in control and not re.search(r"<w:sdtContent><w:tc\b", control):
             raise ItemFailure("the wrapped control is not a cell-level control")
-        doc_part = re.search(r'<w:docPart w:val="([^"]+)"\s*/>', control).group(1)
-        wrapper = (f'<w:sdt><w:sdtPr><w:alias w:val="{alias}"/><w:tag w:val="{tag}"/><w:id w:val="{wrapper_id}"/>'
-                   f'<w:placeholder><w:docPart w:val="{doc_part}"/></w:placeholder><w15:color w:val="FFA500"/>'
-                   f"</w:sdtPr><w:sdtContent>{control}</w:sdtContent></w:sdt>")
-        return xml[:start] + wrapper + xml[end:]
+        return xml[:start] + wrapper_sdt(alias, tag, wrapper_id, placeholder_of(control), control) + xml[end:]
+
+    rewrite_parts(b.work, r"word/document\.xml", wrap)
+    return wrapper_id
+
+
+def wrap_inline_control(b: Build, alias: str, tag: str, control_id: int) -> int:
+    """The add-in wrapper INSIDE the paragraph, around a run-level field: w:p > w:sdt(wrapper) > w:sdt(field). Microsoft's
+    CustomerItemSales and DeferralSummaryGL carry the row variant this way, and a contributor captured Hide Field If
+    Zero in it (GitHub issues #123, #8). A hand edit. Returns the wrapper's id."""
+    wrapper_id = new_wrapper_id(b)
+
+    def wrap(xml: str) -> str:
+        start = control_start(xml, control_id=control_id)
+        end = element_end(xml, start, "sdt")
+        control = xml[start:end]
+        if re.search(r"<w:sdtContent>\s*<w:(tc|p|tbl|tr)\b", control):
+            raise ItemFailure("the wrapped control is not a run-level field")
+        return xml[:start] + wrapper_sdt(alias, tag, wrapper_id, placeholder_of(control), control) + xml[end:]
+
+    rewrite_parts(b.work, r"word/document\.xml", wrap)
+    return wrapper_id
+
+
+def wrap_control_paragraph(b: Build, alias: str, tag: str, control_id: int) -> int:
+    """The add-in wrapper around the PARAGRAPH holding a control, inside its cell: w:tc > w:sdt(wrapper) > w:p - the
+    shape a contributor captured for Hide Table Column If Empty around a column's caption (GitHub issue #8). A hand
+    edit. Returns the wrapper's id."""
+    wrapper_id = new_wrapper_id(b)
+
+    def wrap(xml: str) -> str:
+        start = control_start(xml, control_id=control_id)
+        control = xml[start:element_end(xml, start, "sdt")]
+        p_start = enclosing_start(xml, start, "p")
+        if p_start < enclosing_start(xml, start, "tc"):
+            raise ItemFailure("the control is not in a table cell")
+        p_end = element_end(xml, p_start, "p")
+        return (xml[:p_start] + wrapper_sdt(alias, tag, wrapper_id, placeholder_of(control), xml[p_start:p_end])
+                + xml[p_end:])
 
     rewrite_parts(b.work, r"word/document\.xml", wrap)
     return wrapper_id
@@ -1530,15 +1584,27 @@ P20_TO_P22_STEPS = [
 ]
 
 
-def hide_inside_invoice_line(b: Build, caption: str, path: str, wrapper=HIDE_ROW_WRAPPER):
-    """One row under each invoice line: caption, then the cell bound to path in the hide-if-empty wrapper
-    (the row variant unless told otherwise)."""
-    # P08's repair first: the stock capture's title and number bindings name a foreign namespace BC rejects.
+def repair_invoice_bindings(b: Build):
+    """P08's repair: the stock 1306 captures' title and number bindings name a foreign namespace BC rejects on upload."""
     b.edit("refresh_xml_part",
            newSchemaSource=os.path.join(CORPUS_DIR, "StandardSalesInvoiceVatSpec.docx"))
     b.note("refresh_xml_part against the layout's own schema, as P08: the foreign-namespace bindings BC rejects "
            "on upload are re-pointed")
 
+
+def hide_inside_invoice_line(b: Build, caption: str, path: str, wrapper=HIDE_ROW_WRAPPER):
+    """One row under each invoice line: caption, then the cell bound to path in the hide-if-empty wrapper
+    (the row variant unless told otherwise)."""
+    repair_invoice_bindings(b)
+    control_id = add_invoice_line_row(b, caption, path)
+    wrapper_id = wrap_in_hide_if_empty(b, *wrapper, control_id=control_id, lift=True)
+    b.note(f"hand edit: that cell turned into a cell-level control and wrapped in a '{wrapper[0]}' control "
+           f"(id {wrapper_id}), the shape the add-in writes")
+
+
+def add_invoice_line_row(b: Build, caption: str, path: str) -> int:
+    """One row under each invoice line (insert_subtotal_row): caption, then a cell bound to path. Returns the new
+    field's control id."""
     info = b.info()
     lines = Build.repeater(info, "/Header/Line")
     table = Build.line_table(info, lines)
@@ -1557,10 +1623,7 @@ def hide_inside_invoice_line(b: Build, caption: str, path: str, wrapper=HIDE_ROW
     b.edit("set_cell_text", tableIndex=table, row=row, col=0, text=caption)
     b.note(f"insert_subtotal_row on the /Header/Line repeater (+ set_cell_text): a row '{caption}' under each "
            f"invoice line, binding {path}")
-
-    wrapper_id = wrap_in_hide_if_empty(b, *wrapper, control_id=added[0]["sdtId"], lift=True)
-    b.note(f"hand edit: that cell turned into a cell-level control and wrapped in a '{wrapper[0]}' control "
-           f"(id {wrapper_id}), the shape the add-in writes")
+    return added[0]["sdtId"]
 
 
 @item(
@@ -1684,6 +1747,209 @@ def p25(b: Build):
                    layoutPart="footer", partName=part)
     b.note("insert_page_conditional_text: firstPage, notLastPage and lastPage paragraphs in "
            + ", ".join(footers))
+
+
+# P26-P32 (2026-11-03) take three open issues to a BC 29 sandbox. P26/P27 retest GitHub issue #123's row variant in the
+# two placements Microsoft's own layouts use (microsoft/BCApps, reviewed 2026-11-03): around a row of a table NESTED in
+# the repeated item, as the Quality Management reports wrap a line-commentary row, and inside the paragraph around an
+# inline field, as CustomerItemSales and DeferralSummaryGL do. Round 3 (BC 28) saw the wrapper on a row of the item
+# itself hide the WHOLE item (P20/P21), which the Quality Management use would not survive. P28/P29 print the two add-in
+# controls a contributor captured on #8. P30-P32 ask #142 what a BC 29 report theme changes.
+HIDE_FIELD_IF_ZERO_WRAPPER = ("Hide Field If Zero", "#BC:HideFieldIfZero")
+HIDE_COLUMN_WRAPPER = ("Hide Table Column If Empty", "#BC:HideTableColumnIfEmpty")
+BC29_INVOICE_STEPS = [
+    "A BC 29 sandbox. A posted sales invoice with a few item lines and NO line discount (the one P08/P20 use works), "
+    "and, for the second print, one where ONE line has a line discount %.",
+    "Report Layouts > New layout for report 1306, upload this .docx, then Print both posted invoices with it.",
+    "Also print P20, P21 and P22 on the same BC 29 sandbox: round 3 printed them on BC 28 only.",
+]
+
+
+@item(
+    id="p26", title="Hide Table Row If Empty on a row of a table nested in each line",
+    report="1306 - Standard Sales Invoice", base="StandardSalesInvoiceVatSpec.docx",
+    purpose="GitHub issue #123, retest on BC 29. On BC 28 the wrapper on a row of the invoice line item hid the WHOLE "
+            "line (P20/P21). Microsoft's Quality Management reports (QltyGeneralPurposeInspection, QltyNonConformance) "
+            "put it elsewhere: on a row of a table NESTED in a cell of the repeated line, around a commentary field that "
+            "is often empty - a use that only works if just that nested row disappears. This builds that shape under "
+            "each invoice line: a nested two-row table, 'P26 description:' with the line's description (never empty), "
+            "and 'P26 discount text' with the line's discount text (empty without a discount), whose row is wrapped.",
+    asks=[
+        "Invoice WITHOUT line discounts: does every invoice line print, with its 'P26 description' row and WITHOUT the "
+        "'P26 discount text' row? Or does no line print at all (the whole line hidden, as P20/P21 did on BC 28)?",
+        "Invoice WITH one discounted line: does that line show its 'P26 discount text' row with the discount?",
+        "P20/P21/P22 on BC 29: does the wrapper on a row of the line itself still hide the whole line, as on BC 28?",
+    ],
+    bc_steps=BC29_INVOICE_STEPS,
+)
+def p26(b: Build):
+    repair_invoice_bindings(b)
+    info = b.info()
+    lines = Build.repeater(info, "/Header/Line")
+    table = Build.line_table(info, lines)
+    grid = next(t for t in info["tables"]
+                if t["tableIndex"] == table and t["part"] == "document.xml")["columnCount"]
+    b.edit("insert_subtotal_row", parentControlId=lines["sdtId"], cells=[{"span": grid}])
+    rows = next(t for t in b.info()["tables"] if t["tableIndex"] == table and t["part"] == "document.xml")["rows"]
+    row = max(r["rowIndex"] for r in rows if r.get("repeaterControlId") == lines["sdtId"])
+    nested = b.edit("insert_table", rowCount=2, columns=[{"width": 3600}, {}], locationType="tableCell",
+                    tableIndex=table, row=row, col=0)["data"]["tableIndex"]
+    b.edit("set_cell_text", tableIndex=nested, row=0, col=0, text="P26 description:")
+    b.edit("insert_field", field="/Header/Line/Description_Line", locationType="tableCell", tableIndex=nested, row=0,
+           col=1)
+    b.edit("set_cell_text", tableIndex=nested, row=1, col=0, text="P26 discount text (row hidden if empty):")
+    field = b.edit("insert_field", field="/Header/Line/LineDiscountPercentText_Line", locationType="tableCell",
+                   tableIndex=nested, row=1, col=1)["data"]["controlId"]
+    b.note("insert_subtotal_row + insert_table (tableCell) + set_cell_text + insert_field: under each invoice line, a "
+           "nested two-row table - the line's description, then its discount text")
+    wrapper_id = wrap_in_hide_if_empty(b, *HIDE_ROW_WRAPPER, control_id=field, lift=True)
+    b.note(f"hand edit: the nested table's discount-text cell turned into a cell-level control and wrapped in a 'Hide "
+           f"Table Row If Empty' control (id {wrapper_id}) - the Quality Management reports' shape")
+
+
+@item(
+    id="p27", title="Hide Table Row If Empty inside the paragraph, around the field",
+    report="1306 - Standard Sales Invoice", base="StandardSalesInvoiceVatSpec.docx",
+    purpose="GitHub issue #123: the row variant's second placement. Microsoft's CustomerItemSales and DeferralSummaryGL "
+            "put the wrapper INSIDE the paragraph, around the inline field (w:p > w:sdt(wrapper) > w:sdt(field)), not "
+            "around the cell. This is P21 - a row under each invoice line whose value is the line's discount text, "
+            "empty without a discount - with the wrapper in that placement.",
+    asks=[
+        "Invoice WITHOUT line discounts: is anything hidden - nothing, only the 'P27' rows, or every invoice line (as "
+        "P21 hid on BC 28 with the wrapper around the cell)?",
+        "Invoice WITH one discounted line: does its 'P27' row show the discount?",
+    ],
+    bc_steps=BC29_INVOICE_STEPS,
+)
+def p27(b: Build):
+    repair_invoice_bindings(b)
+    field = add_invoice_line_row(b, "P27 - line discount text (empty), wrapper in the paragraph:",
+                                 "/Header/Line/LineDiscountPercentText_Line")
+    wrapper_id = wrap_inline_control(b, *HIDE_ROW_WRAPPER, control_id=field)
+    b.note(f"hand edit: the discount-text field wrapped, inside its paragraph, in a 'Hide Table Row If Empty' control "
+           f"(id {wrapper_id}) - Microsoft's CustomerItemSales shape")
+
+
+@item(
+    id="p28", title="Hide Field If Zero around a line's discount %",
+    report="1306 - Standard Sales Invoice", base="StandardSalesInvoiceVatSpec.docx",
+    purpose="GitHub issue #8: a contributor captured the add-in's 'Hide Field If Zero' (#BC:HideFieldIfZero) - an unbound "
+            "wrapper inside the paragraph around a run-level field, like P27's - but nobody has printed it. Under each "
+            "invoice line go two rows bound to the line's discount % (zero without a discount): 'P28 plain' as is, and "
+            "'P28 hidden if zero' in the wrapper.",
+    asks=[
+        "Invoice WITHOUT line discounts: 'P28 plain' prints 0 (or BC's blank for zero); does 'P28 hidden if zero' print "
+        "nothing after its caption? Is anything else on the line hidden?",
+        "Invoice WITH one discounted line: do both rows show the discount on that line?",
+    ],
+    bc_steps=BC29_INVOICE_STEPS[:2],
+)
+def p28(b: Build):
+    repair_invoice_bindings(b)
+    add_invoice_line_row(b, "P28 plain discount %:", "/Header/Line/LineDiscountPercent_Line")
+    field = add_invoice_line_row(b, "P28 hidden if zero:", "/Header/Line/LineDiscountPercent_Line")
+    wrapper_id = wrap_inline_control(b, *HIDE_FIELD_IF_ZERO_WRAPPER, control_id=field)
+    b.note(f"hand edit: the second row's field wrapped, inside its paragraph, in a 'Hide Field If Zero' control (id "
+           f"{wrapper_id}) - the shape the contributor captured")
+
+
+@item(
+    id="p29", title="Hide Table Column If Empty on a new discount column",
+    report="1306 - Standard Sales Invoice", base="StandardSalesInvoiceVatSpec.docx",
+    purpose="GitHub issue #8: a contributor captured 'Hide Table Column If Empty' (#BC:HideTableColumnIfEmpty) - an "
+            "unbound wrapper inside a column's caption cell, around the cell's paragraph - but nobody has printed it. "
+            "insert_column adds a column to the lines table: its caption is the report's SalesInvoiceLineDiscount_Lbl "
+            "label, its value the line's discount text, empty on every line of an invoice without line discounts. Its "
+            "caption paragraph is wrapped.",
+    asks=[
+        "Invoice WITHOUT line discounts: is the whole new column gone - caption and values - and do the other columns "
+        "take its width, or keep their widths around a gap?",
+        "Invoice WITH one discounted line: is the column printed, with the discount on that line?",
+    ],
+    bc_steps=BC29_INVOICE_STEPS[:2],
+)
+def p29(b: Build):
+    repair_invoice_bindings(b)
+    info = b.info()
+    table = Build.line_table(info, Build.repeater(info, "/Header/Line"))
+    before = {c["sdtId"] for c in info["controls"]}
+    b.edit("insert_column", tableIndex=table, mode="field", dataPath="/Header/Line/LineDiscountPercentText_Line",
+           headerLabelPath="/Header/SalesInvoiceLineDiscount_Lbl")
+    caption = [c for c in b.info()["controls"]
+               if c["sdtId"] not in before and str(c.get("alias", "")).endswith("SalesInvoiceLineDiscount_Lbl")]
+    if len(caption) != 1:
+        raise ItemFailure(f"expected one new caption label, found {len(caption)}")
+    b.note("insert_column: a line-discount column bound to /Header/Line/LineDiscountPercentText_Line, captioned by "
+           "/Header/SalesInvoiceLineDiscount_Lbl")
+    wrapper_id = wrap_control_paragraph(b, *HIDE_COLUMN_WRAPPER, control_id=caption[0]["sdtId"])
+    b.note(f"hand edit: the new column's caption paragraph wrapped, inside its cell, in a 'Hide Table Column If Empty' "
+           f"control (id {wrapper_id}) - the shape the contributor captured")
+
+
+BC29_THEME_STEPS = [
+    "A BC 29 sandbox with Microsoft's report themes Calm and Playful, and any posted sales invoice.",
+    "Report Layouts > New layout for report 1306, upload this .docx.",
+    "Print the invoice with it three times: with NO report theme, with Calm, and with Playful - selected the way the "
+    "composite round of 2026-10-17 selected a theme.",
+]
+
+
+@item(
+    id="p30", title="Themable Blue invoice under report themes",
+    report="1306 - Standard Sales Invoice", base="StandardSalesInvoiceBlueSimpleThemable.docx",
+    purpose="GitHub issue #142: Microsoft's themable Blue invoice colours everything through the theme slot accent1 "
+            "(26 text colours, 8 fills, 25 rules) and its title and company lines with Heading1/Heading2. Its own theme's "
+            "accent1 is coral red F24F4F, so Word prints it red. Microsoft's report themes define accent1 as green "
+            "4D614C (Calm) and pink D46989 (Playful), with their own heading fonts. Only refresh_xml_part touches it, to "
+            "repair the capture's foreign-namespace bindings.",
+    asks=[
+        "NO theme: is it coral red (F24F4F), as the mock shows - or blue?",
+        "Calm: green (4D614C)? Playful: pink (D46989)? Or unchanged - can a report theme apply to a single-file layout "
+        "that keeps its own header and footer at all?",
+        "Do the title and company name (Heading1/Heading2) change font with the theme (Calm: Sitka Display Semibold, "
+        "Playful: Bahnschrift SemiBold), or only colour?",
+        "The rules are tinted theme colours: do they follow the theme too?",
+    ],
+    bc_steps=BC29_THEME_STEPS,
+)
+def p30(b: Build):
+    repair_invoice_bindings(b)
+
+
+@item(
+    id="p31", title="Plain Blue invoice under report themes (control)",
+    report="1306 - Standard Sales Invoice", base="StandardSalesInvoiceVatSpec.docx",
+    purpose="GitHub issue #142's control for P30: the same invoice with literal colours (0070C0) and directly formatted "
+            "title lines. A report theme should change none of its colours; whether it changes its fonts tells whether "
+            "a theme replaces style definitions in a single-file layout.",
+    asks=[
+        "With Calm and with Playful: are the colours still blue (0070C0) everywhere, as with no theme?",
+        "Does anything else change with the theme - fonts, spacing?",
+    ],
+    bc_steps=BC29_THEME_STEPS,
+)
+def p31(b: Build):
+    repair_invoice_bindings(b)
+
+
+@item(
+    id="p32", title="Themable invoice recoloured by set_layout_theme, under report themes",
+    report="1306 - Standard Sales Invoice", base="StandardSalesInvoiceBlueSimpleThemable.docx",
+    env={"BCWL_BC_VERSION": "29.0"},
+    purpose="GitHub issues #150 and #142: P30's invoice after set_layout_theme set its own theme's accent1 to blue "
+            "0070C0 (the tool also rewrites the colour each reference caches). With no report theme it must print "
+            "blue; with a report theme it tells which theme wins - the layout's own or the report theme.",
+    asks=[
+        "NO theme: is it blue (0070C0) where P30 is coral red?",
+        "Calm and Playful: blue (the layout's own theme wins) or the theme's accent1, as P30 shows?",
+    ],
+    bc_steps=BC29_THEME_STEPS,
+)
+def p32(b: Build):
+    repair_invoice_bindings(b)
+    data = b.edit("set_layout_theme", colors={"accent1": "0070C0"})["data"]
+    b.note(f"set_layout_theme: accent1 F24F4F -> 0070C0 in the layout's own theme; {data['recachedReferences']} cached "
+           "colour(s) rewritten")
 
 
 # ---------------------------------------------------------------- runner

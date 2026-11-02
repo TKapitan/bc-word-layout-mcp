@@ -123,6 +123,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   There is one finding per style id, giving how many paragraphs use it and in which parts. With
   `table-style-resolves` and `character-style-resolves`, all three kinds of style reference are now
   checked. No corpus layout trips it.
+- **Sandbox pack items P26–P32, for a BC 29 sandbox.** P26/P27 retest the add-in's *Hide Table Row If
+  Empty* (#123) in the two placements Microsoft's own layouts use, which round 3's whole-line result does
+  not explain. P28/P29 print the *Hide Field If Zero* and *Hide Table Column If Empty* shapes a contributor
+  captured (#8). P30–P32 ask what a report theme changes in a themable layout, its plain twin, and one
+  recoloured with `set_layout_theme` (#142, #150).
 
 ### Changed
 
