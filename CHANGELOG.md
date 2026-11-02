@@ -44,6 +44,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - `insert_table` and `insert_repeater_table` take one for the rules their `borders` look draws: the
     header rule, or every edge of the grid. With `borders: "none"` it is refused, as there is no rule.
   - The values are those of `fill`: `RRGGBB`, `auto` or a theme colour, a theme colour from BC 29.
+- **Paragraph styles and clearing direct formatting** (GitHub issue #146). Until now no tool could
+  make a line `Heading1`, nor remove the direct formatting that hides a style.
+  - `set_text_format` and `set_cell_text` take a `paragraphStyle`, written as `w:pStyle` on the
+    target's paragraphs, beside `alignment`. It must be a paragraph style the layout defines; any other
+    id is refused with the defined ones listed. Paragraph styles are themable formatting, so this needs
+    BC 29.
+  - `set_text_format` takes `clearDirectFormatting`. It first removes the direct run formatting from
+    the target's runs, its controls' own formatting and its paragraph marks, so the styles decide; the
+    character style, language and hidden-text marks stay. It is never gated. With a `paragraphStyle`,
+    the styled paragraphs' marks are cleared too, even for an inline control.
+  - The summary says when a styled paragraph still carries direct formatting, which wins over the style.
+  - In one call, StandardSalesInvoiceVatSpec's directly formatted title becomes what the themable capture
+    has: `Heading1` with an `accent1` colour.
 - **New `validate_layout` check `paragraph-style-resolves` (warning)** (GitHub issue #147). It warns
   about a `w:pStyle` that names no paragraph style the layout defines, including one that names a
   character or table style. In Business Central such a paragraph prints as plain text, with no error.

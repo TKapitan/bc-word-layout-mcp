@@ -30,8 +30,10 @@ namespace BcWordLayout.Domain;
 /// data-bound control is refused: it is the value Business Central replaces at render time, and the control
 /// target formats it properly.</item>
 /// </list>
-/// Alignment, which belongs to the paragraph, goes on the paragraphs of the target (for an inline control or
-/// a text match, the one paragraph holding it).
+/// Alignment and the paragraph style (GitHub issue #146), which belong to the paragraph, go on the paragraphs of the
+/// target (for an inline control or a text match, the one paragraph holding it). Clearing direct formatting
+/// (<see cref="RunFormatter.ClearDirectFormatting"/>) reaches the same runs, control properties and paragraph marks
+/// as the format, and happens first, so one call can clear a line, apply <c>Heading1</c> and keep it bold.
 /// </para>
 /// <para>
 /// Picture runs are never formatted: their <c>w:rPr</c> is not text formatting (see <see cref="InheritedRunFormat"/>).
@@ -39,17 +41,25 @@ namespace BcWordLayout.Domain;
 /// </remarks>
 public static class TextFormatEditor
 {
-    /// <summary>Applies <paramref name="format"/> and/or <paramref name="alignment"/> to <paramref name="target"/>.</summary>
+    /// <summary>
+    /// Applies <paramref name="format"/>, <paramref name="alignment"/> and <paramref name="paragraphStyle"/> to
+    /// <paramref name="target"/>, after removing its direct run formatting when <paramref name="clearDirectFormatting"/>.
+    /// </summary>
     /// <exception cref="ArgumentException">
     /// The target is missing an argument its kind needs, or carries one it does not use (ParamName
-    /// <c>target</c>); neither a format member nor an alignment is given, or one is malformed (<c>format</c>,
-    /// <c>alignment</c>); the search text occurs more than once or inside a data-bound control (<c>searchText</c>);
-    /// or the control is a picture (<c>target</c>).
+    /// <c>target</c>); nothing to change is given, or a value is malformed (<c>format</c>, <c>alignment</c>,
+    /// <c>paragraphStyle</c> - which must name a paragraph style the layout defines); the search text occurs more
+    /// than once or inside a data-bound control (<c>searchText</c>); or the control is a picture (<c>target</c>).
     /// </exception>
     /// <exception cref="NotFoundException">The control, table coordinate or text does not exist.</exception>
     /// <exception cref="LayoutDefectException">More than one control carries the id.</exception>
     public static EditResult SetTextFormat(
-        WordprocessingDocument doc, TextFormatTarget target, TextFormat? format, string? alignment)
+        WordprocessingDocument doc,
+        TextFormatTarget target,
+        TextFormat? format,
+        string? alignment,
+        string? paragraphStyle = null,
+        bool clearDirectFormatting = false)
     {
         ArgumentNullException.ThrowIfNull(doc);
         ArgumentNullException.ThrowIfNull(target);
@@ -59,14 +69,18 @@ public static class TextFormatEditor
         JustificationValues? justification = alignment is null
             ? null
             : CellTextEditor.ParseAlignment(alignment, nameof(alignment));
-        if (prepared is null && justification is null)
+        var style = paragraphStyle is null
+            ? null
+            : CellTextEditor.CheckParagraphStyle(doc, paragraphStyle, nameof(paragraphStyle));
+        if (prepared is null && justification is null && style is null && !clearDirectFormatting)
         {
             throw new ArgumentException(
-                "set_text_format has nothing to change: pass format with at least one member, alignment, or both.",
+                "set_text_format has nothing to change: pass format with at least one member, alignment, "
+                + "paragraphStyle, clearDirectFormatting true, or a combination.",
                 nameof(format));
         }
 
-        var change = new Change(prepared, justification, RunFormatter.FontNote(prepared, doc));
+        var change = new Change(prepared, justification, style, clearDirectFormatting, RunFormatter.FontNote(prepared, doc));
         return target.Kind switch
         {
             TextFormatTargetKind.Control => FormatControl(doc, target, change),
@@ -101,8 +115,8 @@ public static class TextFormatEditor
         change.FormatContent(control, belongsToScope: _ => true);
         if (control is SdtRun && control.Ancestors<Paragraph>().FirstOrDefault() is { } host)
         {
-            // An inline control has no paragraph of its own; alignment goes on the line it sits in.
-            change.Align(host);
+            // An inline control has no paragraph of its own; alignment and style go on the line it sits in.
+            change.FormatParagraph(host);
         }
 
         var alias = SdtInspector.ReadAlias(control);
@@ -115,7 +129,7 @@ public static class TextFormatEditor
             Kind = SdtInspector.ClassifyControlKind(control).ToString(),
             Part = part,
             Summary = $"Formatted control {(alias is null ? string.Empty : $"'{alias}' ")}(id {Id(controlId)})"
-                + PartSuffix(part) + change.Describe(),
+                + PartSuffix(part) + change.Describe() + change.StyleNote(),
         };
     }
 
@@ -168,7 +182,8 @@ public static class TextFormatEditor
                 + (change.Runs == 0 && change.Format is not null
                     ? " The target holds no text yet: its paragraph marks carry the formatting, so text inserted "
                       + "there later takes it."
-                    : string.Empty),
+                    : string.Empty)
+                + change.StyleNote(),
         };
     }
 
@@ -217,7 +232,7 @@ public static class TextFormatEditor
         change.FormatRun(matched);
         if (paragraph is not null)
         {
-            change.Align(paragraph);
+            change.FormatParagraph(paragraph);
         }
 
         return new EditResult
@@ -227,7 +242,8 @@ public static class TextFormatEditor
             Part = part,
             Summary = $"Formatted the text '{searchText}' in {description}"
                 + (split ? " (split out of the run it was part of; the rest keeps its formatting)" : string.Empty)
-                + change.Describe(),
+                + change.Describe()
+                + change.StyleNote(),
         };
     }
 
@@ -457,7 +473,12 @@ public static class TextFormatEditor
     private static string Id(int value) => value.ToString(CultureInfo.InvariantCulture);
 
     /// <summary>One call's change, and a tally of what it touched for the summary.</summary>
-    private sealed class Change(RunFormatter.Prepared? format, JustificationValues? alignment, string fontNote)
+    private sealed class Change(
+        RunFormatter.Prepared? format,
+        JustificationValues? alignment,
+        string? paragraphStyle,
+        bool clearDirect,
+        string fontNote)
     {
         public RunFormatter.Prepared? Format { get; } = format;
 
@@ -465,13 +486,18 @@ public static class TextFormatEditor
 
         private int controls;
         private int marks;
-        private int aligned;
+        private int paragraphs;
+        private int cleared;
         private int themeColorsDropped;
+        private int styleOverridingRuns;
+
+        /// <summary>True when the call changes run formatting: it clears it, sets it, or both.</summary>
+        private bool TouchesRuns => Format is not null || clearDirect;
 
         /// <summary>
         /// Formats everything under <paramref name="container"/> (and the container itself, when it is a
         /// control) that <paramref name="belongsToScope"/> accepts: text runs, field/label controls' own
-        /// formatting, paragraph marks, and the paragraphs' alignment.
+        /// formatting, paragraph marks, and the paragraphs' alignment and style.
         /// </summary>
         public void FormatContent(OpenXmlElement container, Func<OpenXmlElement, bool> belongsToScope)
         {
@@ -494,61 +520,131 @@ public static class TextFormatEditor
             foreach (var paragraph in container.Descendants<Paragraph>().Where(p => belongsToScope(p)).ToList())
             {
                 FormatMark(paragraph);
-                Align(paragraph);
+                FormatParagraph(paragraph);
             }
         }
 
         public void FormatRun(Run run)
         {
-            if (Format is null || InheritedRunFormat.IsGraphic(run))
+            if (!TouchesRuns || InheritedRunFormat.IsGraphic(run))
             {
                 return;
             }
 
-            run.RunProperties ??= new RunProperties();
-            Count(RunFormatter.Apply(run.RunProperties, Format));
+            Clear(run.RunProperties);
+            if (Format is not null)
+            {
+                run.RunProperties ??= new RunProperties();
+                Count(RunFormatter.Apply(run.RunProperties, Format));
+            }
+
             Runs++;
         }
 
         /// <summary>The <c>w:sdtPr/w:rPr</c> of a field/label control, first in its <c>w:sdtPr</c> as stock controls carry it.</summary>
         public void FormatControlProperties(SdtElement sdt)
         {
-            if (Format is null || !IsTextControl(sdt) || sdt.SdtProperties is not { } sdtPr)
+            if (!TouchesRuns || !IsTextControl(sdt) || sdt.SdtProperties is not { } sdtPr)
             {
                 return;
             }
 
             var rPr = sdtPr.GetFirstChild<RunProperties>();
-            if (rPr is null)
+            Clear(rPr);
+            if (Format is not null)
             {
-                rPr = new RunProperties();
-                sdtPr.PrependChild(rPr);
+                rPr = sdtPr.GetFirstChild<RunProperties>();
+                if (rPr is null)
+                {
+                    rPr = new RunProperties();
+                    sdtPr.PrependChild(rPr);
+                }
+
+                Count(RunFormatter.Apply(rPr, Format));
             }
 
-            Count(RunFormatter.Apply(rPr, Format));
             controls++;
         }
 
-        public void Align(Paragraph paragraph)
+        /// <summary>
+        /// Sets the paragraph's alignment and style, when the call gives them. A style is what the paragraph's text
+        /// shows only where no direct run formatting overrides it, so without <c>clearDirectFormatting</c> the runs
+        /// that still carry some are counted for <see cref="StyleNote"/>; with it, the mark of a paragraph given a
+        /// style is cleared too, even the line an inline control or a text match sits in, since the mark's size still
+        /// sets the height of the paragraph's last line.
+        /// </summary>
+        public void FormatParagraph(Paragraph paragraph)
         {
-            if (alignment is { } justification)
-            {
-                CellTextEditor.Align(paragraph, justification);
-                aligned++;
-            }
-        }
-
-        private void FormatMark(Paragraph paragraph)
-        {
-            if (Format is null)
+            if (alignment is null && paragraphStyle is null)
             {
                 return;
             }
 
-            paragraph.ParagraphProperties ??= new ParagraphProperties();
-            paragraph.ParagraphProperties.ParagraphMarkRunProperties ??= new ParagraphMarkRunProperties();
-            Count(RunFormatter.Apply(paragraph.ParagraphProperties.ParagraphMarkRunProperties, Format));
+            if (alignment is { } justification)
+            {
+                CellTextEditor.Align(paragraph, justification);
+            }
+
+            if (paragraphStyle is not null)
+            {
+                CellTextEditor.SetParagraphStyle(paragraph, paragraphStyle);
+                Clear(paragraph.ParagraphProperties!.ParagraphMarkRunProperties);
+                if (!clearDirect)
+                {
+                    styleOverridingRuns += paragraph.Descendants<Run>()
+                        .Count(r => !InheritedRunFormat.IsGraphic(r) && RunFormatter.HasDirectFormatting(r.RunProperties));
+                }
+            }
+
+            paragraphs++;
+        }
+
+        /// <summary>
+        /// The sentence that warns when the paragraph style is hidden by direct run formatting the call left in place;
+        /// empty otherwise.
+        /// </summary>
+        public string StyleNote() =>
+            styleOverridingRuns == 0
+                ? string.Empty
+                : $" {Id(styleOverridingRuns)} run(s) in those paragraphs carry direct formatting (a font, size, colour "
+                  + $"and the like), which wins over the paragraph style '{paragraphStyle}'. Pass clearDirectFormatting "
+                  + "true to let the style decide.";
+
+        private void FormatMark(Paragraph paragraph)
+        {
+            if (!TouchesRuns)
+            {
+                return;
+            }
+
+            Clear(paragraph.ParagraphProperties?.ParagraphMarkRunProperties);
+            if (Format is not null)
+            {
+                paragraph.ParagraphProperties ??= new ParagraphProperties();
+                paragraph.ParagraphProperties.ParagraphMarkRunProperties ??= new ParagraphMarkRunProperties();
+                Count(RunFormatter.Apply(paragraph.ParagraphProperties.ParagraphMarkRunProperties, Format));
+            }
+
             marks++;
+        }
+
+        /// <summary>Clears <paramref name="properties"/>' direct formatting when asked, dropping it once it is empty.</summary>
+        private void Clear(OpenXmlCompositeElement? properties)
+        {
+            if (!clearDirect || properties is null)
+            {
+                return;
+            }
+
+            if (RunFormatter.ClearDirectFormatting(properties))
+            {
+                cleared++;
+            }
+
+            if (!properties.HasChildren)
+            {
+                properties.Remove();
+            }
         }
 
         private void Count(bool droppedThemeColor)
@@ -559,11 +655,14 @@ public static class TextFormatEditor
             }
         }
 
-        /// <summary>": bold, 8 pt (3 run(s), 1 control, 2 paragraph mark(s)); aligned right (2 paragraph(s))."</summary>
+        /// <summary>
+        /// ": bold, 8 pt (3 run(s), 1 control, 2 paragraph mark(s)); aligned right, paragraph style 'Heading1'
+        /// (2 paragraph(s))."
+        /// </summary>
         public string Describe()
         {
             var parts = new List<string>();
-            if (Format is not null)
+            if (TouchesRuns)
             {
                 var touched = new List<string> { $"{Id(Runs)} run(s)" };
                 if (controls > 0)
@@ -576,12 +675,34 @@ public static class TextFormatEditor
                     touched.Add($"{Id(marks)} paragraph mark(s)");
                 }
 
-                parts.Add($"{RunFormatter.Describe(Format)} ({string.Join(", ", touched)})");
+                var what = new List<string>(2);
+                if (clearDirect)
+                {
+                    what.Add($"cleared the direct formatting ({Id(cleared)} had some)");
+                }
+
+                if (Format is not null)
+                {
+                    what.Add(RunFormatter.Describe(Format));
+                }
+
+                parts.Add($"{string.Join(", then ", what)} ({string.Join(", ", touched)})");
             }
 
+            var paragraphChanges = new List<string>(2);
             if (alignment is { } justification)
             {
-                parts.Add($"aligned {justification.ToString().ToLowerInvariant()} ({Id(aligned)} paragraph(s))");
+                paragraphChanges.Add($"aligned {justification.ToString().ToLowerInvariant()}");
+            }
+
+            if (paragraphStyle is not null)
+            {
+                paragraphChanges.Add($"paragraph style '{paragraphStyle}'");
+            }
+
+            if (paragraphChanges.Count > 0)
+            {
+                parts.Add($"{string.Join(", ", paragraphChanges)} ({Id(paragraphs)} paragraph(s))");
             }
 
             var themeNote = themeColorsDropped == 0

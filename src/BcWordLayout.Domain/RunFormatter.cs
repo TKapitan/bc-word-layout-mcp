@@ -166,6 +166,44 @@ internal static class RunFormatter
     }
 
     /// <summary>
+    /// Removes the direct formatting from <paramref name="properties"/> (a run's <c>w:rPr</c>, a control's
+    /// <c>w:sdtPr/w:rPr</c> or a paragraph mark's), so the paragraph and character styles decide the look: what
+    /// <c>set_text_format</c>'s <c>clearDirectFormatting</c> does (GitHub issue #146). The themable captures make a
+    /// title a heading this way: StandardSalesInvoiceBlueSimpleThemable drops the direct <c>w:rFonts</c> and
+    /// <c>w:sz</c> its plain twin gives that line and lets <c>Heading1</c> decide. What is not formatting stays (see
+    /// <see cref="IsKeptByClear"/>). Returns true when anything was removed.
+    /// </summary>
+    internal static bool ClearDirectFormatting(OpenXmlCompositeElement properties)
+    {
+        ArgumentNullException.ThrowIfNull(properties);
+
+        var removed = false;
+        foreach (var child in properties.ChildElements.Where(c => !IsKeptByClear(c)).ToList())
+        {
+            child.Remove();
+            removed = true;
+        }
+
+        return removed;
+    }
+
+    /// <summary>
+    /// True when <paramref name="properties"/> carries direct formatting <see cref="ClearDirectFormatting"/> would
+    /// remove: formatting that overrides what a paragraph style sets.
+    /// </summary>
+    internal static bool HasDirectFormatting(OpenXmlCompositeElement? properties) =>
+        properties?.ChildElements.Any(c => !IsKeptByClear(c)) == true;
+
+    /// <summary>
+    /// What clearing direct formatting keeps: the character style (a style, not direct formatting), and what is not
+    /// formatting at all - the proofing language, no-proofing, hidden text, script and direction, Office Math, and
+    /// revision marks.
+    /// </summary>
+    private static bool IsKeptByClear(OpenXmlElement child) =>
+        child is RunStyle or Languages or NoProof or Vanish or SpecVanish or WebHidden or RightToLeftText
+            or ComplexScript or OfficeMath or RunPropertiesChange or Inserted or Deleted or MoveFrom or MoveTo;
+
+    /// <summary>
     /// The sentence a tool summary carries when <paramref name="format"/> names a font Business Central online
     /// will not print as named (see <see cref="BcOnlineFonts.SummaryNote"/>); empty otherwise.
     /// </summary>

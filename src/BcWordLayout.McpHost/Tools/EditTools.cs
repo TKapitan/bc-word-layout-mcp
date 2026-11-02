@@ -322,9 +322,9 @@ public static class EditTools
                  + "column - is always preserved. If the cell contains a content control (a bound field/"
                  + "label), this is REJECTED (use remove_control / insert_field / insert_label for those). "
                  + "To edit a cell in a header/footer, pass layoutPart='header'/'footer' (optionally partName). "
-                 + "OPTIONAL FORMATTING: format (bold, italic, underline, size, font, colour, character style) "
-                 + "and alignment ('left'/'center'/'right') each apply only when passed - omit them and the "
-                 + "cell's existing look is preserved exactly as before. They matter most for cells in a "
+                 + "OPTIONAL FORMATTING: format (bold, italic, underline, size, font, colour, character style), "
+                 + "alignment ('left'/'center'/'right') and paragraphStyle each apply only when passed - omit them "
+                 + "and the cell's existing look is preserved exactly as before. They matter most for cells in a "
                  + "freshly authored plain table (insert_table), which have no styling to inherit: caption "
                  + "cells want bold, amount columns want right alignment, a document title wants a bigger "
                  + "size. To restyle a cell without changing its text, use set_text_format. "
@@ -341,14 +341,25 @@ public static class EditTools
                      + "partDetails for each part's role).")] string? partName = null,
         [Description(TextFormatArgument.SetCellTextDescription)] TextFormatArgument? format = null,
         [Description("Optional paragraph alignment 'left'/'center'/'right'; omit to keep the cell's "
-                     + "existing alignment.")] [AlignmentValues] string? alignment = null)
+                     + "existing alignment.")] [AlignmentValues] string? alignment = null,
+        [Description(ParagraphStyleDescription)] string? paragraphStyle = null)
     {
         return GuardCellEdit(layoutPath, (doc, target) =>
         {
+            RequireThemableFormatting(target, [], paragraphStyle);
             var location = BuildLocation("tableCell", null, tableIndex, row, col, null, layoutPart, partName);
-            return CellTextEditor.SetCellText(doc, location, text, TextFormatArgument.ToDomain(format, target), alignment);
+            return CellTextEditor.SetCellText(
+                doc, location, text, TextFormatArgument.ToDomain(format, target), alignment, paragraphStyle);
         });
     }
+
+    /// <summary>The <c>paragraphStyle</c> parameter's description on <c>set_text_format</c> and <c>set_cell_text</c>.</summary>
+    private const string ParagraphStyleDescription =
+        "Optional id of a PARAGRAPH style the layout's styles part defines, e.g. 'Heading1' or 'Title', set on the "
+        + "target's paragraphs (w:pStyle) so the style decides their look; refused when the layout does not define it "
+        + "(the error lists the ones it does). Ids are case-sensitive. Direct run formatting wins over a style, so the "
+        + "summary says when some is left (set_text_format's clearDirectFormatting removes it). Needs a target of BC "
+        + "29 or later (get_layout_info's target).";
 
     [McpServerTool(Name = "set_text_format")]
     [Description("Change the formatting of text that is ALREADY in the layout, without changing the text - "
@@ -361,8 +372,12 @@ public static class EditTools
                  + "e.g. a bold 8 pt header row in one call; 'text' (searchText): exactly that text, split out of "
                  + "its run if it is only part of one - it must occur exactly once in the part, and text inside a "
                  + "data-bound control is refused (format the control instead). format is the same object the "
-                 + "insert tools take; alignment ('left'/'center'/'right') goes on the target's paragraphs (for "
-                 + "an inline control or a text match, the whole line it sits in). Pass at least one of them. "
+                 + "insert tools take; alignment ('left'/'center'/'right') and paragraphStyle (e.g. 'Heading1') go "
+                 + "on the target's paragraphs (for an inline control or a text match, the whole line it sits in); "
+                 + "clearDirectFormatting=true first removes the direct run formatting (font, size, colour, bold and "
+                 + "the like) so the paragraph and character styles decide - e.g. clearDirectFormatting plus "
+                 + "paragraphStyle 'Heading1' turns a directly formatted title into a heading, the way Microsoft's "
+                 + "themable layouts style it. Pass at least one of them. "
                  + "layoutPart/partName pick the part for 'cell', 'row' and 'text'. Same "
                  + "write/validate/save-or-reject safety as insert_field.")]
     public static ToolResponse SetTextFormat(
@@ -382,6 +397,11 @@ public static class EditTools
                      + "is left as the text has it.")] TextFormatArgument? format = null,
         [Description("Optional paragraph alignment 'left'/'center'/'right' for the target's paragraphs.")]
         [AlignmentValues] string? alignment = null,
+        [Description(ParagraphStyleDescription)] string? paragraphStyle = null,
+        [Description("When true, first removes the target's direct run formatting - from its runs, its controls' own "
+                     + "formatting and its paragraph marks - keeping the character style, language and hidden-text "
+                     + "marks, so the paragraph and character styles decide the look; format is then applied over "
+                     + "it. Default false.")] bool clearDirectFormatting = false,
         [Description("For 'cell'/'row'/'text': which part the target is in - 'body' (default), 'header', or "
                      + "'footer'. A control is found by its id in any part.")] [LayoutPartValues] string layoutPart = "body",
         [Description("Only used when layoutPart is 'header'/'footer': a specific part file name (e.g. "
@@ -390,6 +410,7 @@ public static class EditTools
     {
         return GuardEdit(layoutPath, (doc, bcTarget) =>
         {
+            RequireThemableFormatting(bcTarget, [], paragraphStyle);
             if (!TryParseLayoutPart(layoutPart, out var part))
             {
                 throw new ArgumentException(
@@ -407,7 +428,8 @@ public static class EditTools
                 Part = part,
                 PartName = partName,
             };
-            return TextFormatEditor.SetTextFormat(doc, formatTarget, TextFormatArgument.ToDomain(format, bcTarget), alignment);
+            return TextFormatEditor.SetTextFormat(
+                doc, formatTarget, TextFormatArgument.ToDomain(format, bcTarget), alignment, paragraphStyle, clearDirectFormatting);
         });
     }
 

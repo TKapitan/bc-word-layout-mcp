@@ -195,7 +195,8 @@ the first match wins:
 - A tool that would write a feature from the table below refuses with `bc_version_unsupported` below
   the feature's version and when the target is unknown. Today that is a theme colour such as
   `accent1` in `format.color`, `set_cell_format`'s `fill`, or the `borderColor` of `set_cell_format`,
-  `insert_table` and `insert_repeater_table`; a hex colour is never gated.
+  `insert_table` and `insert_repeater_table`, and a `paragraphStyle` on `set_text_format` or
+  `set_cell_text`. A hex colour and `clearDirectFormatting` are never gated.
 - `validate_layout`'s `bc-version` check reports such a feature a layout already has: a header/footer
   layout bound to Tenant Report Defaults is an error below 29.0 and a warning for an unknown target.
   Theme colours and paragraph styles already in a layout are not flagged: BC 28 prints them.
@@ -241,7 +242,7 @@ other tool is conversion-free and works everywhere the server runs.
 | `wrap_in_repeater` | Wrap a run of existing body blocks in a block-level repeater over a data item, so they print once per record: a page per customer in a statement, a paragraph per work-description line. Over a top-level item it adds the `w:group` Business Central needs; over a nested item, a paragraph holding only a field becomes a block-level field control, the shape Business Central prints. |
 | `remove_control` | Remove a content control (field/label/repeater/picture/unbound) by its `w:id`, searching the body and every header/footer; `keepText=true` on a block-level repeater unwraps it and keeps its content. |
 | `set_cell_text` | Set (replace) the PLAIN TEXT of a table cell, addressed by table/row/column index — e.g. re-label a line-items column header. Rejects cells that hold a bound control. |
-| `set_text_format` | Restyle text that is ALREADY in the layout without changing it: a control by id, a table cell, a whole row, or one exact piece of text, with the same `format` object the insert tools take (bold, italic, underline, size, font, colour, character style) and an optional alignment. |
+| `set_text_format` | Restyle text that is ALREADY in the layout without changing it: a control by id, a table cell, a whole row, or one exact piece of text, with the same `format` object the insert tools take (bold, italic, underline, size, font, colour, character style), an optional alignment and paragraph style (`Heading1`), and `clearDirectFormatting` to let the styles decide. |
 | `clear_cell_text` | Remove all PLAIN TEXT from a table cell, leaving a valid empty cell (the cell/column is preserved) — e.g. blank an unwanted column-header label. |
 | `insert_subtotal_row` | Append a STATIC per-group row at the end of an existing repeater's item — the stock BC shape for group subtotal (and spacer) rows: it renders once per PARENT row, after the nested detail rows, never per detail row. Its cells take the formatting of the row above them, as `insert_repeater_row`'s do. |
 | `insert_table_row` | Insert ONE STATIC (non-repeating) row into an existing table — the stock BC shape for the totals block INSIDE the line-items table (spacer cells, a spanned bound caption cell, a right-aligned bound amount cell). Cells bind FULL dataset paths; the row renders exactly once, never per data row. Its cells take the formatting of the row above them (below, at the top of a table), as `insert_repeater_row`'s do. |
@@ -402,10 +403,11 @@ Error `message`/`hint` texts are not part of the contract — never parse them.
   message, pending real-add-in OOXML capture: any table using **vertical merges** (`w:vMerge`) —
   except `set_cell_format`, which is cosmetic and accepts them. See
   [issue #9](https://github.com/TKapitan/bc-word-layout-mcp/issues/9).
-- **Cosmetic formatting beyond text and cells** (margins, page setup, styles/branding) — no dedicated
-  tool. Text has the `format` object (bold, italic, underline, size, font, colour, character style) on
-  every tool that writes it, plus `set_text_format` to restyle text already in the layout; cells have
-  the alignment arguments and `set_cell_format`'s rules and fills; and a blank `create_layout` ships
+- **Cosmetic formatting beyond text and cells** (margins, page setup, defining styles, the theme part) —
+  no dedicated tool. Text has the `format` object (bold, italic, underline, size, font, colour, character
+  style) on every tool that writes it, plus `set_text_format` to restyle text already in the layout, give
+  it a paragraph style the layout defines, or clear its direct formatting; colours may be hex or theme
+  colours; cells have the alignment arguments and `set_cell_format`'s rules and fills; and a blank `create_layout` ships
   deterministic default typography (Calibri 11 pt via its scaffolded styles part). For the rest,
   restyle via `create_layout`'s `templatePath` or hand-edit the OOXML directly, then run
   `validate_layout` to confirm the edit didn't break structure or bindings. Restyling in **Word** is

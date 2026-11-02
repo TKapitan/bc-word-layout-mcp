@@ -1550,6 +1550,12 @@ internal static class ToolGuards
             "alignment must be 'left', 'center' or 'right' (case-insensitive); omit it to keep the paragraph's "
             + "existing alignment.",
 
+        "paragraphstyle" =>
+            "paragraphStyle is the id of a PARAGRAPH style the layout's styles part defines, e.g. 'Heading1' (the "
+            + "message above lists the ones it does; ids are case-sensitive). A character style goes in "
+            + "format.characterStyle instead, and a table style in tableStyle. A layout whose styles part lacks the "
+            + "style needs a templatePath that defines it, or direct formatting with format.",
+
         "borders" =>
             "borders must be 'none' (no border at all - insert_table's default, the shape of BC's address, info and "
             + "totals blocks), 'headerRule' (no grid, just a 1/2-pt rule under the first row - insert_repeater_table's "

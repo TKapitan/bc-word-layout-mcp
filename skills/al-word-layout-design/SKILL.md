@@ -208,6 +208,12 @@ commission % [verified: P07, P16].
   style the layout defines (`Strong` in the stock document layouts [stock]).
 - Restyle what is already there with `set_text_format`: a stock control by id, a header row in one
   call (`target="row"`), or one exact piece of text.
+- Headings can come from paragraph styles instead of direct formatting: `set_text_format` (or
+  `set_cell_text`) with `paragraphStyle` `"Heading1"`, plus `clearDirectFormatting` so the style is not
+  hidden under a direct font and size. Microsoft's themable layouts style the title and company name
+  `Heading1`/`Heading2` this way [stock: StandardSalesInvoiceBlueSimpleThemable]. It needs a BC 29 target
+  and a style the layout defines (a blank `create_layout` build's only paragraph style is `Normal`, so
+  headings need a `templatePath` that defines them).
 - Shade cells with `set_cell_format`'s `fill`: the stock fills are a light grey `E8E8E8` and the
   accent blue `0070C0` [stock]. Most stock tables carry no fill at all, so use it sparingly.
 - A colour can name a theme slot instead of a hex value: `accent1`, `text2 lighter 40%`,
