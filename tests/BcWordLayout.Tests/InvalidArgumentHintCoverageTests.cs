@@ -739,7 +739,7 @@ public class InvalidArgumentHintCoverageTests
 
     // ---- "schema" — SdtFactory's storeItemID guard (schema.Report.StoreItemId null/empty). No tool call
     // reaches it any more. It used to be reached by every bound insert on a layout whose dataset part has no
-    // itemProps - 4 of the 13 corpus layouts, stock ones included - with a hint naming internal C# methods
+    // itemProps - 4 of the 15 corpus layouts, stock ones included - with a hint naming internal C# methods
     // (GitHub issue #93). Every tool that builds a bound control now takes its schema from
     // SchemaProvider.FromLayoutForBinding, which supplies the part's itemID or the storeItemID the layout's
     // existing bindings agree on, and otherwise refuses with invalid_layout (StoreItemIdFallbackTests covers
@@ -864,12 +864,13 @@ public class InvalidArgumentHintCoverageTests
         }
     }
 
-    // ---- default fallback ("_") — TableStructureEditor.RejectUnsupportedShape throws with NO ParamName at
-    // all (single-arg ArgumentException constructor); InvalidArgumentHint(null) must land on the generic
-    // fallback rather than any specific case. ----
+    // ---- default fallback ("_") — a ParamName with no case of its own: insert_table_row's "atRow", here from
+    // TableStructureEditor.ExtendVerticalMerges refusing a row inside a vertical merge whose cells do not line up
+    // with it. InvalidArgumentHint must land on the generic fallback rather than any specific case. (Its first
+    // witness, the blanket vMerge refusal, threw with no ParamName at all and went with GitHub issue #9.) ----
 
     [Fact]
-    public void SetColumnWidths_on_a_vMerge_table_has_no_paramName_and_falls_back_to_the_generic_hint()
+    public void InsertTableRow_inside_a_vertical_merge_falls_back_to_the_generic_hint()
     {
         var body =
             "<w:tbl><w:tblPr/><w:tblGrid><w:gridCol w:w=\"2000\"/><w:gridCol w:w=\"2000\"/></w:tblGrid>"
@@ -880,7 +881,7 @@ public class InvalidArgumentHintCoverageTests
         var path = SyntheticLayout.Create(body);
         try
         {
-            var response = TableTools.SetColumnWidths(path, tableIndex: 0, widths: [2000, 2000]);
+            var response = TableTools.InsertTableRow(path, tableIndex: 0, [new RowCellArgument { Span = 2 }], atRow: 1);
             AssertActionableFailure(response, "invalid_argument", "Check the argument named in the message above");
         }
         finally

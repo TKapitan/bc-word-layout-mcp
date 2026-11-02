@@ -548,10 +548,10 @@ public class CellFormatTests
     }
 
     [Fact]
-    public void SetCellFormat_works_on_a_vMerge_table_that_the_other_table_tools_reject()
+    public void SetCellFormat_formats_the_addressed_row_of_a_vertical_merge()
     {
-        // Cosmetic only — no span arithmetic — so the vMerge/gridBefore rejection every other table
-        // operation carries would be pure lost capability here.
+        // Cosmetic only — no span arithmetic. It worked on vMerge tables while every other table operation
+        // still refused them (GitHub issue #9).
         var path = SyntheticLayout.Create(VerticallyMergedTable);
         try
         {

@@ -21,6 +21,26 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - A new error code, `bc_version_unsupported`, refuses a call that would write a feature the target
     lacks, or any such call when the target is unknown. No shipped tool writes one yet: theme colours
     and paragraph styles (#145, #146) will. The README lists the features and their versions.
+- **Tables with vertical merges** (`w:vMerge`, GitHub issue #9). Microsoft's own BC 29 header/footer
+  designs merge their report-caption column down the header table, and every table tool used to refuse
+  them. Now:
+  - `get_layout_info` reports each merged cell's `verticalMerge`: `restart` for the cell Word shows,
+    `continue` for each cell below it.
+  - `set_column_widths`, `insert_column` and `remove_column` edit such tables and keep each merge whole.
+    When appending, a cell that continues a merge counts as holding its first cell's content, so the
+    empty cells under a header's merged caption are no longer taken for a totals block.
+  - `insert_table_row` inside a merge continues it, as Word does, when the new row has one empty cell
+    over the merged columns; it refuses otherwise.
+  - `split_cells` on a merged cell splits every row of the merge, and each new column stays merged.
+  - `merge_cells` refuses to cut through a merge.
+  - Text and controls go in a merge's `restart` cell: `set_cell_text` and the inserts refuse a
+    `continue` cell, naming the one to use.
+  - The grid guard rejects an edit that leaves a `continue` cell with nothing above it to continue.
+  - Two of Microsoft's layouts joined the corpus as fixtures: the header/footer design
+    `ExternalDefault.docx` and `SpendRequestDocument.docx`, whose merged cell also spans two grid
+    columns of a `w:gridAfter` grid. They bring 71 more distinct tinted or shaded theme colours, and the
+    tint and shade arithmetic theme colours use met them unchanged: 69 of the corpus's 89 distinct
+    cached values are exact, and the rest at most one step off.
 - **New tool `insert_page_conditional_text`: text on the last page only, every page but the last,
   or the first page only** (GitHub issue #11). It inserts static text inside a Word `IF` field over
   `PAGE` and `NUMPAGES`: `when` is `lastPage` (`IF PAGE = NUMPAGES`), `notLastPage` (`<>`) or

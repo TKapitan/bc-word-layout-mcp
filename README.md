@@ -397,13 +397,14 @@ Error `message`/`hint` texts are not part of the contract — never parse them.
   labels from the dataset's own label columns, falling back to humanized element names, so captions read
   differently from a real BC render. Pass a real exported dataset via `dataOverridesPath` when caption
   text matters: the dataset carries BC's own captions, and they then match the real render.
-- **Table-structure changes** — largely supported (`insert_column`, `remove_column`,
-  `set_column_widths`, horizontal `merge_cells`/`split_cells` — all `gridSpan`-aware,
+- **Table-structure changes** — supported (`insert_column`, `remove_column`, `set_column_widths`,
+  `insert_table_row`, horizontal `merge_cells`/`split_cells` — all `gridSpan`-aware,
   grid-column-addressed, guarded against desyncing a row from its `w:tblGrid`; rows skipping grid
-  columns via `w:gridBefore`/`w:gridAfter` are handled). Still deferred and refused with a clear
-  message, pending real-add-in OOXML capture: any table using **vertical merges** (`w:vMerge`) —
-  except `set_cell_format`, which is cosmetic and accepts them. See
-  [issue #9](https://github.com/TKapitan/bc-word-layout-mcp/issues/9).
+  columns via `w:gridBefore`/`w:gridAfter` are handled). Tables with **vertical merges** (`w:vMerge`,
+  as in Microsoft's BC 29 header/footer designs) are edited too, and each merge is kept whole: a row
+  inserted inside one continues it, `split_cells` splits every row of one, and `merge_cells` refuses to
+  cut through one ([issue #9](https://github.com/TKapitan/bc-word-layout-mcp/issues/9)). No tool
+  creates or removes a vertical merge.
 - **Cosmetic formatting beyond text and cells** (margins, page setup, defining styles, the theme part) —
   no dedicated tool. Text has the `format` object (bold, italic, underline, size, font, colour, character
   style) on every tool that writes it, plus `set_text_format` to restyle text already in the layout, give

@@ -35,9 +35,9 @@ public sealed record ThemeInfo(
 /// TINTS AND SHADES change the colour's HSL luminance (ECMA-376 Part 1, 17.3.2.6): a tint <c>t</c> (the hex byte over
 /// 255) gives <c>L * t + (1 - t)</c>, a shade gives <c>L * t</c>. Word caches the result in <c>w:val</c> /
 /// <c>w:fill</c> / <c>w:color</c> beside the theme attributes. Computed in floating point with each channel truncated
-/// to a byte, this gives 14 of the 18 distinct tinted or shaded values the corpus caches exactly, the rule colours
-/// included (text2 lighter 40% is <c>9B9482</c>, background2 darker 25% <c>AEAAAA</c>), and the other four one step
-/// off in one channel; rounding instead gives only 9. Word's own arithmetic is not documented. Word recomputes the
+/// to a byte, this gives 69 of the 89 distinct tinted or shaded values the corpus caches exactly, the rule colours
+/// included (text2 lighter 40% is <c>9B9482</c>, background2 darker 25% <c>AEAAAA</c>), and the other 20 at most one
+/// step off in a channel; rounding instead matched only 9 of the first 18. Word's own arithmetic is not documented. Word recomputes the
 /// cache from the theme when it opens the file, so the step only matters to a renderer that ignores the theme
 /// attributes.
 /// </para>

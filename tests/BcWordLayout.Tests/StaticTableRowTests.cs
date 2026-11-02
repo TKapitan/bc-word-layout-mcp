@@ -236,29 +236,6 @@ public class StaticTableRowTests
     }
 
     [Fact]
-    public void A_vMerge_table_is_refused_like_every_other_structure_op()
-    {
-        var body = "<w:tbl><w:tblPr/><w:tblGrid><w:gridCol w:w=\"2000\"/><w:gridCol w:w=\"2000\"/></w:tblGrid>"
-            + "<w:tr><w:tc><w:tcPr><w:vMerge w:val=\"restart\"/></w:tcPr><w:p><w:r><w:t>a</w:t></w:r></w:p></w:tc>"
-            + "<w:tc><w:tcPr/><w:p/></w:tc></w:tr>"
-            + "<w:tr><w:tc><w:tcPr><w:vMerge/></w:tcPr><w:p/></w:tc>"
-            + "<w:tc><w:tcPr/><w:p/></w:tc></w:tr>"
-            + "</w:tbl>";
-        var path = SyntheticLayout.Create(body);
-        try
-        {
-            using var doc = WordprocessingDocument.Open(path, true);
-            var ex = Assert.Throws<ArgumentException>(() => TableStructureEditor.InsertStaticRow(
-                doc, LayoutPart.Body, null, 0, atRow: null, [new RepeaterRowCell { Span = 2 }]));
-            Assert.Contains("vMerge", ex.Message, StringComparison.Ordinal);
-        }
-        finally
-        {
-            File.Delete(path);
-        }
-    }
-
-    [Fact]
     public void An_unresolvable_dataset_path_is_refused()
     {
         var path = CopyOfCorpus(Corpus.StandardSalesQuote);

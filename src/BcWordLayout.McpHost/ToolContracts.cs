@@ -95,6 +95,8 @@ public sealed record ControlSummaryDto(int Field, int Label, int Repeater, int P
 /// coordinate the column tools take (<c>remove_column</c>'s <c>column</c>, <c>insert_column</c>'s
 /// <c>atColumn</c>, the position in <c>set_column_widths</c>' list). The two differ on almost every real BC
 /// table (GitHub issue #81). Both grid fields were added at the end so the shape stays additive.
+/// <see cref="VerticalMerge"/> is <c>restart</c>/<c>continue</c> for a cell of a vertical merge, else null
+/// (GitHub issue #9): a merge's text and controls go in its <c>restart</c> cell, the one Word shows.
 /// </summary>
 public sealed record TableCellDto(
     int ColIndex,
@@ -106,7 +108,8 @@ public sealed record TableCellDto(
     string Text,
     IReadOnlyList<int> InnerControlIds,
     int GridColumn,
-    int GridSpan);
+    int GridSpan,
+    string? VerticalMerge = null);
 
 /// <summary>
 /// One row of a <see cref="TableDto"/> — one per <c>w:tr</c>, so every row of a multi-row repeater item

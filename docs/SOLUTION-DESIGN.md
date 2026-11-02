@@ -317,10 +317,11 @@ first match. The cost of a wrong guess is a corrupt
 deliverable a developer discovers in a sandbox; the cost of a refusal is one clear message.
 
 **4. Emit only OOXML that has been seen in a real layout.** Shapes absent from every reviewed layout
-(`w:vMerge`) stay unsupported rather than being implemented from the spec, because "valid per the schema"
-and "what the BC add-in produces" are not the same thing. The corollary matters as much: when a shape turns
-out to be real, the rejection is a bug — `w:gridAfter` was refused for months on the belief it was exotic,
-while sitting on the line-items table of the stock sales-invoice layout.
+(a lighter theme fill, `w:themeFillTint`) stay unsupported rather than being implemented from the spec,
+because "valid per the schema" and "what the BC add-in produces" are not the same thing. The corollary
+matters as much: when a shape turns out to be real, the rejection is a bug — `w:gridAfter` was refused for
+months on the belief it was exotic, while sitting on the line-items table of the stock sales-invoice
+layout, and `w:vMerge` until Microsoft's own BC 29 header/footer designs turned out to use it (#9).
 
 **5. Treat the layout as untrusted input.** It comes from a repo the agent did not write.
 `ResourceLimits` caps part size, part count, and recursion depth so a zip-bomb or a deeply-nested file

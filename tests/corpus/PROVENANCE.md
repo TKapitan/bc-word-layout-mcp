@@ -27,15 +27,22 @@ layouts, so their content is placeholders and captions only, and the same script
 they were committed: author/last-saved-by names, the MSIP label parts in
 `StandardPurchaseOrderThemable.docx`, and `attachedTemplate` targets in developers' Desktop folders.
 
+`ExternalDefault.docx` and `SpendRequestDocument.docx` joined on 2026-11-03 as the first tables that merge
+cells vertically (`w:vMerge`, GitHub issue #9). They are Microsoft's own layouts too, placeholders and
+captions only, scrubbed the same way: author/last-saved-by names, the MSIP label parts, and in
+`ExternalDefault.docx` an empty bibliography part.
+
 **Run the script whenever a new capture joins the corpus, before it is committed.**
 
 | File | Report (dataset namespace) | Origin |
 |---|---|---|
+| `ExternalDefault.docx` | `Tenant_Report_Defaults/2000000001` (header/footer design *External Default*) | Microsoft base app |
 | `InventoryOrderDetails.docx` | `FS_YSR_InventoryOrderDetails/50002` | Custom-report capture (content: placeholders/captions only) |
 | `JobQuote.docx` | `Job_Quote/1016` | Microsoft base app |
 | `PaymentPracticeByPeriod.docx` | `Payment_Practice/685` | Microsoft Payment Practices app |
 | `SalesInvoiceForSubscriptionBilling.docx` | `Standard_Sales_Invoice/1306` | Microsoft Subscription Billing app (report-extension layout) |
 | `SalespersonCommission.docx` | `Salesperson_Commission/115` | Microsoft base app |
+| `SpendRequestDocument.docx` | `Spend_Request_Document/6850` | Microsoft base app |
 | `StandardPurchaseOrder.docx` | `Standard_Purchase_Order/1322` | Microsoft base app |
 | `StandardPurchaseOrderThemable.docx` | `Standard_Purchase_Order/1322` (themable variant) | Microsoft base app |
 | `StandardSalesInvoiceBlueSimpleThemable.docx` | `Standard_Sales_Invoice/1306` (Blue Simple, themable variant) | Microsoft base app |
@@ -55,14 +62,17 @@ Recorded 2026-08-01. The nine Microsoft-origin files of that date are captures o
 source files Microsoft publishes as open source in
 [`microsoft/BCApps`](https://github.com/microsoft/BCApps) under the **MIT License**
 (Copyright (c) Microsoft Corporation). Verified against that repository on the same date, per file
-(the three `*Themable.docx` rows were added on 2026-10-29, see below):
+(the three `*Themable.docx` rows were added on 2026-10-29, and `ExternalDefault.docx` and
+`SpendRequestDocument.docx` on 2026-11-03, see below):
 
 | Corpus file | Source in `microsoft/BCApps` |
 |---|---|
+| `ExternalDefault.docx` | `src/Layers/W1/BaseApp/Foundation/Reporting/ReportParts/HeaderFooterDesign/ExternalDefault.docx` |
 | `JobQuote.docx` | `src/Layers/W1/BaseApp/Projects/Project/JobQuote.docx` |
 | `PaymentPracticeByPeriod.docx` | `src/Apps/W1/PaymentPractices/App/src/Reports/Payment Practice by Period.docx` |
 | `SalesInvoiceForSubscriptionBilling.docx` | `src/Apps/W1/Subscription Billing/App/Billing/Report Extensions/Layouts/SalesInvoiceForSubscriptionBilling.docx` |
 | `SalespersonCommission.docx` | `src/Layers/W1/BaseApp/Sales/Reports/SalespersonCommission.docx` |
+| `SpendRequestDocument.docx` | `src/Layers/W1/BaseApp/Finance/SpendRequest/SpendRequestDocument.docx` |
 | `StandardPurchaseOrder.docx` | `src/Layers/W1/BaseApp/Purchases/Document/StandardPurchaseOrder.docx` |
 | `StandardPurchaseOrderThemable.docx` | `src/Layers/W1/BaseApp/Purchases/Document/StandardPurchaseOrderThemable.docx` |
 | `StandardSalesInvoiceBlueSimpleThemable.docx` | `src/Layers/W1/BaseApp/Sales/History/StandardSalesInvoiceBlueSimpleThemable.docx` |
@@ -76,6 +86,14 @@ The three themable files are the source files themselves, not BC-served captures
 they were byte-identical to the files above at BCApps `main` @ `0a4207a440` (git blob hashes compared
 on 2026-10-29). Microsoft publishes further themable layouts beside them; those were left out because they
 repeat what these three already show.
+
+`ExternalDefault.docx` and `SpendRequestDocument.docx` are source files too: before the scrub they were
+byte-identical to the files above at BCApps `main` @ `19ed5d01ff` (git blobs `d9edfa0d68` and `064c324402`,
+2026-11-03). Thirteen of the 368 layouts in BCApps merge cells vertically: nine BC 29 header/footer designs,
+`SpendRequestDocument.docx` and three NA demo invoices. `ExternalDefault.docx` stands for the designs, whose
+header tables (those checked) merge the report-caption column down every row; `SpendRequestDocument.docx` merges
+a `gridSpan` 2 cell over two rows of a `w:gridAfter` grid. The demo invoices merge both side columns of their
+address block down nine rows, which is the first shape twice.
 
 Redistribution here is under those MIT terms: Microsoft's copyright and licence notice for these
 files is carried in `THIRD-PARTY-NOTICES.md`. What this repository redistributes is either a

@@ -34,9 +34,16 @@ namespace BcWordLayout.Domain;
 /// SAFETY. Every edit here keeps each row's cell coverage equal to the grid column count; the
 /// <see cref="TableGridConsistencyGuard"/> (diffed BEFORE/AFTER in <c>GuardMutate</c>) mechanically rejects
 /// any edit that would desync them, so a grid/cell mismatch can never reach disk — the corruption class the
-/// <see cref="OpenXmlValidator"/> gate cannot see. Tables using <c>w:vMerge</c> (vertical merges) are
-/// rejected up front: that shape is absent from every layout reviewed and its span arithmetic is deferred
-/// pending real capture (plan §5-B).
+/// <see cref="OpenXmlValidator"/> gate cannot see.
+/// </para>
+/// <para>
+/// VERTICAL MERGES (<c>w:vMerge</c>, GitHub issue #9; see <see cref="VerticalMerges"/>). Every operation keeps a
+/// merge whole: its cells share their grid column and span, so a column edit changes them alike; a new row inside a
+/// merge extends it; <c>split_cells</c> splits every row of one; <c>merge_cells</c> refuses to cut through one; and
+/// text goes to a merge's first cell, the one Word shows. They were refused outright until Microsoft's own BC 29
+/// header/footer designs turned out to use them (<c>ExternalDefault.docx</c> and <c>SpendRequestDocument.docx</c>
+/// in the corpus), and the guard's <see cref="TableGridViolationKind.BrokenVerticalMerge"/> rejects an edit that
+/// breaks one.
 /// </para>
 /// <para>
 /// SKIPPED GRID COLUMNS. Rows using <c>w:gridBefore</c>/<c>w:gridAfter</c> cover fewer physical cells than
@@ -59,7 +66,7 @@ public static class TableStructureEditor
     /// <c>w:tcW</c> to the sum of the grid-column widths that cell spans — so a spanned cell stays as wide
     /// as the columns beneath it. Deterministic on spanned/ragged tables; changes no structure.
     /// </summary>
-    /// <exception cref="ArgumentException"><paramref name="widths"/>'s count ≠ the grid column count, or the table uses vMerge.</exception>
+    /// <exception cref="ArgumentException"><paramref name="widths"/>'s count ≠ the grid column count.</exception>
     /// <exception cref="NotFoundException"><paramref name="tableIndex"/> is out of range for the part.</exception>
     public static TableEditResult SetColumnWidths(
         WordprocessingDocument doc, LayoutPart part, string? partName, int tableIndex, IReadOnlyList<int> widths)
@@ -75,8 +82,6 @@ public static class TableStructureEditor
                 + $"{gridCount} grid column(s); supply exactly one width (in twips) per grid column.",
                 nameof(widths));
         }
-
-        RejectUnsupportedShape(table, "set_column_widths");
 
         var rowsAffected = ApplyGridWidths(table, widths);
 
@@ -102,9 +107,8 @@ public static class TableStructureEditor
     /// (<c>w:tcBorders</c>) and/or a fill (<c>w:shd</c>) — on the cell at <paramref name="col"/>, or EVERY cell in
     /// the row when <paramref name="col"/> is null: the shape the BC look is actually made of (a rule under the
     /// whole header row, a rule above a whole totals row, a shaded header row), so the common case is one call
-    /// rather than one per column. Cosmetic only: no cell, row, grid, span or binding is touched, which is also
-    /// why this is the one table operation that does NOT reject vMerge tables — there is no span arithmetic
-    /// here to get wrong.
+    /// rather than one per column. Cosmetic only: no cell, row, grid, span or binding is touched. On a vertically
+    /// merged cell (<c>w:vMerge</c>) it formats only the addressed row's cell of the merge.
     /// </summary>
     /// <param name="col">
     /// 0-based PHYSICAL cell index within the row (the <c>colIndex</c> <c>get_layout_info</c> reports), or null
@@ -430,8 +434,9 @@ public static class TableStructureEditor
     /// spanned cell of a row that must receive content (see remarks); <paramref name="options"/> is
     /// inconsistent (e.g. Field/Label without a DataPath); DataPath belongs to none of the table's repeaters,
     /// or the table has no row to bind it into; a header argument is passed for a table with no header row;
-    /// the table uses vMerge; or (propagated from <see cref="SdtFactory"/>) DataPath or HeaderLabelPath does
-    /// not resolve to a leaf column of the right label-shape.
+    /// appending would cut a vertically merged trailing cell in two (see <see cref="KeepTrailingMergesWhole"/>);
+    /// or (propagated from <see cref="SdtFactory"/>) DataPath or HeaderLabelPath does not resolve to a leaf
+    /// column of the right label-shape.
     /// </exception>
     public static TableEditResult InsertColumn(
         WordprocessingDocument doc, LayoutPart part, string? partName, int tableIndex, int? atColumn, InsertColumnOptions options)
@@ -450,8 +455,6 @@ public static class TableStructureEditor
                 + $"column(s), so atColumn must be between 0 and {gridCount} ({gridCount} = append at the far-right edge).",
                 nameof(atColumn));
         }
-
-        RejectUnsupportedShape(table, "insert_column");
 
         var mode = options.Mode;
         if (mode is InsertColumnMode.Field or InsertColumnMode.Label && string.IsNullOrWhiteSpace(options.DataPath))
@@ -503,9 +506,32 @@ public static class TableStructureEditor
         // that must carry the new column's content has no honest answer (see this method's remarks).
         RejectStraddledContentRows(plans, target, tableIndex);
 
+        // Every row's change is decided before any is made, so the rows of a vertical merge can be held to the
+        // same one (GitHub issue #9) and a refusal still leaves the document untouched.
+        var merges = VerticalMerges.Of(table);
+        var changes = plans.Select(plan => (Plan: plan, Change: PlanColumnCell(plan, target, appending, merges))).ToList();
+        KeepTrailingMergesWhole(changes, merges, tableIndex);
+
         var rowsAffected = 0;
-        foreach (var plan in plans)
+        foreach (var (plan, change) in changes)
         {
+            var rowCells = TableGridNavigator.Cells(plan.Row);
+            var coverage = TableGridNavigator.Coverage(plan.Row);
+            rowsAffected++;
+            switch (change)
+            {
+                case ColumnCellChange.GrowSkippedRun:
+                    GrowSkippedRegion(plan.Row, coverage, target);
+                    continue;
+                case ColumnCellChange.WidenTrailingCell:
+                    SetCellGridSpan(rowCells[^1].InnerCell, rowCells[^1].GridSpan + 1);
+                    continue;
+                case ColumnCellChange.WidenStraddlingCell:
+                    var straddled = LocateInsertion(rowCells, target, coverage.Before).StraddlingCell!.Value;
+                    SetCellGridSpan(straddled.InnerCell, straddled.GridSpan + 1);
+                    continue;
+            }
+
             Paragraph paragraph;
             if (plan.IsHeaderRow)
             {
@@ -523,51 +549,14 @@ public static class TableStructureEditor
                 paragraph = new Paragraph();
             }
 
-            var rowCells = TableGridNavigator.Cells(plan.Row);
-            var isFillerRow = !plan.ReceivesContent;
-            var coverage = TableGridNavigator.Coverage(plan.Row);
-
-            // A row whose skipped run covers the new grid position grows that run instead of gaining a cell.
-            // Checked before the totals-block and straddle paths below: on such a row those would both be
-            // reasoning about cells that do not extend to the insertion point.
-            if (TryGrowSkippedRegion(plan.Row, coverage, target, plan.ReceivesContent))
-            {
-                rowsAffected++;
-                continue;
-            }
-
-            // A filler row shaped like a BC totals/summary block — leading EMPTY cell(s), content hugging
-            // the right edge (e.g. "Total Incl VAT | 822.97" under a lines table) — must KEEP that content
-            // at the table's right edge: appending an empty cell at the row's end would push the summary
-            // one column in from the edge AND extend the block's horizontal rules (cloned borders) under
-            // the new column. Instead of adding any cell, the row's TRAILING content cell is widened
-            // (gridSpan +1) across the new column — every cell keeps its position and width, only the
-            // last one stretches, so the block looks exactly as before with its right-aligned content
-            // still on the table's right edge. Appends only: an interior position lands inside the block
-            // rather than past it, where the straddle rule below already keeps the layout intact.
-            if (appending && isFillerRow && rowCells.Count > 0 && IsEmptyCell(rowCells[0]) && !IsEmptyCell(rowCells[^1]))
-            {
-                SetCellGridSpan(rowCells[^1].InnerCell, rowCells[^1].GridSpan + 1);
-                rowsAffected++;
-                continue;
-            }
-
             var slot = LocateInsertion(rowCells, target, coverage.Before);
-            if (slot.StraddlingCell is { } straddled)
-            {
-                // A filler row whose cell spans across the insertion point simply gets wider — no cell is
-                // added, so nothing shifts and nothing is lost (content rows never reach here: they were
-                // refused above).
-                SetCellGridSpan(straddled.InnerCell, straddled.GridSpan + 1);
-                rowsAffected++;
-                continue;
-            }
 
             // The new cell copies the look of an existing neighbor — preferring the one on its LEFT, the
             // same choice the append path has always made (there, the row's last cell). Without this, the
             // new column visibly doesn't belong to the table: no header underline (per-cell w:tcBorders in
             // real BC layouts), top-aligned text next to bottom-aligned neighbors, left-aligned numbers in
-            // an otherwise right-aligned column.
+            // an otherwise right-aligned column. It never takes the neighbor's w:vMerge: a new column starts
+            // no merge of its own.
             var neighbor = NeighborCell(rowCells, slot.CellIndex);
             var newCell = BuildCellLike(neighbor, paragraph, width);
             if (slot.CellIndex >= rowCells.Count)
@@ -578,8 +567,6 @@ public static class TableStructureEditor
             {
                 plan.Row.InsertBefore(newCell, rowCells[slot.CellIndex].CellChild);
             }
-
-            rowsAffected++;
         }
 
         var newGridColumn = new GridColumn { Width = width.ToString(CultureInfo.InvariantCulture) };
@@ -640,7 +627,7 @@ public static class TableStructureEditor
     /// <remarks>
     /// A content row whose cells stop short of <paramref name="target"/> (a trailing <c>w:gridAfter</c> run,
     /// or a leading <c>w:gridBefore</c> one) gets its new cell at its own nearest boundary, not at
-    /// <paramref name="target"/> (see <see cref="TryGrowSkippedRegion"/>'s remarks). On the stock
+    /// <paramref name="target"/> (see <see cref="GrowsSkippedRegion"/>'s remarks). On the stock
     /// <c>StandardSalesInvoiceVatSpec.docx</c> lines table — content rows of ten cells plus a 34-twip
     /// skipped column — appending therefore puts the new cells at grid 10 while the old code added the new
     /// <c>w:gridCol</c> at 11: the cells sat over the 34-twip column, which re-slicing every row from the
@@ -980,11 +967,120 @@ public static class TableStructureEditor
         return new InsertionSlot(cells.Count, null);
     }
 
+    /// <summary>What <see cref="InsertColumn"/> does to one row, decided by <see cref="PlanColumnCell"/>.</summary>
+    private enum ColumnCellChange
+    {
+        /// <summary>A new cell at the insertion point.</summary>
+        AddCell,
+
+        /// <summary>The row's skipped run grows (<see cref="GrowsSkippedRegion"/>).</summary>
+        GrowSkippedRun,
+
+        /// <summary>The row's last cell widens over the appended column (the totals-block rule).</summary>
+        WidenTrailingCell,
+
+        /// <summary>The cell spanning the insertion point widens.</summary>
+        WidenStraddlingCell,
+    }
+
+    /// <summary>Decides what <see cref="InsertColumn"/> does to <paramref name="plan"/>'s row, changing nothing.</summary>
+    private static ColumnCellChange PlanColumnCell(RowInsertPlan plan, int target, bool appending, VerticalMerges merges)
+    {
+        var rowCells = TableGridNavigator.Cells(plan.Row);
+        var coverage = TableGridNavigator.Coverage(plan.Row);
+
+        // A row whose skipped run covers the new grid position grows that run instead of gaining a cell.
+        // Checked before the totals-block and straddle paths below: on such a row those would both be
+        // reasoning about cells that do not extend to the insertion point.
+        if (GrowsSkippedRegion(coverage, target, plan.ReceivesContent))
+        {
+            return ColumnCellChange.GrowSkippedRun;
+        }
+
+        // A filler row shaped like a BC totals/summary block — leading EMPTY cell(s), content hugging
+        // the right edge (e.g. "Total Incl VAT | 822.97" under a lines table) — must KEEP that content
+        // at the table's right edge: appending an empty cell at the row's end would push the summary
+        // one column in from the edge AND extend the block's horizontal rules (cloned borders) under
+        // the new column. Instead of adding any cell, the row's TRAILING content cell is widened
+        // (gridSpan +1) across the new column — every cell keeps its position and width, only the
+        // last one stretches, so the block looks exactly as before with its right-aligned content
+        // still on the table's right edge. Appends only: an interior position lands inside the block
+        // rather than past it, where the straddle rule below already keeps the layout intact.
+        // A cell that continues a vertical merge is as empty as the merge's first cell, the one Word shows: in the
+        // BC 29 header/footer designs, the empty continue cells under the report caption are not a totals block.
+        if (appending && !plan.ReceivesContent && rowCells.Count > 0
+            && IsEmptyCell(merges.Shown(rowCells[0])) && !IsEmptyCell(merges.Shown(rowCells[^1])))
+        {
+            return ColumnCellChange.WidenTrailingCell;
+        }
+
+        // A filler row whose cell spans across the insertion point simply gets wider — no cell is
+        // added, so nothing shifts and nothing is lost (content rows never reach here: they were
+        // refused by RejectStraddledContentRows).
+        return LocateInsertion(rowCells, target, coverage.Before).StraddlingCell is null
+            ? ColumnCellChange.AddCell
+            : ColumnCellChange.WidenStraddlingCell;
+    }
+
     /// <summary>
-    /// Grows a FILLER row's leading or trailing skipped run by one when the new grid column lands inside it,
-    /// and reports whether it did. Such a row reaches that grid position with no cell at all, so adding one
-    /// would put a cell where the row deliberately has none — growing the run keeps the row looking exactly as
-    /// it did while still accounting for the extra grid column.
+    /// Holds every row of a vertical merge to the same change (GitHub issue #9). Of <see cref="PlanColumnCell"/>'s
+    /// rules only the totals-block one decides row by row on a cell that may be merged: the cells of a merge share
+    /// their grid columns, so the straddle rule meets all of them alike, and a new cell at a boundary touches none.
+    /// So when a row's widened last cell is merged with other rows' cells, those rows widen it too; and when one of
+    /// them cannot (it must receive the new column's content, or the merged cell is not its last), the call is
+    /// refused, since the merge would be cut in two.
+    /// </summary>
+    private static void KeepTrailingMergesWhole(
+        List<(RowInsertPlan Plan, ColumnCellChange Change)> changes, VerticalMerges merges, int tableIndex)
+    {
+        if (merges.IsEmpty)
+        {
+            return;
+        }
+
+        for (var i = 0; i < changes.Count; i++)
+        {
+            if (changes[i].Change != ColumnCellChange.WidenTrailingCell
+                || merges.GroupOf(TableGridNavigator.Cells(changes[i].Plan.Row)[^1].InnerCell) is not { SpansRows: true } merge)
+            {
+                continue;
+            }
+
+            foreach (var member in merge.Members)
+            {
+                var j = changes.FindIndex(c => ReferenceEquals(c.Plan.Row, member.InnerRow));
+                if (j < 0 || changes[j].Change == ColumnCellChange.WidenTrailingCell)
+                {
+                    continue;
+                }
+
+                var isLast = member.Col == TableGridNavigator.Cells(member.InnerRow).Count - 1;
+                if (changes[j].Plan.ReceivesContent || !isLast)
+                {
+                    throw new ArgumentException(
+                        $"insert_column cannot append to table {tableIndex}: the last cell of row {changes[i].Plan.RowIndex} "
+                        + $"is vertically merged (w:vMerge) over {merge.DescribeRows()}, grid column(s) "
+                        + $"{member.GridColumn}..{member.GridColumn + member.GridSpan - 1}. Row {changes[i].Plan.RowIndex} "
+                        + "keeps its right-hand content on the table's edge by widening that cell over the new column, "
+                        + $"but row {member.Row} "
+                        + (changes[j].Plan.ReceivesContent
+                            ? "must receive the new column's content"
+                            : "has cells after the merged one")
+                        + ", so the merge would be cut in two. Insert the column left of the merged cell with "
+                        + "atColumn instead.",
+                        "atColumn");
+                }
+
+                changes[j] = (changes[j].Plan, ColumnCellChange.WidenTrailingCell);
+            }
+        }
+    }
+
+    /// <summary>
+    /// True when a FILLER row's leading or trailing skipped run covers the new grid column, so the run grows by
+    /// one (<see cref="GrowSkippedRegion"/>) instead of the row gaining a cell. Such a row reaches that grid
+    /// position with no cell at all, so adding one would put a cell where the row deliberately has none — growing
+    /// the run keeps the row looking exactly as it did while still accounting for the extra grid column.
     /// </summary>
     /// <remarks>
     /// Deliberately NOT applied to a row that must receive the new column's content. On those, growing a
@@ -997,27 +1093,21 @@ public static class TableStructureEditor
     /// last cell and shifts the blank filler column right, which is what appending a column to that table
     /// looks like when a person does it in Word.
     /// </remarks>
-    private static bool TryGrowSkippedRegion(
-        TableRow innerRow, TableGridNavigator.RowGridCoverage coverage, int target, bool receivesContent)
-    {
-        if (receivesContent)
-        {
-            return false;
-        }
+    private static bool GrowsSkippedRegion(TableGridNavigator.RowGridCoverage coverage, int target, bool receivesContent) =>
+        !receivesContent
+        && ((coverage.Before > 0 && target < coverage.Before) || (coverage.After > 0 && target >= coverage.ContentEnd));
 
+    /// <summary>Grows the skipped run <see cref="GrowsSkippedRegion"/> found by one grid column.</summary>
+    private static void GrowSkippedRegion(TableRow innerRow, TableGridNavigator.RowGridCoverage coverage, int target)
+    {
         if (coverage.Before > 0 && target < coverage.Before)
         {
             TableGridNavigator.SetGridEdges(innerRow, coverage.Before + 1, coverage.After);
-            return true;
         }
-
-        if (coverage.After > 0 && target >= coverage.ContentEnd)
+        else
         {
             TableGridNavigator.SetGridEdges(innerRow, coverage.Before, coverage.After + 1);
-            return true;
         }
-
-        return false;
     }
 
     /// <summary>The cell whose look a new cell at <paramref name="cellIndex"/> should copy: its left neighbor, else its right.</summary>
@@ -1092,8 +1182,9 @@ public static class TableStructureEditor
     /// <paramref name="cells"/> is empty or its spans do not sum to the grid column count;
     /// <paramref name="atRow"/> is out of range, or falls between two rows of the same row-level control
     /// (see <see cref="RejectPositionInsideRowControl"/>); <paramref name="format"/> has a bad member (see
-    /// <see cref="RunFormatter.Prepare"/>); the table uses vMerge; or (propagated from
-    /// <see cref="SdtFactory.BuildStaticRow"/>) a path does not resolve to a leaf column.
+    /// <see cref="RunFormatter.Prepare"/>); the row lands inside a vertical merge it cannot continue (see
+    /// <see cref="ExtendVerticalMerges"/>); or (propagated from <see cref="SdtFactory.BuildStaticRow"/>) a path does
+    /// not resolve to a leaf column.
     /// </exception>
     /// <exception cref="NotFoundException"><paramref name="tableIndex"/> is out of range for the part.</exception>
     public static TableEditResult InsertStaticRow(
@@ -1115,7 +1206,6 @@ public static class TableStructureEditor
 
         var prepared = RunFormatter.Prepare(format, doc);
         var (table, partFile, gridCount) = ResolveTable(doc, part, partName, tableIndex);
-        RejectUnsupportedShape(table, "insert_table_row");
 
         var spanSum = cells.Sum(c => c.Span);
         if (spanSum != gridCount)
@@ -1161,6 +1251,8 @@ public static class TableStructureEditor
             .OfType<int>()
             .ToList();
 
+        var mergeNote = ExtendVerticalMerges(table, row, target, tableIndex);
+
         if (target == rowSlots.Count)
         {
             // Rows are the last thing CT_Tbl's content model allows, so appending lands after the
@@ -1188,6 +1280,7 @@ public static class TableStructureEditor
             Summary = $"Inserted a static (non-repeating) row at row index {target} of table {tableIndex} "
                 + $"with {cells.Count} cell(s) and {boundSummary}. It renders exactly once - it is a direct "
                 + "table row, not part of any repeating section."
+                + mergeNote
                 + formatNote
                 + RunFormatter.FontNote(prepared, doc)
                 + $" Follow up with set_cell_format (row {target}) for the rule a BC totals row carries, or "
@@ -1239,17 +1332,78 @@ public static class TableStructureEditor
     }
 
     /// <summary>
+    /// Makes <paramref name="row"/>, about to go in at <paramref name="target"/>, continue every vertical merge
+    /// (<c>w:vMerge</c>) it lands inside (GitHub issue #9), as a row Word inserts inside a merged cell does: the
+    /// row's cell over the merged columns becomes a continue cell. Returns a summary sentence, empty when the row
+    /// lands inside no merge.
+    /// </summary>
+    /// <remarks>
+    /// Left alone, the row's own cell would end the merge above it and leave the merge's cells below with nothing to
+    /// continue. So when the row has no single cell over exactly the merged columns, or that cell has content (which
+    /// Word would hide under the merge's first cell), the call is refused, naming the two positions just outside
+    /// the merge.
+    /// </remarks>
+    private static string ExtendVerticalMerges(Table table, TableRow row, int target, int tableIndex)
+    {
+        var crossed = VerticalMerges.Of(table).Groups
+            .Where(merge => merge.SpansRows && merge.First.Row < target && target <= merge.LastRow)
+            .ToList();
+        if (crossed.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        var cells = TableGridNavigator.Cells(row);
+        foreach (var merge in crossed)
+        {
+            var grid = TableGridNavigator.GridEdges(row).Before;
+            TableGridNavigator.CellSlot? match = null;
+            foreach (var cell in cells)
+            {
+                if (grid == merge.First.GridColumn && cell.GridSpan == merge.First.GridSpan)
+                {
+                    match = cell;
+                }
+
+                grid += cell.GridSpan;
+            }
+
+            if (match is not { InnerCell: { } inner } || !IsEmptyCell(match.Value))
+            {
+                var columns = $"{merge.First.GridColumn}..{merge.First.GridColumn + merge.First.GridSpan - 1}";
+                throw new ArgumentException(
+                    $"atRow {target} falls inside a vertically merged cell (w:vMerge) of table {tableIndex}: grid "
+                    + $"column(s) {columns}, {merge.DescribeRows()}. A row there continues the merge, so it needs one "
+                    + $"EMPTY cell spanning exactly grid column(s) {columns} - "
+                    + (match is null
+                        ? "this row's cells do not line up with it"
+                        : "this row puts content there, which Word would hide under the merged cell's content")
+                    + $". Change the cells, or use atRow {merge.First.Row} (just before the merge) or "
+                    + $"{merge.LastRow + 1} (just after it).",
+                    "atRow");
+            }
+
+            VerticalMerges.SetState(inner, VerticalMerges.State.Continue);
+        }
+
+        var merged = crossed.Select(m => $"grid column {m.First.GridColumn}, now rows {m.First.Row}..{m.LastRow + 1}");
+        return $" It continues the vertically merged cell(s) it lands inside ({string.Join("; ", merged)}), as a row "
+            + "Word inserts there does.";
+    }
+
+    /// <summary>
     /// Removes the <paramref name="gridColumn"/>-th grid column of the <paramref name="tableIndex"/>-th
     /// table: the matching <c>w:gridCol</c>, and in every row the physical cell covering that grid column —
     /// deleted outright when it spans only that column (dropping a bound cell too, unlike
     /// <see cref="LayoutEditor.RemoveControl"/>, which preserves the cell), or its <c>w:gridSpan</c>
     /// decremented when it spans more. Repeater/cell wrappers are preserved (only the inner cells/rows are
-    /// touched). Every row's coverage stays equal to the shrunk grid, verified by the consistency guard.
+    /// touched). Every row's coverage stays equal to the shrunk grid, verified by the consistency guard. The cells
+    /// of a vertical merge (<c>w:vMerge</c>) cover the same grid columns, so every row of the merge loses or narrows
+    /// its cell alike and the merge stays whole.
     /// </summary>
     /// <exception cref="ArgumentException">
     /// <paramref name="gridColumn"/> is out of range, it is the last remaining column, it is some row's only
-    /// cell, no row of the table matches its grid (see <see cref="RejectUnremovableColumn"/>), or the table
-    /// uses vMerge.
+    /// cell, or no row of the table matches its grid (see <see cref="RejectUnremovableColumn"/>).
     /// </exception>
     /// <exception cref="NotFoundException"><paramref name="tableIndex"/> is out of range for the part.</exception>
     public static TableEditResult RemoveColumn(
@@ -1275,8 +1429,6 @@ public static class TableStructureEditor
                 + "that is the intent.",
                 nameof(gridColumn));
         }
-
-        RejectUnsupportedShape(table, "remove_column");
 
         // Refuse BEFORE mutating anything, so a refused call leaves the document exactly as it was.
         RejectUnremovableColumn(table, tableIndex, gridColumn, gridCount);
@@ -1547,14 +1699,13 @@ public static class TableStructureEditor
     /// cell is kept (its content and binding survive) and widened; the rest are deleted. Horizontal merge
     /// only — the grid is unchanged, so the row's total grid coverage is preserved.
     /// </summary>
-    /// <exception cref="ArgumentException">Range is invalid; an absorbed (non-first) cell holds a content control (would silently drop a binding); or the table uses vMerge.</exception>
+    /// <exception cref="ArgumentException">Range is invalid; an absorbed (non-first) cell holds a content control (would silently drop a binding); or a cell in it is vertically merged with other rows (see <see cref="VerticalMerges"/>).</exception>
     /// <exception cref="NotFoundException"><paramref name="tableIndex"/>/<paramref name="row"/> out of range.</exception>
     public static TableEditResult MergeCells(
         WordprocessingDocument doc, LayoutPart part, string? partName, int tableIndex, int row, int fromColumn, int toColumn)
     {
         ArgumentNullException.ThrowIfNull(doc);
         var (table, partFile, gridCount) = ResolveTable(doc, part, partName, tableIndex);
-        RejectUnsupportedShape(table, "merge_cells");
 
         var (mergeRow, cells) = ResolveRowCells(table, tableIndex, partFile, row);
         var mergeCoverage = TableGridNavigator.Coverage(mergeRow);
@@ -1564,6 +1715,22 @@ public static class TableStructureEditor
                 $"merge_cells needs 0 <= fromColumn < toColumn < cell count ({cells.Count}) for table "
                 + $"{tableIndex} row {row}; got fromColumn {fromColumn}, toColumn {toColumn}.",
                 nameof(fromColumn));
+        }
+
+        // Widening one row's cell of a vertical merge would leave the merge's other rows over different grid
+        // columns, which ends the merge there (GitHub issue #9).
+        var merges = VerticalMerges.Of(table);
+        for (var i = fromColumn; i <= toColumn; i++)
+        {
+            if (merges.GroupOf(cells[i].InnerCell) is { SpansRows: true } vertical)
+            {
+                throw new ArgumentException(
+                    $"merge_cells cannot merge cell {i} of table {tableIndex} row {row}: it is vertically merged "
+                    + $"(w:vMerge) with the cells below or above it, {vertical.DescribeRows()}, and widening it in one "
+                    + "row would cut that merge in two. Merge cells outside it, or the same cells in every row of it "
+                    + "by hand in Word.",
+                    i == fromColumn ? nameof(fromColumn) : nameof(toColumn));
+            }
         }
 
         for (var i = fromColumn + 1; i <= toColumn; i++)
@@ -1613,19 +1780,24 @@ public static class TableStructureEditor
     }
 
     /// <summary>
-    /// Splits a single spanned cell (<paramref name="column"/>, 0-based within <paramref name="row"/>) back
+    /// Splits a single spanned cell (<paramref name="cellIndex"/>, 0-based within <paramref name="row"/>) back
     /// into one cell per grid column it spans: the cell's <c>w:gridSpan</c> is reset to 1 (keeping its
     /// content) and empty unit cells are inserted after it for the remaining grid columns. Horizontal split
     /// only — the grid is unchanged, so the row's total grid coverage is preserved.
     /// </summary>
-    /// <exception cref="ArgumentException">The cell is not spanned (nothing to split); or the table uses vMerge.</exception>
+    /// <remarks>
+    /// A cell vertically merged with other rows (<c>w:vMerge</c>, GitHub issue #9) is split in every row of the merge,
+    /// and each new cell takes its row's merge state, so every resulting column stays merged over the same rows.
+    /// <c>SpendRequestDocument.docx</c>'s Purpose value, a <c>gridSpan</c> 2 cell merged over two rows, is the
+    /// corpus case.
+    /// </remarks>
+    /// <exception cref="ArgumentException">The cell is not spanned (nothing to split).</exception>
     /// <exception cref="NotFoundException"><paramref name="tableIndex"/>/<paramref name="row"/> out of range.</exception>
     public static TableEditResult SplitCell(
         WordprocessingDocument doc, LayoutPart part, string? partName, int tableIndex, int row, int cellIndex)
     {
         ArgumentNullException.ThrowIfNull(doc);
         var (table, partFile, gridCount) = ResolveTable(doc, part, partName, tableIndex);
-        RejectUnsupportedShape(table, "split_cells");
 
         var (splitRow, cells) = ResolveRowCells(table, tableIndex, partFile, row);
         var splitCoverage = TableGridNavigator.Coverage(splitRow);
@@ -1646,18 +1818,27 @@ public static class TableStructureEditor
         }
 
         var startGrid = splitCoverage.Before + cells.Take(cellIndex).Sum(c => c.GridSpan);
-        SetCellGridSpan(cells[cellIndex].InnerCell, 1);
-        if (cells[cellIndex].InnerCell is not null)
+        var vertical = VerticalMerges.Of(table).GroupOf(cells[cellIndex].InnerCell) is { SpansRows: true } merge
+            ? merge
+            : null;
+        var slots = vertical?.Members.Select(m => m.Cell).ToList() ?? [cells[cellIndex]];
+        foreach (var slot in slots)
         {
-            SetCellWidth(cells[cellIndex].InnerCell!, GridWidthAt(table, startGrid));
-        }
+            var state = VerticalMerges.StateOf(slot.InnerCell);
+            SetCellGridSpan(slot.InnerCell, 1);
+            if (slot.InnerCell is not null)
+            {
+                SetCellWidth(slot.InnerCell, GridWidthAt(table, startGrid));
+            }
 
-        OpenXmlElement anchor = cells[cellIndex].CellChild;
-        for (var g = 1; g < span; g++)
-        {
-            var newCell = BuildCellLike(cells[cellIndex].InnerCell, new Paragraph(), GridWidthAt(table, startGrid + g));
-            anchor.InsertAfterSelf(newCell);
-            anchor = newCell;
+            OpenXmlElement anchor = slot.CellChild;
+            for (var g = 1; g < span; g++)
+            {
+                var newCell = BuildCellLike(slot.InnerCell, new Paragraph(), GridWidthAt(table, startGrid + g));
+                VerticalMerges.SetState(newCell, state);
+                anchor.InsertAfterSelf(newCell);
+                anchor = newCell;
+            }
         }
 
         return new TableEditResult
@@ -1666,12 +1847,16 @@ public static class TableStructureEditor
             Part = partFile,
             TableIndex = tableIndex,
             ColumnIndex = startGrid,
-            RowsAffected = 1,
+            RowsAffected = slots.Count,
             ColumnCountBefore = gridCount,
             ColumnCountAfter = gridCount,
             Summary = $"Split cell {cellIndex} of table {tableIndex} row {row}"
                 + (partFile == "document.xml" ? string.Empty : $" in {partFile}")
-                + $" into {span} single-column cell(s).",
+                + $" into {span} single-column cell(s)"
+                + (vertical is null
+                    ? "."
+                    : $", in every row of its vertical merge ({vertical.DescribeRows()}), so each new column stays "
+                      + "merged over those rows."),
         };
     }
 
@@ -1829,43 +2014,6 @@ public static class TableStructureEditor
         }
 
         return (table, partFile, gridCount);
-    }
-
-    /// <summary>
-    /// Rejects the one remaining table shape whose column arithmetic is deferred pending real capture
-    /// (GitHub issue #9): vertical merges (<c>w:vMerge</c>). Still absent from every layout reviewed, so this never
-    /// blocks a real BC table; it stops the tools from guessing on a shape nobody has verified.
-    /// </summary>
-    /// <remarks>
-    /// Leading/trailing skipped grid cells (<c>w:gridBefore</c>/<c>w:gridAfter</c>) used to be rejected here
-    /// too, on the same "absent from the corpus" grounds. They are not absent: the 2026-08-01 layout review
-    /// found <c>gridAfter</c> in seven base-app layouts, including on the LINE-ITEMS repeater table of
-    /// <c>StandardSalesInvoiceVatSpec.docx</c> — so the rejection blocked editing the lines table of a stock
-    /// BC sales invoice. Every operation now carries the offset instead; see
-    /// <see cref="TableGridNavigator.RowGridCoverage"/>. <c>gridBefore</c> is still unseen in the wild but
-    /// falls out of the same arithmetic, so it is supported rather than specially rejected.
-    /// </remarks>
-    private static void RejectUnsupportedShape(Table table, string op)
-    {
-        foreach (var row in TableGridNavigator.Rows(table))
-        {
-            if (row.InnerRow is null)
-            {
-                continue;
-            }
-
-            foreach (var cell in TableGridNavigator.Cells(row.InnerRow))
-            {
-                if (cell.InnerCell?.GetFirstChild<TableCellProperties>()?.GetFirstChild<VerticalMerge>() is not null)
-                {
-                    throw new ArgumentException(
-                        $"{op} does not support tables that use vertical cell merges (w:vMerge); this shape is "
-                        + "absent from every layout reviewed, so there is no fixture to implement the span "
-                        + "arithmetic against; author a reference vertical-merge table in Word first "
-                        + "(GitHub issue #9).");
-                }
-            }
-        }
     }
 
     // ---- cell / grid building blocks ----

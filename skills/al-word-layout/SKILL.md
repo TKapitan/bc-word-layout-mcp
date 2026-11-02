@@ -202,8 +202,11 @@ a row from its `w:tblGrid`. The cell tools take a cell's physical `colIndex` (`m
 `atColumn`, `remove_column`'s `column`, the position in `set_column_widths`' list). The two differ on
 any row with spanned cells, which is nearly every real BC table: on the stock VAT-spec invoice, Line
 Amount is `colIndex` 7 but `gridColumn` 9. Rows that skip grid columns (`w:gridBefore`/`w:gridAfter`
-— real BC line tables have them) are handled; tables using **vertical merges (`w:vMerge`) are
-rejected** by every tool here except `set_cell_format`. Every one of them — and `insert_table` — returns the
+— real BC line tables have them) are handled, and so are **vertical merges** (`w:vMerge`, in Microsoft's
+BC 29 header/footer designs): `get_layout_info` reports each merged cell's `verticalMerge` (`restart` for
+the cell Word shows, `continue` below it), every tool keeps a merge whole (a row inserted inside one
+continues it, `split_cells` splits every row of one, `merge_cells` refuses to cut through one), and text
+goes in the `restart` cell — a `continue` cell is refused. Every one of them — and `insert_table` — returns the
 **table-edit result**: `operation`, `part`, `tableIndex`, `columnIndex` (the grid column added or
 removed, or the grid column an edited cell starts at; absent for a whole-table or whole-row edit),
 `rowsAffected`, `columnCountBefore`, `columnCountAfter`, `summary`, and post-edit `quickValidation`.
@@ -216,7 +219,7 @@ removed, or the grid column an edited cell starts at; absent for a whole-table o
 | `set_column_widths` | `layoutPath`, `tableIndex`, `widths` (an array of twips, each 1–31680, exactly one per GRID column, e.g. `[1500, 6206, 2500]`) | The table-edit result | Resizing columns; `gridSpan`-aware — each cell becomes the sum of the columns it spans. |
 | `merge_cells` | `layoutPath`, `tableIndex`, `row`, `fromColumn`, `toColumn` (0-based PHYSICAL cell indices — `colIndex` — inclusive) | The table-edit result | Horizontally merging a run of adjacent cells in ONE row into a single `gridSpan` cell — the first cell (content and binding) is kept and widened, the rest are deleted. Refused if an absorbed cell holds a bound control (`remove_control` it first). HORIZONTAL only. |
 | `split_cells` | `layoutPath`, `tableIndex`, `row`, `cellIndex` (0-based PHYSICAL index — `colIndex` — of the spanned cell) | The table-edit result | Splitting one spanned cell back into single-column cells (content stays in the first). Refused if the cell is not spanned. |
-| `set_cell_format` | `layoutPath`, `tableIndex`, `row`, `col`=`null` (omit = every cell in the row — the usual case), `edges`=`null` (an array of `top`/`bottom`/`left`/`right`, or `all`, e.g. `["top"]`), `borderStyle`=`null` (`"single"`, the default, draws \| `"none"` explicitly clears), `borderSize`=`null` (eighths of a point, 2–96; default 4 = ½ pt, the only thickness the BC corpus uses), `borderColor`=`null` (the colour of the edges drawn: `RRGGBB` such as `"002060"`, `"auto"`, or a theme colour as for `format.color`, e.g. `"text2 lighter 40%"` — the stock Blue invoice's rule; a hex colour over a theme-coloured rule drops the theme colour, and the summary says so), `fill`=`null` (`RRGGBB` such as `"E8E8E8"`, the stock light grey, `"auto"` for none, or a theme colour as for `format.color`, e.g. `"accent1"` or `"background2 darker 25%"` — written as `w:themeFill`; a lighter theme fill is refused, since no captured layout carries `w:themeFillTint`) — pass `edges`, `fill`, or both; `borderStyle`/`borderSize`/`borderColor` only with `edges` (and `borderColor` not with `borderStyle`=`"none"`) | The table-edit result | The cell look a BC document is made of: "a line above the totals row", "underline the grand-total cell", "shade the header row". Edges you do not name, and a fill you do not pass, are left as they were. Without `borderColor`, drawing over a rule the cell already has changes its thickness and keeps its colour, a theme colour included, and a new rule is black (`auto`). Cosmetic only — works even on `w:vMerge` tables. For the text in the cells, `set_text_format`. |
+| `set_cell_format` | `layoutPath`, `tableIndex`, `row`, `col`=`null` (omit = every cell in the row — the usual case), `edges`=`null` (an array of `top`/`bottom`/`left`/`right`, or `all`, e.g. `["top"]`), `borderStyle`=`null` (`"single"`, the default, draws \| `"none"` explicitly clears), `borderSize`=`null` (eighths of a point, 2–96; default 4 = ½ pt, the only thickness the BC corpus uses), `borderColor`=`null` (the colour of the edges drawn: `RRGGBB` such as `"002060"`, `"auto"`, or a theme colour as for `format.color`, e.g. `"text2 lighter 40%"` — the stock Blue invoice's rule; a hex colour over a theme-coloured rule drops the theme colour, and the summary says so), `fill`=`null` (`RRGGBB` such as `"E8E8E8"`, the stock light grey, `"auto"` for none, or a theme colour as for `format.color`, e.g. `"accent1"` or `"background2 darker 25%"` — written as `w:themeFill`; a lighter theme fill is refused, since no captured layout carries `w:themeFillTint`) — pass `edges`, `fill`, or both; `borderStyle`/`borderSize`/`borderColor` only with `edges` (and `borderColor` not with `borderStyle`=`"none"`) | The table-edit result | The cell look a BC document is made of: "a line above the totals row", "underline the grand-total cell", "shade the header row". Edges you do not name, and a fill you do not pass, are left as they were. Without `borderColor`, drawing over a rule the cell already has changes its thickness and keeps its colour, a theme colour included, and a new rule is black (`auto`). Cosmetic only; on a vertically merged cell it formats the addressed row's cell of the merge. For the text in the cells, `set_text_format`. |
 
 ### Lifecycle
 
@@ -277,10 +280,8 @@ removed, or the grid column an edited cell starts at; absent for a whole-table o
   in a header or footer (a plain `insert_table` does work there); `validate_layout` (`quick`) still
   flags a pre-existing/hand-authored header or footer repeater with a `repeater-in-header-footer`
   **warning** (not an error) rather than silently accepting it.
-- **Vertical merges (`w:vMerge`)** — every table-structure tool except the cosmetic
-  `set_cell_format` rejects a table using them, with a clear message, pending a real-add-in OOXML
-  capture. (Ragged rows, `gridSpan` spans, and `w:gridBefore`/`w:gridAfter` skips are all supported —
-  the refusal is vMerge specifically.)
+- **Creating or removing a vertical merge** — no tool merges cells vertically or unmerges them; the
+  table tools edit tables that already have merges (see §2) and keep each one whole.
 - **Real XLF caption translation** — `preview_layout` fills labels from the dataset's own label
   columns / humanized element names, not real captions translated from the AL project's XLF files.
   Pass a real exported dataset via `dataOverridesPath` when caption text matters.

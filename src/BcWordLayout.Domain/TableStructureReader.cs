@@ -212,6 +212,12 @@ public static class TableStructureReader
             XPath = xpath,
             Text = text,
             InnerControlIds = innerIds,
+            VerticalMerge = VerticalMerges.StateOf(cell) switch
+            {
+                VerticalMerges.State.Restart => "restart",
+                VerticalMerges.State.Continue => "continue",
+                _ => null,
+            },
         };
     }
 

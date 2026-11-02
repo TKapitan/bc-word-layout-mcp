@@ -24,6 +24,13 @@ public enum TableGridViolationKind
     /// (GitHub issue #78: <c>remove_column</c> once produced one from a <c>gridAfter</c> row's only cell).
     /// </summary>
     NoCells,
+
+    /// <summary>
+    /// A cell continues a vertical merge (<c>w:vMerge</c> with no value) but the row above has no merged cell over
+    /// the same grid columns, so there is nothing for it to continue (see <see cref="VerticalMerges"/>). Every
+    /// other count adds up, so only this kind sees a merge that a column or row edit cut in two (GitHub issue #9).
+    /// </summary>
+    BrokenVerticalMerge,
 }
 
 /// <summary>
@@ -102,8 +109,9 @@ public readonly record struct TableGridViolation(string Part, int TableIndex, in
 /// (resolving repeater/cell wrappers via <see cref="TableGridNavigator"/> — EVERY <c>w:tr</c> of the table,
 /// the ones nested in repeater items included, which until GitHub issue #80 it could not see), the sum of
 /// its cells' <c>w:gridSpan</c> values plus any <c>w:gridBefore</c>/<c>w:gridAfter</c> must equal the grid's
-/// column count; every row must hold at least one cell; and every cell must hold at least one block-level
-/// child. <see cref="TableGridViolation.RowIndex"/> uses <c>get_layout_info</c>'s row numbering.
+/// column count; every row must hold at least one cell; every cell must hold at least one block-level
+/// child; and every cell that continues a vertical merge must sit under a merged cell over the same grid columns.
+/// <see cref="TableGridViolation.RowIndex"/> uses <c>get_layout_info</c>'s row numbering.
 /// </summary>
 /// <remarks>
 /// WHY THIS EXISTS: the structural table-editing tools (<c>set_column_widths</c>, <c>insert_column</c>,
@@ -193,6 +201,14 @@ public static class TableGridConsistencyGuard
                         $"cell {c} is empty (has no block-level content)"));
                 }
             }
+        }
+
+        foreach (var cell in VerticalMerges.Of(table).Broken)
+        {
+            found.Add(new TableGridViolation(
+                part, tableIndex, cell.Row, TableGridViolationKind.BrokenVerticalMerge,
+                $"cell {cell.Col} continues a vertical merge (w:vMerge) over grid column(s) {cell.GridColumn}.."
+                + $"{cell.GridColumn + cell.GridSpan - 1}, but the row above has no merged cell over those columns"));
         }
     }
 }

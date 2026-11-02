@@ -1043,7 +1043,8 @@ internal static class ToolGuards
                     cell.Text,
                     cell.InnerControlIds,
                     cell.GridColumn,
-                    cell.GridSpan)).ToList(),
+                    cell.GridSpan,
+                    cell.VerticalMerge)).ToList(),
                 r.GridBefore,
                 r.GridAfter,
                 r.RepeaterControlId)).ToList());
@@ -1444,7 +1445,8 @@ internal static class ToolGuards
             + "on a cell-level control, tableCell on a cell that IS such a control, atText matching its text) is "
             + "refused, because Word discards or rejects anything placed there; use tableCell on a plain cell "
             + "(get_layout_info's tables[] shows which cells are controls) or afterControl on an inline control "
-            + "instead.",
+            + "instead. Content for a vertically merged cell goes in its first cell (verticalMerge 'restart' in "
+            + "get_layout_info's tables[]); a 'continue' cell is refused, because Word never shows what it holds.",
 
         "controlid" =>
             "afterControl requires controlId: the w:id of an existing control in this layout - see "
