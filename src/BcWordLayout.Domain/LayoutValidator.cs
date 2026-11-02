@@ -60,6 +60,7 @@ public static class LayoutValidator
         CheckAttachedTemplate(main, findings);
         CheckTableStylesResolve(main, findings);
         CheckCharacterStylesResolve(main, findings);
+        CheckParagraphStylesResolve(main, findings);
         CheckControlIdsUnique(main, findings);
         CheckFontsInstalled(main, findings);
         CheckBcVersion(schema, target, findings);
@@ -1052,6 +1053,61 @@ public static class LayoutValidator
                     Location = partName,
                 });
             }
+        }
+    }
+
+    // 8c. Every w:pStyle names a PARAGRAPH style the layout's styles part defines - the paragraph-level twin of
+    //     checks 8 and 8b (GitHub issue #147). It matters more as layouts take their look from styles a report
+    //     theme can redefine: in Business Central a paragraph whose style id does not resolve prints as plain
+    //     Normal text, with no error. A reference to a character or table style is reported too, since Word
+    //     ignores a w:pStyle that does not name a paragraph style. One finding per id, counting the paragraphs
+    //     and naming the parts that use it. WARNING, as for checks 8 and 8b. No corpus layout trips it.
+    private static void CheckParagraphStylesResolve(MainDocumentPart main, List<ValidationFinding> findings)
+    {
+        var styleTypes = main.StyleDefinitionsPart?.Styles?
+            .Elements<Style>()
+            .Where(s => !string.IsNullOrEmpty(s.StyleId?.Value))
+            .GroupBy(s => s.StyleId!.Value!, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.First().Type?.InnerText, StringComparer.Ordinal);
+
+        var unresolved = new Dictionary<string, (int Paragraphs, SortedSet<string> Parts)>(StringComparer.Ordinal);
+        foreach (var (rootElement, partName) in EnumerateContentParts(main))
+        {
+            foreach (var styleId in rootElement.Descendants<ParagraphStyleId>().Select(p => p.Val?.Value))
+            {
+                if (string.IsNullOrEmpty(styleId)
+                    || (styleTypes is not null && styleTypes.TryGetValue(styleId, out var type) && type == "paragraph"))
+                {
+                    continue;
+                }
+
+                var (paragraphs, parts) = unresolved.TryGetValue(styleId, out var seen)
+                    ? seen
+                    : (0, new SortedSet<string>(StringComparer.Ordinal));
+                parts.Add(partName);
+                unresolved[styleId] = (paragraphs + 1, parts);
+            }
+        }
+
+        foreach (var (styleId, (paragraphs, parts)) in unresolved)
+        {
+            var reason = styleTypes is null
+                ? "this layout has no styles part at all"
+                : styleTypes.TryGetValue(styleId, out var type)
+                    ? $"the layout defines it as a {type ?? "typeless"} style, not a paragraph style"
+                    : "the layout's styles part does not define it";
+
+            findings.Add(new ValidationFinding
+            {
+                Check = "paragraph-style-resolves",
+                Severity = FindingSeverity.Warning,
+                Message = $"{paragraphs} paragraph(s) reference paragraph style '{styleId}' via w:pStyle, but {reason}, "
+                          + "so the reference silently does nothing and the paragraphs print in the default "
+                          + "paragraph style. Reference a paragraph style the layout defines (set_text_format's "
+                          + "paragraphStyle lists them when given an unknown one), start from a templatePath that "
+                          + "defines it, or set the formatting directly with format.",
+                Location = string.Join(", ", parts),
+            });
         }
     }
 

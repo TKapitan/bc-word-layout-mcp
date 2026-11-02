@@ -132,10 +132,10 @@ theme layout for Tenant Report Defaults.
 Before handing over, list every `w:pStyle` / `w:rStyle` / `w:tblStyle` the body and the header/footer
 use and confirm each id exists in: the theme, the body's own `styles.xml`, and any Microsoft theme the
 customer might pick instead (Calm, Default, Playful). In BC a missing id renders as plain text with no
-error. Within one file, `validate_layout` catches two of the three kinds: `table-style-resolves` (a
-`w:tblStyle`) and `character-style-resolves` (a `w:rStyle`, including one that names a paragraph style)
-warn about ids that file's own `styles.xml` does not define. `w:pStyle` ids, and every check against the
-theme file, stay manual. Fonts get the same care: `font-installed` warns about a font Business Central
+error. Within one file, `validate_layout` catches all three kinds: `table-style-resolves` (a
+`w:tblStyle`), `character-style-resolves` (a `w:rStyle`, including one that names a paragraph style) and
+`paragraph-style-resolves` (a `w:pStyle`, including one that names a character or table style) warn about
+ids that file's own `styles.xml` does not define. Every check against the theme file stays manual. Fonts get the same care: `font-installed` warns about a font Business Central
 online does not have, including the theme's heading or body font when text refers to it, since BC prints
 such text in a substitute font. Watch for Word's duplicate ids (`BCLabel0`, `BCLabelNumber0`) that appear when a body was attached to
 a template in Word — no theme defines them [MS sample: WordBody_3].

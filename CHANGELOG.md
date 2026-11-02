@@ -21,6 +21,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - A new error code, `bc_version_unsupported`, refuses a call that would write a feature the target
     lacks, or any such call when the target is unknown. No shipped tool writes one yet: theme colours
     and paragraph styles (#145, #146) will. The README lists the features and their versions.
+- **New `validate_layout` check `paragraph-style-resolves` (warning)** (GitHub issue #147). It warns
+  about a `w:pStyle` that names no paragraph style the layout defines, including one that names a
+  character or table style. In Business Central such a paragraph prints as plain text, with no error.
+  There is one finding per style id, giving how many paragraphs use it and in which parts. With
+  `table-style-resolves` and `character-style-resolves`, all three kinds of style reference are now
+  checked. No corpus layout trips it.
 
 ### Changed
 

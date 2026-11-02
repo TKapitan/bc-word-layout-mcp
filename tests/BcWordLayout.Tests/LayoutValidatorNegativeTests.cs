@@ -558,6 +558,79 @@ public class LayoutValidatorNegativeTests
         }
     }
 
+    // ---- paragraph-style-resolves: a w:pStyle naming no paragraph style the layout defines (issue #147) ----
+
+    [Fact]
+    public void Dangling_or_character_pStyle_references_are_flagged_as_warnings_but_a_defined_paragraph_style_is_not()
+    {
+        // DefaultStylesScaffold defines the paragraph style Normal and the character style DefaultParagraphFont.
+        var body =
+            "<w:p><w:pPr><w:pStyle w:val=\"Normal\"/></w:pPr><w:r><w:t>fine</w:t></w:r></w:p>"
+            + "<w:p><w:pPr><w:pStyle w:val=\"NotDefinedAnywhere\"/></w:pPr><w:r><w:t>dangling</w:t></w:r></w:p>"
+            + "<w:p><w:pPr><w:pStyle w:val=\"NotDefinedAnywhere\"/></w:pPr><w:r><w:t>again</w:t></w:r></w:p>"
+            + "<w:p><w:pPr><w:pStyle w:val=\"DefaultParagraphFont\"/></w:pPr><w:r><w:t>character style</w:t></w:r></w:p>";
+        var path = SyntheticLayout.Create(body);
+
+        try
+        {
+            using (var doc = DocumentFormat.OpenXml.Packaging.WordprocessingDocument.Open(path, true))
+            {
+                Assert.True(DefaultStylesScaffold.EnsureDefaultStyles(doc.MainDocumentPart!));
+            }
+
+            var result = LayoutValidator.Quick(path);
+
+            var styleFindings = result.Findings.Where(f => f.Check == "paragraph-style-resolves").ToList();
+            Assert.Equal(2, styleFindings.Count);
+            Assert.All(styleFindings, f => Assert.Equal(FindingSeverity.Warning, f.Severity));
+            Assert.All(styleFindings, f => Assert.Equal("document.xml", f.Location));
+            Assert.Contains(styleFindings, f => f.Message.StartsWith(
+                "2 paragraph(s) reference paragraph style 'NotDefinedAnywhere' via w:pStyle, but the layout's styles part does not define it",
+                StringComparison.Ordinal));
+            Assert.Contains(styleFindings, f => f.Message.Contains(
+                "'DefaultParagraphFont' via w:pStyle, but the layout defines it as a character style, not a paragraph style",
+                StringComparison.Ordinal));
+            Assert.DoesNotContain(styleFindings, f => f.Message.Contains("'Normal'", StringComparison.Ordinal));
+            Assert.True(result.Passed);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void A_pStyle_in_a_layout_with_no_styles_part_is_flagged_once_per_id()
+    {
+        var body =
+            "<w:p><w:pPr><w:pStyle w:val=\"Heading1\"/></w:pPr><w:r><w:t>title</w:t></w:r></w:p>"
+            + "<w:p><w:pPr><w:pStyle w:val=\"Heading1\"/></w:pPr><w:r><w:t>another</w:t></w:r></w:p>";
+        var path = SyntheticLayout.Create(body);
+
+        try
+        {
+            var finding = Assert.Single(LayoutValidator.Quick(path).Findings, f => f.Check == "paragraph-style-resolves");
+            Assert.StartsWith(
+                "2 paragraph(s) reference paragraph style 'Heading1' via w:pStyle, but this layout has no styles part at all",
+                finding.Message,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void No_corpus_layout_trips_paragraph_style_resolves()
+    {
+        foreach (var file in Directory.GetFiles(Path.Combine(AppContext.BaseDirectory, "corpus"), "*.docx"))
+        {
+            var result = LayoutValidator.Quick(file);
+            Assert.DoesNotContain(result.Findings, f => f.Check == "paragraph-style-resolves");
+        }
+    }
+
     [Fact]
     public void Downgraded_repeater_is_flagged_but_a_real_repeater_and_an_ordinary_field_are_not()
     {
