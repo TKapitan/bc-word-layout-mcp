@@ -60,10 +60,10 @@ public static class EditTools
                      + "part in the package (get_layout_info's partDetails gives each part's role).")] string? partName = null,
         [Description(TextFormatArgument.InsertDescription)] TextFormatArgument? format = null)
     {
-        return GuardEdit(layoutPath, doc =>
+        return GuardEdit(layoutPath, (doc, target) =>
         {
             var location = BuildLocation(locationType, controlId, tableIndex, row, col, searchText, layoutPart, partName);
-            return LayoutEditor.InsertField(doc, field, location, TextFormatArgument.ToDomain(format));
+            return LayoutEditor.InsertField(doc, field, location, TextFormatArgument.ToDomain(format, target));
         });
     }
 
@@ -93,10 +93,10 @@ public static class EditTools
                      + "part in the package (get_layout_info's partDetails gives each part's role).")] string? partName = null,
         [Description(TextFormatArgument.InsertDescription)] TextFormatArgument? format = null)
     {
-        return GuardEdit(layoutPath, doc =>
+        return GuardEdit(layoutPath, (doc, target) =>
         {
             var location = BuildLocation(locationType, controlId, tableIndex, row, col, searchText, layoutPart, partName);
-            return LayoutEditor.InsertLabel(doc, label, location, TextFormatArgument.ToDomain(format));
+            return LayoutEditor.InsertLabel(doc, label, location, TextFormatArgument.ToDomain(format, target));
         });
     }
 
@@ -137,10 +137,10 @@ public static class EditTools
                      + "part in the package (get_layout_info's partDetails gives each part's role).")] string? partName = null,
         [Description(TextFormatArgument.InsertDescription)] TextFormatArgument? format = null)
     {
-        return GuardEdit(layoutPath, doc =>
+        return GuardEdit(layoutPath, (doc, target) =>
         {
             var location = BuildLocation(locationType, controlId, tableIndex, row, col, searchText, layoutPart, partName);
-            return LayoutEditor.InsertText(doc, text, location, TextFormatArgument.ToDomain(format));
+            return LayoutEditor.InsertText(doc, text, location, TextFormatArgument.ToDomain(format, target));
         });
     }
 
@@ -184,10 +184,10 @@ public static class EditTools
                      + "instead of the default one).")] string? partName = null,
         [Description(TextFormatArgument.InsertDescription)] TextFormatArgument? format = null)
     {
-        return GuardEdit(layoutPath, doc =>
+        return GuardEdit(layoutPath, (doc, target) =>
         {
             var location = BuildLocation(locationType, controlId, tableIndex, row, col, searchText, layoutPart, partName);
-            return LayoutEditor.InsertPageNumber(doc, location, includeTotal, TextFormatArgument.ToDomain(format));
+            return LayoutEditor.InsertPageNumber(doc, location, includeTotal, TextFormatArgument.ToDomain(format, target));
         });
     }
 
@@ -343,10 +343,10 @@ public static class EditTools
         [Description("Optional paragraph alignment 'left'/'center'/'right'; omit to keep the cell's "
                      + "existing alignment.")] [AlignmentValues] string? alignment = null)
     {
-        return GuardCellEdit(layoutPath, doc =>
+        return GuardCellEdit(layoutPath, (doc, target) =>
         {
             var location = BuildLocation("tableCell", null, tableIndex, row, col, null, layoutPart, partName);
-            return CellTextEditor.SetCellText(doc, location, text, TextFormatArgument.ToDomain(format), alignment);
+            return CellTextEditor.SetCellText(doc, location, text, TextFormatArgument.ToDomain(format, target), alignment);
         });
     }
 
@@ -388,7 +388,7 @@ public static class EditTools
                      + "'header2.xml'); omit to target the DEFAULT header/footer part (see get_layout_info's "
                      + "partDetails for each part's role).")] string? partName = null)
     {
-        return GuardEdit(layoutPath, doc =>
+        return GuardEdit(layoutPath, (doc, bcTarget) =>
         {
             if (!TryParseLayoutPart(layoutPart, out var part))
             {
@@ -407,7 +407,7 @@ public static class EditTools
                 Part = part,
                 PartName = partName,
             };
-            return TextFormatEditor.SetTextFormat(doc, formatTarget, TextFormatArgument.ToDomain(format), alignment);
+            return TextFormatEditor.SetTextFormat(doc, formatTarget, TextFormatArgument.ToDomain(format, bcTarget), alignment);
         });
     }
 

@@ -193,7 +193,8 @@ the first match wins:
 `29.0` from `app.json` (`…pp.json: application 29.0.0.0`). What it controls:
 
 - A tool that would write a feature from the table below refuses with `bc_version_unsupported` below
-  the feature's version and when the target is unknown. No shipped tool writes one yet.
+  the feature's version and when the target is unknown. Today that is a theme colour such as
+  `accent1` in `format.color` or `set_cell_format`'s `fill`; a hex colour is never gated.
 - `validate_layout`'s `bc-version` check reports such a feature a layout already has: a header/footer
   layout bound to Tenant Report Defaults is an error below 29.0 and a warning for an unknown target.
   Theme colours and paragraph styles already in a layout are not flagged: BC 28 prints them.

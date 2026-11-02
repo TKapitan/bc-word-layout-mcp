@@ -234,11 +234,11 @@ public class RunFormatterTests
     [InlineData("blue")]
     [InlineData("0070C")]
     [InlineData("#GG0000")]
-    public void A_colour_that_is_not_hex_or_auto_is_refused(string color)
+    public void A_colour_that_is_not_hex_auto_or_a_theme_slot_is_refused(string color)
     {
         var ex = Refusal(new TextFormat { Color = color });
         Assert.Equal("format", ex.ParamName);
-        Assert.Contains("format.color must be a colour as six hex digits", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("format.color must be six hex digits RRGGBB", ex.Message, StringComparison.Ordinal);
     }
 
     [Theory]

@@ -389,7 +389,7 @@ public class CellFormatTests
     [Theory]
     [InlineData(null, null, null, "set_cell_format has nothing to change")]
     [InlineData(null, "none", null, "borderStyle and borderSize describe the edges you name")]
-    [InlineData(null, null, "grey", "fill must be a colour as six hex digits")]
+    [InlineData(null, null, "grey", "fill must be six hex digits RRGGBB")]
     public void Tool_set_cell_format_refuses_a_call_it_cannot_act_on_exactly(
         string[]? edges, string? borderStyle, string? fill, string fragment)
     {

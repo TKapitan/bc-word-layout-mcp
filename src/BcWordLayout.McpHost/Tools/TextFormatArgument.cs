@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.ComponentModel.DataAnnotations;
+using BcWordLayout.Domain;
 using BcWordLayout.Domain.Models;
 
 namespace BcWordLayout.McpHost.Tools;
@@ -54,20 +55,32 @@ public sealed record TextFormatArgument
     [Description("Font family name, e.g. 'Segoe UI' (what Microsoft's own layouts use).")]
     public string? FontName { get; init; }
 
-    [Description("Text colour as six hex digits RRGGBB, e.g. '0070C0' (a leading '#' is fine), or 'auto'.")]
+    [Description("Text colour as six hex digits RRGGBB, e.g. '0070C0' (a leading '#' is fine), 'auto', or a theme "
+                 + "colour so the text follows the layout's theme: text1, background1, text2, background2, accent1 to "
+                 + "accent6, hyperlink, followedHyperlink, optionally 'lighter N%' or 'darker N%' as Word's palette "
+                 + "names them, e.g. 'accent1' or 'text2 lighter 40%'. A theme colour needs a layout with a theme part "
+                 + "and a target of BC 29 or later (get_layout_info's target).")]
     public string? Color { get; init; }
 
     [Description("Style id of a CHARACTER style the layout's styles part defines, e.g. 'Strong'; refused when the "
                  + "layout does not define it (the error lists the ones it does).")]
     public string? CharacterStyle { get; init; }
 
-    /// <summary>The domain record, or null when the argument is absent or sets nothing.</summary>
-    internal static TextFormat? ToDomain(TextFormatArgument? format)
+    /// <summary>
+    /// The domain record, or null when the argument is absent or sets nothing. A theme-slot <see cref="Color"/> is
+    /// themable formatting, refused for a <paramref name="target"/> without it (see
+    /// <see cref="ToolGuards.RequireThemableFormatting"/>): taking the target here makes every tool with a
+    /// <c>format</c> argument pass it.
+    /// </summary>
+    /// <exception cref="UnsupportedBcVersionException">A theme colour, for a target below BC 29 or an unknown one.</exception>
+    internal static TextFormat? ToDomain(TextFormatArgument? format, TargetVersion target)
     {
         if (format is null)
         {
             return null;
         }
+
+        ToolGuards.RequireThemableFormatting(target, [format.Color]);
 
         var domain = new TextFormat
         {

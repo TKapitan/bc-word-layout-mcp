@@ -160,7 +160,7 @@ internal static class ToolGuards
     private static void RetryTransientFileDenial(Action fileOperation) => TransientFileRetry.Run(fileOperation);
 
     private static ToolResponse GuardMutate<TResult>(
-        string layoutPath, Func<WordprocessingDocument, TResult> mutate,
+        string layoutPath, Func<WordprocessingDocument, TargetVersion, TResult> mutate,
         Func<TResult, ValidationResult, IReadOnlyList<string>, ToolResponse> onSuccess)
     {
         return Guard(() =>
@@ -172,7 +172,8 @@ internal static class ToolGuards
                     throw new FileNotFoundException("layoutPath does not point to an existing file.", layoutPath);
                 }
 
-                // Once per call, for the post-edit validation's bc-version check.
+                // Once per call: for a tool that gates what it writes on it (BcFeatures.Require), and for the
+                // post-edit validation's bc-version check.
                 var target = ResolveTarget(layoutPath);
 
                 // Cross-process half of the edit lock: acquired INSIDE the
@@ -241,7 +242,7 @@ internal static class ToolGuards
                         // table stays editable even across insert_column/remove_column's own gridCount change).
                         var baselineTableGrid = TableGridConsistencyGuard.Find(doc);
 
-                        mutateResult = mutate(doc);
+                        mutateResult = mutate(doc, target);
 
                         // Every save drops the link to an external attached template, whatever the edit was:
                         // Business Central refuses to upload a layout that links one, and nothing it renders
@@ -618,6 +619,14 @@ internal static class ToolGuards
 
     /// <summary>Thin <see cref="GuardMutate{TResult}"/> instantiation building the content-control edit tools' <see cref="EditResultDto"/> — used by <see cref="EditTools"/>'s <c>insert_field</c>/<c>insert_label</c>/<c>insert_text</c>/<c>insert_page_number</c>/<c>insert_picture</c>/<c>remove_control</c> and <see cref="TableTools"/>'s <c>insert_repeater_table</c>/<c>insert_repeater_row</c>/<c>insert_subtotal_row</c>.</summary>
     internal static ToolResponse GuardEdit(string layoutPath, Func<WordprocessingDocument, EditResult> mutate) =>
+        GuardEdit(layoutPath, (doc, _) => mutate(doc));
+
+    /// <summary>
+    /// <see cref="GuardEdit(string, Func{WordprocessingDocument, EditResult})"/> for a tool whose arguments may author a
+    /// version-gated feature: <paramref name="mutate"/> gets the call's target BC version to pass to
+    /// <see cref="RequireThemableFormatting"/> (or <see cref="BcFeatures.Require"/>) before it writes anything.
+    /// </summary>
+    internal static ToolResponse GuardEdit(string layoutPath, Func<WordprocessingDocument, TargetVersion, EditResult> mutate) =>
         GuardMutate(layoutPath, mutate, (editResult, quick, unlinkedTemplates) =>
         {
             var dto = new EditResultDto(
@@ -643,6 +652,11 @@ internal static class ToolGuards
     /// for a result shape addressed by (table, row, column) rather than a control id.
     /// </summary>
     internal static ToolResponse GuardCellEdit(string layoutPath, Func<WordprocessingDocument, CellEditResult> mutate) =>
+        GuardCellEdit(layoutPath, (doc, _) => mutate(doc));
+
+    /// <summary><see cref="GuardCellEdit(string, Func{WordprocessingDocument, CellEditResult})"/> with the call's target BC version, as for <see cref="GuardEdit(string, Func{WordprocessingDocument, TargetVersion, EditResult})"/>.</summary>
+    internal static ToolResponse GuardCellEdit(
+        string layoutPath, Func<WordprocessingDocument, TargetVersion, CellEditResult> mutate) =>
         GuardMutate(layoutPath, mutate, (cellResult, quick, unlinkedTemplates) =>
         {
             var dto = new CellEditResultDto(
@@ -671,6 +685,11 @@ internal static class ToolGuards
     /// </summary>
     internal static ToolResponse GuardTableEdit(
         string layoutPath, Func<WordprocessingDocument, TableEditResult> mutate) =>
+        GuardTableEdit(layoutPath, (doc, _) => mutate(doc));
+
+    /// <summary><see cref="GuardTableEdit(string, Func{WordprocessingDocument, TableEditResult})"/> with the call's target BC version, as for <see cref="GuardEdit(string, Func{WordprocessingDocument, TargetVersion, EditResult})"/>.</summary>
+    internal static ToolResponse GuardTableEdit(
+        string layoutPath, Func<WordprocessingDocument, TargetVersion, TableEditResult> mutate) =>
         GuardMutate(layoutPath, mutate, (tableResult, quick, unlinkedTemplates) =>
         {
             var dto = new TableEditResultDto(
@@ -696,7 +715,7 @@ internal static class ToolGuards
     /// report the link the saved layout no longer has.
     /// </summary>
     internal static ToolResponse GuardRefresh(string layoutPath, Func<WordprocessingDocument, RefreshResult> mutate) =>
-        GuardMutate(layoutPath, mutate, (result, quick, unlinkedTemplates) =>
+        GuardMutate(layoutPath, (doc, _) => mutate(doc), (result, quick, unlinkedTemplates) =>
         {
             var dto = new RefreshResultDto(
                 result.OldReportName,
@@ -722,6 +741,23 @@ internal static class ToolGuards
 
             return ToolResponse.Success(dto);
         });
+
+    /// <summary>
+    /// Refuses a call whose arguments author themable formatting (<see cref="BcFeatures.ThemableFormatting"/>, GitHub
+    /// issue #152) for a <paramref name="target"/> without it, or an unknown one: a theme slot in any of
+    /// <paramref name="colors"/> (<c>format.color</c>, <c>fill</c>, <c>borderColor</c>), or a
+    /// <paramref name="paragraphStyle"/>. Formatting an insert copies from the text around it is not authored, and a
+    /// literal colour is neither a theme colour nor a style, so neither is gated. Called before the tool writes
+    /// anything, so a refusal leaves the layout untouched.
+    /// </summary>
+    /// <exception cref="UnsupportedBcVersionException">The target lacks the feature, or is unknown.</exception>
+    internal static void RequireThemableFormatting(TargetVersion target, IEnumerable<string?> colors, string? paragraphStyle = null)
+    {
+        if (paragraphStyle is not null || colors.Any(LayoutColor.NamesThemeSlot))
+        {
+            BcFeatures.Require(BcFeatures.ThemableFormatting, target);
+        }
+    }
 
     // ---- read-tool edit-lock coordination ----
 
@@ -1505,7 +1541,8 @@ internal static class ToolGuards
         "format" =>
             "format is one object of optional members: bold, italic and underline (true or false), "
             + "fontSizePoints (4 to 96, halves allowed), fontName (a font family name such as 'Segoe UI'), color "
-            + "(six hex digits RRGGBB such as '0070C0', or 'auto') and characterStyle (the id of a CHARACTER style "
+            + "(six hex digits RRGGBB such as '0070C0', 'auto', or a theme colour such as 'accent1' or 'text2 lighter "
+            + "40%' - a theme colour needs a layout with a theme part) and characterStyle (the id of a CHARACTER style "
             + "the layout's styles part defines - the message above lists them). Omit a member to leave that "
             + "property as it is.",
 
@@ -1538,7 +1575,9 @@ internal static class ToolGuards
 
         "fill" =>
             "set_cell_format's fill is the cell's background colour: six hex digits RRGGBB, e.g. 'E8E8E8' (the "
-            + "stock light grey) or '0070C0' (the stock blue), a leading '#' is fine - or 'auto' for no fill.",
+            + "stock light grey) or '0070C0' (the stock blue), a leading '#' is fine; 'auto' for no fill; or a theme "
+            + "colour so the fill follows the layout's theme, e.g. 'accent1' or 'background2 darker 25%' (a lighter "
+            + "theme fill is not written yet).",
 
         "mode" =>
             "insert_column's mode must be 'field', 'label', or 'plainText'. 'field'/'label' require a dataPath "

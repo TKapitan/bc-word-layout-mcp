@@ -21,6 +21,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - A new error code, `bc_version_unsupported`, refuses a call that would write a feature the target
     lacks, or any such call when the target is unknown. No shipped tool writes one yet: theme colours
     and paragraph styles (#145, #146) will. The README lists the features and their versions.
+- **Theme colours** (GitHub issue #145). `format.color`, on every tool that writes text, and
+  `set_cell_format`'s `fill` now also take a theme slot: `text1`, `background1`, `text2`,
+  `background2`, `accent1` to `accent6`, `hyperlink` or `followedHyperlink`. A slot may add
+  `lighter N%` or `darker N%`, as Word's palette names its tints and shades, e.g. `"accent1"` or
+  `"text2 lighter 40%"`. The text or fill then follows the layout's theme part, as in Microsoft's
+  themable layouts.
+  - The OOXML is what Word writes: `w:themeColor` / `w:themeFill`, with `w:themeTint` /
+    `w:themeShade` / `w:themeFillShade`, beside the colour the slot has in the layout's own theme.
+  - Themable formatting needs BC 29, so a theme colour is refused with `bc_version_unsupported` for a
+    lower or unknown target. A hex colour is never gated.
+  - A theme colour is refused in a layout with no theme part (a blank `create_layout` build has none),
+    and so is a lighter theme fill, since no captured layout carries `w:themeFillTint`.
+  - `set_text_format` and `set_cell_format` now say when a hex colour or fill replaces a theme
+    colour: that text or fill stops following the theme.
 - **New `validate_layout` check `paragraph-style-resolves` (warning)** (GitHub issue #147). It warns
   about a `w:pStyle` that names no paragraph style the layout defines, including one that names a
   character or table style. In Business Central such a paragraph prints as plain text, with no error.

@@ -466,6 +466,7 @@ public static class TextFormatEditor
         private int controls;
         private int marks;
         private int aligned;
+        private int themeColorsDropped;
 
         /// <summary>
         /// Formats everything under <paramref name="container"/> (and the container itself, when it is a
@@ -505,7 +506,7 @@ public static class TextFormatEditor
             }
 
             run.RunProperties ??= new RunProperties();
-            RunFormatter.Apply(run.RunProperties, Format);
+            Count(RunFormatter.Apply(run.RunProperties, Format));
             Runs++;
         }
 
@@ -524,7 +525,7 @@ public static class TextFormatEditor
                 sdtPr.PrependChild(rPr);
             }
 
-            RunFormatter.Apply(rPr, Format);
+            Count(RunFormatter.Apply(rPr, Format));
             controls++;
         }
 
@@ -546,8 +547,16 @@ public static class TextFormatEditor
 
             paragraph.ParagraphProperties ??= new ParagraphProperties();
             paragraph.ParagraphProperties.ParagraphMarkRunProperties ??= new ParagraphMarkRunProperties();
-            RunFormatter.Apply(paragraph.ParagraphProperties.ParagraphMarkRunProperties, Format);
+            Count(RunFormatter.Apply(paragraph.ParagraphProperties.ParagraphMarkRunProperties, Format));
             marks++;
+        }
+
+        private void Count(bool droppedThemeColor)
+        {
+            if (droppedThemeColor)
+            {
+                themeColorsDropped++;
+            }
         }
 
         /// <summary>": bold, 8 pt (3 run(s), 1 control, 2 paragraph mark(s)); aligned right (2 paragraph(s))."</summary>
@@ -575,7 +584,11 @@ public static class TextFormatEditor
                 parts.Add($"aligned {justification.ToString().ToLowerInvariant()} ({Id(aligned)} paragraph(s))");
             }
 
-            return ": " + string.Join("; ", parts) + "." + fontNote;
+            var themeNote = themeColorsDropped == 0
+                ? string.Empty
+                : $" {Id(themeColorsDropped)} of them had a theme colour, which the literal colour replaces: that text "
+                  + "no longer follows the layout's theme. Pass a theme colour such as 'accent1' to keep it themable.";
+            return ": " + string.Join("; ", parts) + "." + themeNote + fontNote;
         }
     }
 }

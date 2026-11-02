@@ -150,9 +150,9 @@ public static class TableTools
         IReadOnlyList<RowCellArgument> cells,
         [Description(TextFormatArgument.RowDescription)] TextFormatArgument? format = null)
     {
-        return GuardEdit(layoutPath, doc =>
+        return GuardEdit(layoutPath, (doc, target) =>
             LayoutEditor.InsertRepeaterRow(
-                doc, parentControlId, dataItem, TableArguments.ToRowCells(cells), TextFormatArgument.ToDomain(format)));
+                doc, parentControlId, dataItem, TableArguments.ToRowCells(cells), TextFormatArgument.ToDomain(format, target)));
     }
 
     [McpServerTool(Name = "insert_subtotal_row")]
@@ -184,10 +184,10 @@ public static class TableTools
         IReadOnlyList<RowCellArgument> cells,
         [Description(TextFormatArgument.RowDescription)] TextFormatArgument? format = null)
     {
-        return GuardEdit(layoutPath, doc =>
+        return GuardEdit(layoutPath, (doc, target) =>
         {
             return LayoutEditor.InsertSubtotalRow(
-                doc, parentControlId, TableArguments.ToRowCells(cells), TextFormatArgument.ToDomain(format));
+                doc, parentControlId, TableArguments.ToRowCells(cells), TextFormatArgument.ToDomain(format, target));
         });
     }
 
@@ -231,11 +231,11 @@ public static class TableTools
                      + "'header2.xml'); omit to target the DEFAULT header/footer part (see get_layout_info's "
                      + "partDetails for each part's role).")] string? partName = null)
     {
-        return GuardTableEdit(layoutPath, doc =>
+        return GuardTableEdit(layoutPath, (doc, target) =>
         {
             var part = ParseLayoutPartOrThrow(layoutPart);
             return TableStructureEditor.InsertStaticRow(
-                doc, part, partName, tableIndex, atRow, TableArguments.ToRowCells(cells), TextFormatArgument.ToDomain(format));
+                doc, part, partName, tableIndex, atRow, TableArguments.ToRowCells(cells), TextFormatArgument.ToDomain(format, target));
         });
     }
 
@@ -554,15 +554,17 @@ public static class TableTools
                      + "the named edges.")] [BorderStyleValues] string? borderStyle = null,
         [Description("For edges: rule thickness in EIGHTHS of a point (2-96); default 4 = 1/2 pt, the only "
                      + "thickness the real BC corpus uses.")] [Range(2, 96)] int? borderSize = null,
-        [Description("Cell fill: six hex digits RRGGBB (e.g. 'E8E8E8'; a leading '#' is fine) or 'auto' for no "
-                     + "fill. Omit to leave the fill alone.")] string? fill = null,
+        [Description("Cell fill: six hex digits RRGGBB (e.g. 'E8E8E8'; a leading '#' is fine), 'auto' for no "
+                     + "fill, or a theme colour such as 'accent1' or 'background2 darker 25%' (BC 29 and later; see "
+                     + "format.color). Omit to leave the fill alone.")] string? fill = null,
         [Description("Which OOXML part the table is in: 'body' (default), 'header', or 'footer'.")] [LayoutPartValues] string layoutPart = "body",
         [Description("Only used when layoutPart is 'header'/'footer': a specific part file name (e.g. "
                      + "'header2.xml'); omit to target the DEFAULT header/footer part (see get_layout_info's "
                      + "partDetails for each part's role).")] string? partName = null)
     {
-        return GuardTableEdit(layoutPath, doc =>
+        return GuardTableEdit(layoutPath, (doc, target) =>
         {
+            RequireThemableFormatting(target, [fill]);
             var part = ParseLayoutPartOrThrow(layoutPart);
             var borders = ParseCellBorderOptionsOrThrow(edges, borderStyle, borderSize);
             return TableStructureEditor.SetCellFormat(doc, part, partName, tableIndex, row, col, borders, fill);

@@ -156,7 +156,7 @@ public static class TableStructureEditor
                 "borderSize");
         }
 
-        var shading = fill is null ? null : RunFormatter.NormalizeColor(fill, "fill", nameof(fill));
+        var shading = fill is null ? null : LayoutColor.Parse(fill, "fill", nameof(fill), doc, ColorUse.Fill);
         var (table, partFile, gridCount) = ResolveTable(doc, part, partName, tableIndex);
 
         var rowSlots = TableGridNavigator.Rows(table);
@@ -187,6 +187,7 @@ public static class TableStructureEditor
             : cellSlots.ToArray();
 
         var cellsAffected = 0;
+        var themeFillsDropped = 0;
         foreach (var slot in targets)
         {
             if (slot.InnerCell is null)
@@ -199,9 +200,9 @@ public static class TableStructureEditor
                 ApplyCellBorders(slot.InnerCell, borders);
             }
 
-            if (shading is not null)
+            if (shading is not null && ApplyCellFill(slot.InnerCell, shading))
             {
-                ApplyCellFill(slot.InnerCell, shading);
+                themeFillsDropped++;
             }
 
             cellsAffected++;
@@ -216,7 +217,9 @@ public static class TableStructureEditor
 
         if (shading is not null)
         {
-            changes.Add(shading == "auto" ? "cleared the fill" : $"filled them with {shading}");
+            changes.Add(shading.Value == "auto" && !shading.IsTheme
+                ? "cleared the fill"
+                : $"filled them with {shading.Describe()}");
         }
 
         // ColumnIndex is documented, for every table tool, as a GRID column — merge_cells/split_cells already
@@ -238,20 +241,33 @@ public static class TableStructureEditor
             ColumnCountAfter = gridCount,
             Summary = $"On {where} of table {tableIndex}"
                 + (partFile == "document.xml" ? string.Empty : $" in {partFile}")
-                + $": {summary}.",
+                + $": {summary}."
+                + ThemeDroppedNote(themeFillsDropped, "fill(s)"),
         };
     }
 
     /// <summary>
-    /// Sets <paramref name="cell"/>'s fill to <paramref name="fill"/> (normalized <c>RRGGBB</c> or <c>auto</c>) in
-    /// the corpus shape, replacing any existing <c>w:shd</c> — theme-fill attributes included, which Word would
-    /// otherwise let win over the colour.
+    /// The sentence a summary ends with when a literal colour replaced <paramref name="count"/> theme colours: the
+    /// cells stop following the layout's theme, which the caller should know (GitHub issue #145).
     /// </summary>
-    private static void ApplyCellFill(TableCell cell, string fill)
+    private static string ThemeDroppedNote(int count, string what) =>
+        count == 0
+            ? string.Empty
+            : $" {count} {what} had a theme colour, which the literal colour replaces: they no longer follow the "
+              + "layout's theme. Pass a theme colour such as 'accent1' to keep them themable.";
+
+    /// <summary>
+    /// Sets <paramref name="cell"/>'s fill to <paramref name="fill"/> in the corpus shape, replacing any existing
+    /// <c>w:shd</c> — theme-fill attributes included, which Word would otherwise let win over a literal colour.
+    /// Returns true when a literal fill replaced a theme fill.
+    /// </summary>
+    private static bool ApplyCellFill(TableCell cell, LayoutColor fill)
     {
         var tcPr = EnsureTcPr(cell);
+        var droppedTheme = !fill.IsTheme && tcPr.GetFirstChild<Shading>()?.ThemeFill is not null;
         tcPr.RemoveAllChildren<Shading>();
-        InsertTcPrChildInOrder(tcPr, new Shading { Val = ShadingPatternValues.Clear, Color = "auto", Fill = fill });
+        InsertTcPrChildInOrder(tcPr, fill.ToShading());
+        return droppedTheme;
     }
 
     private static string DescribeEdges(CellBorderOptions options)
