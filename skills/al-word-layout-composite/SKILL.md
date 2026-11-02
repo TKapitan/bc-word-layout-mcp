@@ -130,7 +130,7 @@ theme layout for Tenant Report Defaults.
 ## 5. The style contract — check it every time
 
 Before handing over, list every `w:pStyle` / `w:rStyle` / `w:tblStyle` the body and the header/footer
-use and confirm each id exists in: the theme, the body's own `styles.xml`, and any Microsoft theme the
+use (`get_layout_info`'s `look.styles` lists them with counts) and confirm each id exists in: the theme, the body's own `styles.xml`, and any Microsoft theme the
 customer might pick instead (Calm, Default, Playful). In BC a missing id renders as plain text with no
 error. Within one file, `validate_layout` catches all three kinds: `table-style-resolves` (a
 `w:tblStyle`), `character-style-resolves` (a `w:rStyle`, including one that names a paragraph style) and

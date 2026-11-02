@@ -57,6 +57,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - The summary says when a styled paragraph still carries direct formatting, which wins over the style.
   - In one call, StandardSalesInvoiceVatSpec's directly formatted title becomes what the themable capture
     has: `Heading1` with an `accent1` colour.
+- **`get_layout_info` reports the layout's look** (GitHub issue #149), so an agent no longer has to
+  read the OOXML to learn that one layout colours everything through `accent1` and another
+  hard-codes `0070C0`. The new `look` section holds:
+  - `theme`: the colour scheme's name, each theme colour's RGB (through the document's colour-scheme
+    mapping) and the heading and body fonts; `null` without a theme part.
+  - `colors`: every colour the body, headers and footers use, grouped per part by kind (text, fill,
+    rule), by carrier and by colour, with the theme colour in the form the colour arguments take
+    (`"text2 lighter 40%"`). The carrier separates a run's colour from colours on paragraph marks and
+    a control's own properties, which show no text of their own. Microsoft's themable invoice keeps
+    literal `0070C0` only there, while the themable shipment has two captions whose runs stayed blue.
+  - `styles`: the paragraph, character and table style ids the content uses, with counts.
 - **New `validate_layout` check `paragraph-style-resolves` (warning)** (GitHub issue #147). It warns
   about a `w:pStyle` that names no paragraph style the layout defines, including one that names a
   character or table style. In Business Central such a paragraph prints as plain text, with no error.

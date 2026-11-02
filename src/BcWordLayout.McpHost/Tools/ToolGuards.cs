@@ -976,6 +976,19 @@ internal static class ToolGuards
     internal static ReportInfoDto ToReportDto(ReportIdentity r) =>
         new(r.ReportName, r.ReportId, r.Namespace, r.StoreItemId);
 
+    internal static LayoutLookDto ToLookDto(LayoutLook look) =>
+        new(
+            look.Theme is { } theme
+                ? new ThemeDto(
+                    theme.Name,
+                    theme.ColorScheme,
+                    theme.Colors.ToDictionary(c => c.Key, c => c.Value, StringComparer.Ordinal),
+                    theme.MajorFont,
+                    theme.MinorFont)
+                : null,
+            look.Colors.Select(c => new ColorUsageDto(c.Part, c.Kind, c.Carrier, c.Color, c.ThemeColor, c.Count)).ToList(),
+            look.Styles.Select(s => new StyleUsageDto(s.StyleId, s.Kind, s.Count)).ToList());
+
     internal static TargetVersionDto ToTargetDto(TargetVersion t) =>
         new(t.Version?.ToString(), t.SourceName, t.Detail);
 

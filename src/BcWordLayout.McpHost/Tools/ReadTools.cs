@@ -46,7 +46,15 @@ public static class ReadTools
                  + "validation status summary, and TARGET: the Business Central version the layout must work on - "
                  + "bcVersion (absent when unknown), source (app.json - the nearest AL app.json above the layout - "
                  + "environment - BCWL_BC_VERSION - or unknown) and detail (what it was read from, or why there is "
-                 + "none). Read target before using a feature that needs a newer BC. IMPORTANT for editing: a control whose level is 'cell' wraps "
+                 + "none). Read target before using a feature that needs a newer BC. LOOK: the layout's theme part "
+                 + "(name, colour scheme, each theme colour's RGB - accent1 and so on - and the heading/body fonts; null "
+                 + "without one), the colours the body/headers/footers use - grouped per part by kind (text, fill, rule), "
+                 + "carrier (run = the text itself, paragraphMark, control = a control's own formatting, cell, table, "
+                 + "paragraph) and colour, with themeColor in the form the colour arguments take ('accent1', 'text2 "
+                 + "lighter 40%') or null for a literal colour - and the paragraph/character/table style ids the content "
+                 + "uses, with counts. A layout that follows its theme has theme colours on its runs, cells and rules; "
+                 + "Microsoft's themable layouts still keep some literal colours on paragraph marks and control "
+                 + "formatting. IMPORTANT for editing: a control whose level is 'cell' wraps "
                  + "a whole table cell (one column) - e.g. BC header address fields; removing it is safe "
                  + "(remove_control never deletes the cell/column), but use this table detail to understand "
                  + "what a control occupies before editing. Check partDetails BEFORE any header/footer edit: "
@@ -68,6 +76,7 @@ public static class ReadTools
             var tree = SchemaProvider.FromLayout(doc);
             var inventory = LayoutReader.Read(doc);
             var validation = LayoutValidator.Quick(doc, target);
+            var look = LayoutLookReader.Read(doc);
 
             var controls = inventory.Controls.Select(ToControlDto).ToList();
             var summary = new ControlSummaryDto(
@@ -87,7 +96,8 @@ public static class ReadTools
                 Tables: inventory.Tables.Select(ToTableDto).ToList(),
                 PartDetails: inventory.PartDetails.Select(ToPartInfoDto).ToList(),
                 HasTitlePage: inventory.HasTitlePage,
-                Target: ToTargetDto(target));
+                Target: ToTargetDto(target),
+                Look: ToLookDto(look));
 
             return ToolResponse.Success(dto);
         });
