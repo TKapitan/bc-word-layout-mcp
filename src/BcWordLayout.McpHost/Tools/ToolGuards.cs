@@ -1565,7 +1565,7 @@ internal static class ToolGuards
         "edges" =>
             "set_cell_format changes rules (edges), a fill, or both - pass at least one. edges is an array of "
             + "'top', 'bottom', 'left', 'right' (or 'all') naming at least one edge - e.g. [\"top\"] for the rule "
-            + "above a totals row; borderStyle/borderSize only apply with it. Edges you do not name keep whatever "
+            + "above a totals row; borderStyle/borderSize/borderColor only apply with it. Edges you do not name keep whatever "
             + "they already had.",
 
         "borderstyle" or "bordersize" =>
@@ -1578,6 +1578,12 @@ internal static class ToolGuards
             + "stock light grey) or '0070C0' (the stock blue), a leading '#' is fine; 'auto' for no fill; or a theme "
             + "colour so the fill follows the layout's theme, e.g. 'accent1' or 'background2 darker 25%' (a lighter "
             + "theme fill is not written yet).",
+
+        "bordercolor" =>
+            "borderColor is the colour of the rules drawn: six hex digits RRGGBB, e.g. '002060' (a leading '#' is "
+            + "fine), 'auto' (black), or a theme colour such as 'accent1' or 'text2 lighter 40%'. It colours rules "
+            + "that are drawn, so set_cell_format refuses it with borderStyle 'none' or without edges, and "
+            + "insert_table/insert_repeater_table refuse it with borders 'none'.",
 
         "mode" =>
             "insert_column's mode must be 'field', 'label', or 'plainText'. 'field'/'label' require a dataPath "

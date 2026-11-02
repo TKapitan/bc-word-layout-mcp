@@ -120,8 +120,9 @@ public static class TableStructureEditor
     /// </param>
     /// <exception cref="ArgumentException">
     /// Neither <paramref name="borders"/> nor <paramref name="fill"/> is given (nothing to do);
-    /// <paramref name="borders"/> selects no edge, or its <see cref="CellBorderOptions.SizeEighthPoints"/> is
-    /// outside 2–96; or <paramref name="fill"/> is not a colour.
+    /// <paramref name="borders"/> selects no edge, its <see cref="CellBorderOptions.SizeEighthPoints"/> is
+    /// outside 2–96, or it gives a <see cref="CellBorderOptions.Color"/> for edges it clears; or
+    /// <paramref name="fill"/> or the rule colour is not a colour (see <see cref="LayoutColor.Parse"/>).
     /// </exception>
     /// <exception cref="NotFoundException">
     /// <paramref name="tableIndex"/>/<paramref name="row"/>/<paramref name="col"/> is out of range, or the
@@ -156,6 +157,18 @@ public static class TableStructureEditor
                 "borderSize");
         }
 
+        if (borders is { Remove: true, Color: { } cleared })
+        {
+            throw new ArgumentException(
+                $"borderColor '{cleared}' colours the rules set_cell_format draws, but borderStyle 'none' clears the "
+                + "edges instead, so there is no rule to colour. Drop borderColor, or draw the edges with "
+                + "borderStyle 'single'.",
+                "borderColor");
+        }
+
+        var ruleColor = borders?.Color is { } color
+            ? LayoutColor.Parse(color, "borderColor", "borderColor", doc, ColorUse.Rule)
+            : null;
         var shading = fill is null ? null : LayoutColor.Parse(fill, "fill", nameof(fill), doc, ColorUse.Fill);
         var (table, partFile, gridCount) = ResolveTable(doc, part, partName, tableIndex);
 
@@ -188,6 +201,7 @@ public static class TableStructureEditor
 
         var cellsAffected = 0;
         var themeFillsDropped = 0;
+        var themeRulesDropped = 0;
         foreach (var slot in targets)
         {
             if (slot.InnerCell is null)
@@ -197,7 +211,7 @@ public static class TableStructureEditor
 
             if (borders is not null)
             {
-                ApplyCellBorders(slot.InnerCell, borders);
+                themeRulesDropped += ApplyCellBorders(slot.InnerCell, borders, ruleColor);
             }
 
             if (shading is not null && ApplyCellFill(slot.InnerCell, shading))
@@ -212,7 +226,8 @@ public static class TableStructureEditor
         var changes = new List<string>(2);
         if (borders is not null)
         {
-            changes.Add($"{(borders.Remove ? "cleared" : "drew")} the {DescribeEdges(borders)} rule(s)");
+            changes.Add($"{(borders.Remove ? "cleared" : "drew")} the {DescribeEdges(borders)} rule(s)"
+                + (ruleColor is null ? string.Empty : $" in {ruleColor.Describe()}"));
         }
 
         if (shading is not null)
@@ -242,6 +257,7 @@ public static class TableStructureEditor
             Summary = $"On {where} of table {tableIndex}"
                 + (partFile == "document.xml" ? string.Empty : $" in {partFile}")
                 + $": {summary}."
+                + ThemeDroppedNote(themeRulesDropped, "rule(s)")
                 + ThemeDroppedNote(themeFillsDropped, "fill(s)"),
         };
     }
@@ -303,10 +319,12 @@ public static class TableStructureEditor
     /// as a single line of the requested thickness or, for <see cref="CellBorderOptions.Remove"/>, set to an
     /// explicit <c>nil</c> — never deleted, since a deleted edge silently reappears in a table whose
     /// <c>w:tblBorders</c> the cell inherits from. Shared with <see cref="SdtFactory.BuildRepeaterTable"/>'s
-    /// BC look so a freshly authored header rule and one drawn later are byte-identical. Drawing over a rule
-    /// the cell already has keeps that rule's colour (see <see cref="Edge{TEdge}"/>).
+    /// BC look so a freshly authored header rule and one drawn later are byte-identical. A drawn edge takes
+    /// <paramref name="color"/> when given (GitHub issue #143); otherwise drawing over a rule the cell already has
+    /// keeps that rule's colour (see <see cref="Edge{TEdge}"/>). Returns how many theme-coloured rules a literal
+    /// <paramref name="color"/> replaced.
     /// </summary>
-    internal static void ApplyCellBorders(TableCell cell, CellBorderOptions options)
+    internal static int ApplyCellBorders(TableCell cell, CellBorderOptions options, LayoutColor? color = null)
     {
         ArgumentNullException.ThrowIfNull(cell);
         ArgumentNullException.ThrowIfNull(options);
@@ -319,25 +337,41 @@ public static class TableStructureEditor
             InsertTcPrChildInOrder(tcPr, borders);
         }
 
+        var themeDropped = 0;
+        TEdge Draw<TEdge>(TEdge? existing)
+            where TEdge : BorderType, new()
+        {
+            var edge = Edge(options, existing);
+            if (color is not null && !options.Remove)
+            {
+                themeDropped += !color.IsTheme && edge.ThemeColor is not null ? 1 : 0;
+                color.ApplyTo(edge);
+            }
+
+            return edge;
+        }
+
         if (options.Top)
         {
-            borders.TopBorder = Edge(options, borders.TopBorder);
+            borders.TopBorder = Draw(borders.TopBorder);
         }
 
         if (options.Bottom)
         {
-            borders.BottomBorder = Edge(options, borders.BottomBorder);
+            borders.BottomBorder = Draw(borders.BottomBorder);
         }
 
         if (options.Left)
         {
-            borders.LeftBorder = Edge(options, borders.LeftBorder);
+            borders.LeftBorder = Draw(borders.LeftBorder);
         }
 
         if (options.Right)
         {
-            borders.RightBorder = Edge(options, borders.RightBorder);
+            borders.RightBorder = Draw(borders.RightBorder);
         }
+
+        return themeDropped;
     }
 
     /// <summary>

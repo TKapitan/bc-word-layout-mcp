@@ -238,6 +238,10 @@ public static class SdtFactory
     /// or the host cell's for a table placed inside a cell). Null means the corpus-standard A4 content width,
     /// <see cref="LayoutEditor.CorpusContentWidthTwips"/>.
     /// </param>
+    /// <param name="ruleColor">
+    /// The colour of the rules <see cref="RepeaterTableOptions.Borders"/> draws, already resolved against the layout
+    /// (<see cref="TableShell.CheckBorderColor"/>: this method sees no package); null draws them black.
+    /// </param>
     /// <exception cref="ArgumentException">
     /// <paramref name="dataItemPath"/> does not resolve, resolves to a leaf column instead of a data item,
     /// or resolves to a system data item; <paramref name="columns"/> is empty, has a field that is not the full path
@@ -251,7 +255,8 @@ public static class SdtFactory
         IReadOnlyList<TableColumn> columns,
         RepeaterTableOptions options,
         Func<int> nextId,
-        int? availableWidthTwips = null)
+        int? availableWidthTwips = null,
+        LayoutColor? ruleColor = null)
     {
         ArgumentNullException.ThrowIfNull(schema);
         ArgumentNullException.ThrowIfNull(columns);
@@ -308,10 +313,10 @@ public static class SdtFactory
         // table-level border grid (see TableBorderLook's corpus evidence).
         if (options.Borders == TableBorderLook.HeaderRule)
         {
-            TableShell.DrawHeaderRule(headerCells);
+            TableShell.DrawHeaderRule(headerCells, ruleColor);
         }
 
-        var tblPr = TableShell.Properties(widths, options.Borders, options.TableStyle);
+        var tblPr = TableShell.Properties(widths, options.Borders, options.TableStyle, ruleColor);
         var tblGrid = new TableGrid(widths.Select(w => (OpenXmlElement)new GridColumn { Width = w.ToString(CultureInfo.InvariantCulture) }));
 
         var headerRowChildren = new List<OpenXmlElement> { new TableRowProperties(new TableHeader()) };

@@ -18,6 +18,8 @@ namespace BcWordLayout.Tests;
 /// </summary>
 public class CellFormatTests
 {
+    private const string W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+
     private static string CopyOfCorpus(string corpusFile)
     {
         var path = Path.Combine(Path.GetTempPath(), $"bcwl-cellborders-{Guid.NewGuid():N}.docx");
@@ -386,9 +388,142 @@ public class CellFormatTests
         }
     }
 
+    // ---- borderColor (GitHub issue #143) ----
+
+    [Fact]
+    public void Tool_set_cell_format_draws_a_rule_in_the_colour_given_in_the_corpus_shape()
+    {
+        // StandardSalesInvoiceVatSpec draws four bottom rules in 002060, exactly this shape.
+        var path = CopyOfCorpus(Corpus.SalesInvoice);
+        try
+        {
+            var tableIndex = NewPlainTable(path);
+
+            var response = TableTools.SetCellFormat(path, tableIndex, row: 0, edges: ["bottom"], borderColor: "#002060");
+
+            Assert.True(response.Ok, response.Error?.Message);
+            Assert.Contains("drew the bottom rule(s) in 002060", Assert.IsType<TableEditResultDto>(response.Data).Summary, StringComparison.Ordinal);
+            using var reopened = WordprocessingDocument.Open(path, false);
+            Assert.All(RowCells(reopened, tableIndex, 0), cell => Assert.Equal(
+                $"<w:bottom w:val=\"single\" w:color=\"002060\" w:sz=\"4\" w:space=\"0\" xmlns:w=\"{W}\" />",
+                cell.TableCellProperties!.TableCellBorders!.BottomBorder!.OuterXml));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void A_border_colour_given_over_a_theme_coloured_rule_replaces_it_and_says_so()
+    {
+        var path = CopyOfCorpus(Corpus.SalesInvoiceBlueSimpleThemable);
+        try
+        {
+            var response = TableTools.SetCellFormat(path, tableIndex: 2, row: 3, edges: ["bottom"], borderColor: "0070C0");
+
+            Assert.True(response.Ok, response.Error?.Message);
+            Assert.Contains("rule(s) had a theme colour, which the literal colour replaces",
+                Assert.IsType<TableEditResultDto>(response.Data).Summary, StringComparison.Ordinal);
+            using var reopened = WordprocessingDocument.Open(path, false);
+            Assert.All(SlotCells(reopened, 2, 3), cell =>
+            {
+                var bottom = cell.TableCellProperties!.TableCellBorders!.BottomBorder!;
+                Assert.Equal("0070C0", bottom.Color!.Value);
+                Assert.Null(bottom.ThemeColor);
+            });
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Theory]
+    [InlineData(new[] { "top" }, "none", "borderStyle 'none' clears the edges instead", "borderColor is the colour of the rules drawn")]
+    [InlineData(null, null, "borderStyle, borderSize and borderColor describe the edges you name", "borderStyle/borderSize/borderColor only apply with it")]
+    [InlineData(new[] { "top" }, null, "must be six hex digits RRGGBB", "borderColor is the colour of the rules drawn")]
+    public void Tool_set_cell_format_refuses_a_border_colour_with_no_rule_to_colour(
+        string[]? edges, string? borderStyle, string fragment, string hint)
+    {
+        var path = CopyOfCorpus(Corpus.SalesInvoice);
+        try
+        {
+            var tableIndex = NewPlainTable(path);
+            var before = File.ReadAllBytes(path);
+
+            var response = TableTools.SetCellFormat(
+                path, tableIndex, row: 0, edges: edges, borderStyle: borderStyle,
+                borderColor: fragment.StartsWith("must", StringComparison.Ordinal) ? "navy" : "002060");
+
+            Assert.False(response.Ok);
+            Assert.Equal("invalid_argument", response.Error!.Code);
+            Assert.Contains(fragment, response.Error.Message, StringComparison.Ordinal);
+            Assert.Contains(hint, response.Error.Hint, StringComparison.Ordinal);
+            Assert.Equal(before, File.ReadAllBytes(path));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void insert_table_colours_the_rules_its_borders_look_draws()
+    {
+        var path = CopyOfCorpus(Corpus.SalesInvoice);
+        try
+        {
+            var headerRule = Assert.IsType<TableEditResultDto>(TableTools.InsertTable(
+                path, 2, TableArgs.Columns(3), "documentEnd", borders: "headerRule", borderColor: "002060").Data).TableIndex;
+            var grid = Assert.IsType<TableEditResultDto>(TableTools.InsertTable(
+                path, 2, TableArgs.Columns(3), "documentEnd", borders: "grid", borderColor: "002060").Data).TableIndex;
+            var none = TableTools.InsertTable(path, 2, TableArgs.Columns(3), "documentEnd", borderColor: "002060");
+
+            Assert.False(none.Ok);
+            Assert.Equal("invalid_argument", none.Error!.Code);
+            Assert.Contains("borders 'none' draws none", none.Error.Message, StringComparison.Ordinal);
+
+            using var reopened = WordprocessingDocument.Open(path, false);
+            Assert.All(RowCells(reopened, headerRule, 0), cell =>
+                Assert.Equal("002060", cell.TableCellProperties!.TableCellBorders!.BottomBorder!.Color!.Value));
+            var tables = TableGridNavigator.Tables(reopened.MainDocumentPart!.Document!.Body!);
+            var gridEdges = tables[grid].GetFirstChild<TableProperties>()!.TableBorders!.Elements<BorderType>().ToList();
+            Assert.Equal(6, gridEdges.Count);
+            Assert.All(gridEdges, edge => Assert.Equal("002060", edge.Color!.Value));
+            Assert.Empty(OpenXmlErrors(reopened));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void insert_repeater_table_colours_its_header_rule()
+    {
+        var path = CopyOfCorpus(Corpus.SalesInvoice);
+        try
+        {
+            var response = TableTools.InsertRepeaterTable(
+                path, "/Header/Line", TableArgs.FieldsOf("/Header/Line", "ItemNo_Line", "Description_Line"), "documentEnd",
+                borderColor: "002060");
+
+            Assert.True(response.Ok, response.Error?.Message);
+            var tableIndex = Assert.IsType<EditResultDto>(response.Data).TableIndex!.Value;
+            using var reopened = WordprocessingDocument.Open(path, false);
+            Assert.All(RowCells(reopened, tableIndex, 0), cell =>
+                Assert.Equal("002060", cell.TableCellProperties!.TableCellBorders!.BottomBorder!.Color!.Value));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     [Theory]
     [InlineData(null, null, null, "set_cell_format has nothing to change")]
-    [InlineData(null, "none", null, "borderStyle and borderSize describe the edges you name")]
+    [InlineData(null, "none", null, "borderStyle, borderSize and borderColor describe the edges you name")]
     [InlineData(null, null, "grey", "fill must be six hex digits RRGGBB")]
     public void Tool_set_cell_format_refuses_a_call_it_cannot_act_on_exactly(
         string[]? edges, string? borderStyle, string? fill, string fragment)

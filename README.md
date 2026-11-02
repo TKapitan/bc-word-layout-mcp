@@ -194,7 +194,8 @@ the first match wins:
 
 - A tool that would write a feature from the table below refuses with `bc_version_unsupported` below
   the feature's version and when the target is unknown. Today that is a theme colour such as
-  `accent1` in `format.color` or `set_cell_format`'s `fill`; a hex colour is never gated.
+  `accent1` in `format.color`, `set_cell_format`'s `fill`, or the `borderColor` of `set_cell_format`,
+  `insert_table` and `insert_repeater_table`; a hex colour is never gated.
 - `validate_layout`'s `bc-version` check reports such a feature a layout already has: a header/footer
   layout bound to Tenant Report Defaults is an error below 29.0 and a warning for an unknown target.
   Theme colours and paragraph styles already in a layout are not flagged: BC 28 prints them.
@@ -249,7 +250,7 @@ other tool is conversion-free and works everywhere the server runs.
 | `remove_column` | Remove a whole grid column — addressed by the `gridColumn` `get_layout_info` reports for its cells, not their `colIndex`: drops each row's covering cell (a bound cell too) or decrements its `gridSpan`, and removes the `w:gridCol`. The summary says per row which of the two happened. |
 | `merge_cells` | Horizontally merge a run of adjacent cells in one row into a single `gridSpan` cell (keeps the first cell's content). |
 | `split_cells` | Horizontally split one spanned cell back into single-column cells. |
-| `set_cell_format` | Set the appearance of a whole row's cells, or one cell: the per-cell rules a BC document's look is actually made of (a line above a totals row, an underline on one cell) and/or a fill colour (a shaded header row). |
+| `set_cell_format` | Set the appearance of a whole row's cells, or one cell: the per-cell rules a BC document's look is actually made of (a line above a totals row, an underline on one cell), in any colour, and/or a fill colour (a shaded header row). Colours may be hex or theme colours such as `accent1`. |
 | `refresh_xml_part` | Update a layout's BC dataset XML part to a new schema in place; remaps/orphans bindings, re-points any binding left naming a foreign report's namespace (which BC refuses to upload) or a `storeItemID` that names no part, and reports newly-unbound fields. Also the repair for a dataset part that no longer parses (`validate_layout` names the part and the parser error). |
 
 ### Response envelope

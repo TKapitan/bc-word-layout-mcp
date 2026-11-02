@@ -307,6 +307,50 @@ public sealed class ThemeColorTests : IDisposable
         Assert.Equal(ThemePalette.ApplyTintShade("E4E3E2", null, "BF"), second.Fill!.Value);
     }
 
+    [Fact]
+    public void A_rule_takes_a_tinted_theme_colour_exactly_as_the_stock_Blue_invoice_carries_it()
+    {
+        // StandardSalesInvoiceVatSpec draws nine rules in text2 lighter 40%: w:color="9B9482" w:themeColor="text2"
+        // w:themeTint="99". A table authored with the tools can now carry the same rule (GitHub issue #143).
+        using var repo = new TargetFolder();
+        repo.AppJson(".", "29.0.0.0");
+        var path = repo.CopyIn(Corpus.Path(Corpus.SalesInvoiceVatSpec), "Invoice.docx");
+        var tableIndex = Assert.IsType<TableEditResultDto>(TableTools.InsertTable(
+            path, 2, TableArgs.Columns(2), "documentEnd", borders: "headerRule", borderColor: "accent1").Data).TableIndex;
+
+        var response = TableTools.SetCellFormat(path, tableIndex, row: 1, edges: ["top"], borderColor: "text2 lighter 40%");
+
+        Assert.True(response.Ok, response.Error?.Message);
+        using var doc = WordprocessingDocument.Open(path, false);
+        var rows = TableGridNavigator.Tables(doc.MainDocumentPart!.Document!.Body!)[tableIndex].Elements<TableRow>().ToList();
+        Assert.All(rows[0].Elements<TableCell>(), cell => Assert.Equal(
+            $"<w:bottom w:val=\"single\" w:color=\"F24F4F\" w:themeColor=\"accent1\" w:sz=\"4\" w:space=\"0\" xmlns:w=\"{W}\" />",
+            cell.TableCellProperties!.TableCellBorders!.BottomBorder!.OuterXml));
+        Assert.All(rows[1].Elements<TableCell>(), cell => Assert.Equal(
+            $"<w:top w:val=\"single\" w:color=\"9B9482\" w:themeColor=\"text2\" w:themeTint=\"99\" w:sz=\"4\" w:space=\"0\" xmlns:w=\"{W}\" />",
+            cell.TableCellProperties!.TableCellBorders!.TopBorder!.OuterXml));
+    }
+
+    [Fact]
+    public void A_theme_border_colour_is_refused_below_BC_29()
+    {
+        using var repo = new TargetFolder();
+        repo.AppJson(".", "28.0.0.0");
+        var path = repo.CopyIn(Corpus.Path(Corpus.SalesInvoiceVatSpec), "Invoice.docx");
+        var before = File.ReadAllBytes(path);
+
+        var responses = new[]
+        {
+            TableTools.SetCellFormat(path, tableIndex: 2, row: 3, edges: ["bottom"], borderColor: "accent1"),
+            TableTools.InsertTable(path, 2, TableArgs.Columns(2), "documentEnd", borders: "grid", borderColor: "accent1"),
+            TableTools.InsertRepeaterTable(
+                path, "/Header/Line", TableArgs.FieldsOf("/Header/Line", "Description_Line"), "documentEnd", borderColor: "accent1"),
+        };
+
+        Assert.All(responses, r => Assert.Equal(ErrorCodes.BcVersionUnsupported, r.Error?.Code));
+        Assert.Equal(before, File.ReadAllBytes(path));
+    }
+
     private static Run RunWithText(WordprocessingDocument doc, string text) =>
         doc.MainDocumentPart!.Document!.Body!.Descendants<Run>().Last(r => r.InnerText == text);
 }

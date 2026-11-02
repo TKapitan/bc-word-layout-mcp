@@ -35,6 +35,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     and so is a lighter theme fill, since no captured layout carries `w:themeFillTint`.
   - `set_text_format` and `set_cell_format` now say when a hex colour or fill replaces a theme
     colour: that text or fill stops following the theme.
+- **Rule colours: `borderColor`** (GitHub issue #143). Every rule the tools drew was black (`auto`),
+  so none of the coloured tables in Microsoft's layouts could be rebuilt; the stock Blue invoice has
+  rules in `002060` and in `text2` lighter 40%.
+  - `set_cell_format` takes a `borderColor` for the edges it draws. Without it, a redrawn rule keeps
+    its colour (#144) and a new one is black, as before. A hex colour over a theme-coloured rule drops
+    the theme colour, and the summary says so.
+  - `insert_table` and `insert_repeater_table` take one for the rules their `borders` look draws: the
+    header rule, or every edge of the grid. With `borders: "none"` it is refused, as there is no rule.
+  - The values are those of `fill`: `RRGGBB`, `auto` or a theme colour, a theme colour from BC 29.
 - **New `validate_layout` check `paragraph-style-resolves` (warning)** (GitHub issue #147). It warns
   about a `w:pStyle` that names no paragraph style the layout defines, including one that names a
   character or table style. In Business Central such a paragraph prints as plain text, with no error.

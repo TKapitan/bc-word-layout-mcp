@@ -364,6 +364,7 @@ public static class LayoutEditor
             TableShell.CheckTableStyle(doc, options.TableStyle, "tableStyle");
         }
 
+        var ruleColor = TableShell.CheckBorderColor(doc, options.Borders, options.BorderColor);
         var schema = SchemaProvider.FromLayoutForBinding(doc);
         var nextId = MakeIdGenerator(doc);
 
@@ -371,7 +372,7 @@ public static class LayoutEditor
         // the width of wherever the table lands - the page's content width, or the host cell's.
         var anchor = LocationResolver.Resolve(location, doc);
         var table = SdtFactory.BuildRepeaterTable(
-            schema, dataItemPath, columns, options, nextId, ResolveAvailableWidthTwips(doc, anchor));
+            schema, dataItemPath, columns, options, nextId, ResolveAvailableWidthTwips(doc, anchor), ruleColor);
 
         anchor.InsertBlock(table);
         SeparateFromAdjacentTables(table);
@@ -1029,7 +1030,9 @@ public static class LayoutEditor
     /// <exception cref="ArgumentException">
     /// <paramref name="rowCount"/> or the number of <paramref name="columns"/> out of range; a column naming a field
     /// (a plain table binds nothing); given widths that leave nothing for the columns without one; an unrecognized
-    /// alignment; or <paramref name="tableStyle"/> naming no table style the layout defines.
+    /// alignment; <paramref name="tableStyle"/> naming no table style the layout defines; or
+    /// <paramref name="borderColor"/> not a colour, or given with <see cref="TableBorderLook.None"/> (see
+    /// <see cref="TableShell.CheckBorderColor"/>).
     /// </exception>
     /// <exception cref="NotFoundException">Propagated from <see cref="LocationResolver.Resolve"/>.</exception>
     public static TableEditResult InsertPlainTable(
@@ -1038,7 +1041,8 @@ public static class LayoutEditor
         IReadOnlyList<TableColumn> columns,
         Location location,
         TableBorderLook borders = TableBorderLook.None,
-        string? tableStyle = null)
+        string? tableStyle = null,
+        string? borderColor = null)
     {
         ArgumentNullException.ThrowIfNull(doc);
         ArgumentNullException.ThrowIfNull(columns);
@@ -1070,6 +1074,7 @@ public static class LayoutEditor
             TableShell.CheckTableStyle(doc, tableStyle, nameof(tableStyle));
         }
 
+        var ruleColor = TableShell.CheckBorderColor(doc, borders, borderColor);
         var scaffolded = EnsureTargetPartExists(doc, location);
 
         // Resolved before the build (Resolve only reads) because, with no explicit widths, the columns split
@@ -1082,7 +1087,7 @@ public static class LayoutEditor
         var grid = new TableGrid(widths.Select(w =>
             (OpenXmlElement)new GridColumn { Width = w.ToString(System.Globalization.CultureInfo.InvariantCulture) }));
 
-        var table = new Table(TableShell.Properties(widths, borders, tableStyle), grid);
+        var table = new Table(TableShell.Properties(widths, borders, tableStyle, ruleColor), grid);
         for (var r = 0; r < rowCount; r++)
         {
             var row = new TableRow();
@@ -1117,7 +1122,7 @@ public static class LayoutEditor
 
         if (borders == TableBorderLook.HeaderRule)
         {
-            TableShell.DrawHeaderRule(table.Elements<TableRow>().First().Elements<TableCell>());
+            TableShell.DrawHeaderRule(table.Elements<TableRow>().First().Elements<TableCell>(), ruleColor);
         }
 
         anchor.InsertBlock(table);

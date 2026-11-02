@@ -9,7 +9,8 @@ namespace BcWordLayout.Domain;
 /// (<see cref="LayoutEditor.InsertPlainTable"/>) and <c>insert_repeater_table</c>'s line table
 /// (<see cref="SdtFactory.BuildRepeaterTable"/>) — so their shared <c>borders</c> and <c>tableStyle</c> options
 /// mean exactly the same thing on both (GitHub issue #131): the <c>w:tblPr</c>, the <c>headerRule</c> rule under
-/// the first row, and the check that a style reference names a table style the layout defines.
+/// the first row, and the check that a style reference names a table style the layout defines. Both tools also take
+/// a <c>borderColor</c> for the rules their look draws (GitHub issue #143).
 /// </summary>
 internal static class TableShell
 {
@@ -17,12 +18,13 @@ internal static class TableShell
     /// The new table's <c>w:tblPr</c>: a <c>w:tblStyle</c> reference when <paramref name="tableStyle"/> is given,
     /// the grid pinned to <paramref name="widths"/> (see <see cref="FixedTableLayout"/>), and — for
     /// <see cref="TableBorderLook.Grid"/> only — an explicit single-line border on every edge and between every
-    /// cell. <see cref="TableBorderLook.None"/> and <see cref="TableBorderLook.HeaderRule"/> emit no
-    /// <c>w:tblBorders</c> at all, exactly like every corpus table: the header rule is drawn per cell
-    /// (<see cref="DrawHeaderRule"/>). Assigned through the SDK's typed properties throughout, so each element
-    /// lands at its schema position whatever order they are set in.
+    /// cell, in <paramref name="ruleColor"/> when given. <see cref="TableBorderLook.None"/> and
+    /// <see cref="TableBorderLook.HeaderRule"/> emit no <c>w:tblBorders</c> at all, exactly like every corpus table: the
+    /// header rule is drawn per cell (<see cref="DrawHeaderRule"/>). Assigned through the SDK's typed properties
+    /// throughout, so each element lands at its schema position whatever order they are set in.
     /// </summary>
-    internal static TableProperties Properties(IReadOnlyList<int> widths, TableBorderLook borders, string? tableStyle)
+    internal static TableProperties Properties(
+        IReadOnlyList<int> widths, TableBorderLook borders, string? tableStyle, LayoutColor? ruleColor = null)
     {
         var tblPr = new TableProperties();
         if (!string.IsNullOrEmpty(tableStyle))
@@ -47,9 +49,42 @@ internal static class TableShell
                 InsideVerticalBorder =
                     new InsideVerticalBorder { Val = BorderValues.Single, Size = 4, Space = 0, Color = "auto" },
             };
+
+            if (ruleColor is not null)
+            {
+                foreach (var edge in tblPr.TableBorders.Elements<BorderType>())
+                {
+                    ruleColor.ApplyTo(edge);
+                }
+            }
         }
 
         return tblPr;
+    }
+
+    /// <summary>
+    /// The colour for the rules <paramref name="borders"/> draws, or null when <paramref name="borderColor"/> is not
+    /// given (black, <c>auto</c>). Refused with <see cref="TableBorderLook.None"/>: it draws no rule to colour, so the
+    /// argument would silently do nothing.
+    /// </summary>
+    /// <exception cref="ArgumentException">Borders 'none', or not a colour (see <see cref="LayoutColor.Parse"/>).</exception>
+    internal static LayoutColor? CheckBorderColor(WordprocessingDocument doc, TableBorderLook borders, string? borderColor)
+    {
+        if (borderColor is null)
+        {
+            return null;
+        }
+
+        if (borders == TableBorderLook.None)
+        {
+            throw new ArgumentException(
+                $"borderColor '{borderColor}' colours the rules borders draws, but borders 'none' draws none. Pass "
+                + "borders 'headerRule' or 'grid', or drop borderColor (set_cell_format draws coloured rules on any "
+                + "row afterwards).",
+                nameof(borderColor));
+        }
+
+        return LayoutColor.Parse(borderColor, nameof(borderColor), nameof(borderColor), doc, ColorUse.Rule);
     }
 
     /// <summary>
@@ -92,14 +127,15 @@ internal static class TableShell
 
     /// <summary>
     /// <see cref="TableBorderLook.HeaderRule"/>'s one rule: a ½-pt bottom edge on each of <paramref name="cells"/>
-    /// (the first row's), drawn through <see cref="TableStructureEditor.ApplyCellBorders"/> so it is
-    /// byte-identical to the rule <c>set_cell_format</c> draws for a bottom edge.
+    /// (the first row's), in <paramref name="ruleColor"/> when given, drawn through
+    /// <see cref="TableStructureEditor.ApplyCellBorders"/> so it is byte-identical to the rule <c>set_cell_format</c>
+    /// draws for a bottom edge.
     /// </summary>
-    internal static void DrawHeaderRule(IEnumerable<TableCell> cells)
+    internal static void DrawHeaderRule(IEnumerable<TableCell> cells, LayoutColor? ruleColor = null)
     {
         foreach (var cell in cells)
         {
-            TableStructureEditor.ApplyCellBorders(cell, new CellBorderOptions { Bottom = true });
+            TableStructureEditor.ApplyCellBorders(cell, new CellBorderOptions { Bottom = true }, ruleColor);
         }
     }
 
