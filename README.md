@@ -1,5 +1,12 @@
 ﻿# bc-word-layout-mcp
 
+[![CI](https://github.com/TKapitan/bc-word-layout-mcp/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/TKapitan/bc-word-layout-mcp/actions/workflows/ci.yml)
+[![GitHub release](https://img.shields.io/github/v/release/TKapitan/bc-word-layout-mcp)](https://github.com/TKapitan/bc-word-layout-mcp/releases/latest)
+[![NuGet](https://img.shields.io/nuget/v/BcWordLayout.Mcp)](https://www.nuget.org/packages/BcWordLayout.Mcp)
+[![NuGet downloads](https://img.shields.io/nuget/dt/BcWordLayout.Mcp)](https://www.nuget.org/packages/BcWordLayout.Mcp)
+[![.NET 10](https://img.shields.io/badge/.NET-10-512BD4)](https://dotnet.microsoft.com/download/dotnet/10.0)
+[![License: MIT](https://img.shields.io/github/license/TKapitan/bc-word-layout-mcp)](LICENSE)
+
 An MCP (Model Context Protocol) server that lets AI agents **create, edit, validate, and preview
 Microsoft Word report layouts for Microsoft Dynamics 365 Business Central** through deterministic,
 typed tools — instead of free-hand OOXML editing, which is unreliable in a file format where a
