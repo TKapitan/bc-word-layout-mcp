@@ -1652,6 +1652,40 @@ def p24(b: Build):
                              HIDE_TABLE_WRAPPER)
 
 
+# P25 prints the tool GitHub issue #11 became: P11 settled that BC evaluates IF PAGE = NUMPAGES per page, and
+# insert_page_conditional_text now writes that exact construct, plus two variants no round has printed.
+
+@item(
+    id="p25", title="Page-conditional footer text written by insert_page_conditional_text",
+    report="1322 - Standard Purchase Order", base="StandardPurchaseOrder.docx",
+    purpose="GitHub issue #11: P11 showed that BC evaluates a hand-made { IF { PAGE } = { NUMPAGES } } per page. "
+            "insert_page_conditional_text writes that construct run for run (when='lastPage') and two variants "
+            "that differ only in the comparison: 'notLastPage' ({ IF { PAGE } <> { NUMPAGES } }) and 'firstPage' "
+            "({ IF { PAGE } = 1 }), which no round has printed. All three go in every footer the sections use: "
+            "the order renders a different first page (w:titlePg), so the default footer alone never shows on "
+            "page 1.",
+    asks=[
+        "Does BC accept the upload?",
+        "A MULTI-page order: 'P25 FIRST PAGE ONLY' on page 1 only, 'P25 CONTINUED' on every page but the last, "
+        "'P25 LAST PAGE ONLY' on the last page only?",
+        "A ONE-page order: 'P25 FIRST PAGE ONLY' and 'P25 LAST PAGE ONLY' on its page, and no 'P25 CONTINUED'?",
+    ],
+    bc_steps=[
+        "Purchase order with enough lines for 3+ pages, as for P11; also a one-line order.",
+        "Report Layouts > New layout for report 1322, upload this .docx, then Print both orders with it.",
+    ],
+)
+def p25(b: Build):
+    footers = [p["name"] for p in b.info()["partDetails"] if p["kind"] == "footer" and p.get("role")]
+    for part in footers:
+        for text, when in (("P25 FIRST PAGE ONLY", "firstPage"), ("P25 CONTINUED", "notLastPage"),
+                           ("P25 LAST PAGE ONLY", "lastPage")):
+            b.edit("insert_page_conditional_text", text=text, when=when, locationType="documentEnd",
+                   layoutPart="footer", partName=part)
+    b.note("insert_page_conditional_text: firstPage, notLastPage and lastPage paragraphs in "
+           + ", ".join(footers))
+
+
 # ---------------------------------------------------------------- runner
 
 # Business Central refuses to upload a layout whose settings link an external attached template:
@@ -1860,6 +1894,8 @@ the cause. P09/P10 showed that neither hide-if-empty wrapper acts on a row outsi
 is missing; P19 tries a value that exists but is empty, and P20-P22 the captured shape inside a repeater (#123),
 one wrapped cell each under the lines of the invoice P08 prints: a missing record, an empty value, a filled one.
 P23/P24 do the same with the TABLE variant: a missing record, and a filled value as the control.
+**P25** prints `insert_page_conditional_text` (#11): P11's last-page construct as the tool writes it, plus
+its every-page-but-the-last and first-page variants, which no round has printed.
 
 ## The layouts
 

@@ -265,6 +265,7 @@ public sealed class McpHostPipelineTests(McpHostPipeline pipeline) : IClassFixtu
             "mode" => "plainText",
             "text" => "x",
             "target" => "row",
+            "when" => "lastPage",
             _ => throw new InvalidOperationException(
                 $"{tool}.{parameter.Name} is a required string parameter with no baseline value in this sweep; add one."),
         };

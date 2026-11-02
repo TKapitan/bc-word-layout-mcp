@@ -191,6 +191,68 @@ public static class EditTools
         });
     }
 
+    [McpServerTool(Name = "insert_page_conditional_text")]
+    [Description("Insert STATIC text that prints only on some pages - 'company details on the last page only', "
+                 + "'continued on the next page' on every page but the last - as a Word IF field over PAGE and "
+                 + "NUMPAGES: when='lastPage' { IF { PAGE } = { NUMPAGES } \"text\" \"\" }, 'notLastPage' (PAGE <> "
+                 + "NUMPAGES), 'firstPage' (PAGE = 1). Business Central evaluates the field on every page, as Word does "
+                 + "(sandbox-verified for lastPage on BC 28, on a two-page and a one-page order; the other two are the "
+                 + "same field with another comparison). It belongs in a header or footer (pass layoutPart), which "
+                 + "repeats on every page; in the body it prints once, where it sits. Mind a layout with a different "
+                 + "first page (get_layout_info's hasTitlePage): page 1 shows the 'first'-role footer, so insert there "
+                 + "too. With locationType='documentEnd' the field gets a paragraph of its own, which stays as an empty "
+                 + "line on the pages it prints nothing on; insert it inline beside other text (afterControl/atText) to "
+                 + "avoid the gap. Text only: a bound value cannot "
+                 + "go inside the field yet. Like insert_page_number, it creates NO content control - the response's "
+                 + "controlId is 0 and the runs cannot be targeted by remove_control or used as an afterControl "
+                 + "anchor. Same locations as insert_field; a header/footer 'documentEnd' insert scaffolds an empty "
+                 + "part first if the layout has none. Same write/validate/save-or-reject safety as insert_field.")]
+    public static ToolResponse InsertPageConditionalText(
+        [Description("Absolute path to the .docx layout file.")] string layoutPath,
+        [Description("The text to print, one line; double quotes and backslashes are refused (the field syntax "
+                     + "reads them) - use typographic quotes.")] string text,
+        [Description("On which pages it prints: 'lastPage', 'notLastPage' or 'firstPage' (case-insensitive).")]
+        [PageConditionValues] string when,
+        [Description("Where to insert: 'documentEnd', 'afterControl', 'tableCell', or 'atText' "
+                     + "(case-insensitive).")] [LocationTypeValues] string locationType,
+        [Description("Required for 'afterControl': the w:id of the control to insert after.")] int? controlId = null,
+        [Description("Required for 'tableCell': 0-based table index in document order.")] int? tableIndex = null,
+        [Description("Required for 'tableCell': 0-based row index within the table.")] int? row = null,
+        [Description("Required for 'tableCell': 0-based cell/column index within the row.")] int? col = null,
+        [Description("Required for 'atText': substring to search for in existing run text (ordinal match).")]
+        string? searchText = null,
+        [Description("Which OOXML part locationType resolves within: 'body' (default), 'header', or "
+                     + "'footer' (case-insensitive). Page-conditional text belongs in a header or footer.")]
+        [LayoutPartValues] string layoutPart = "body",
+        [Description("Only used when layoutPart is 'header'/'footer': a specific part file name, e.g. "
+                     + "'footer2.xml'. Omit to target the DEFAULT part - the everyday header/footer, which is often "
+                     + "NOT the first part in the package (get_layout_info's partDetails gives each part's role; in a "
+                     + "hasTitlePage layout, page 1 renders the 'first'-role part instead).")] string? partName = null,
+        [Description(TextFormatArgument.InsertDescription)] TextFormatArgument? format = null)
+    {
+        return GuardEdit(layoutPath, (doc, target) =>
+        {
+            var condition = ParsePageConditionOrThrow(when);
+            var location = BuildLocation(locationType, controlId, tableIndex, row, col, searchText, layoutPart, partName);
+            return LayoutEditor.InsertPageConditionalText(
+                doc, text, condition, location, TextFormatArgument.ToDomain(format, target));
+        });
+    }
+
+    /// <summary>
+    /// Parses <c>insert_page_conditional_text</c>'s <c>when</c> (case-insensitive). It is required with no default, so
+    /// an explicit JSON <c>null</c> is refused as <c>invalid_argument</c> rather than guessed.
+    /// </summary>
+    internal static PageCondition ParsePageConditionOrThrow(string? when) => when?.Trim().ToLowerInvariant() switch
+    {
+        "lastpage" => PageCondition.LastPage,
+        "notlastpage" => PageCondition.NotLastPage,
+        "firstpage" => PageCondition.FirstPage,
+        _ => throw new ArgumentException(
+            (when is null ? "when is required (got null)." : $"Unknown when '{when}'.")
+            + " Use 'lastPage', 'notLastPage', or 'firstPage'.", nameof(when)),
+    };
+
     [McpServerTool(Name = "insert_picture")]
     [Description("Insert a PICTURE content control bound to a picture dataset path (e.g. "
                  + "'/Header/CompanyPicture' - the company logo every real BC document header carries), at "

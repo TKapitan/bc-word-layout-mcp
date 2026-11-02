@@ -82,7 +82,10 @@ Seven probes follow round 3's re-run: **P18** checked why a work description `wr
 did not print, and **P19**–**P24** carry #123 on: an existing but empty value outside a repeater (P19), and
 inside one, under the lines of the invoice P08 prints, a missing record, an empty value and a filled one
 for the row variant (P20–P22) and a missing record and a filled one for the table variant (P23/P24), one
-wrapped cell each; no new demo data needed.
+wrapped cell each; no new demo data needed. **P25** prints `insert_page_conditional_text`
+([#11](https://github.com/TKapitan/bc-word-layout-mcp/issues/11)): P11's `IF PAGE = NUMPAGES` construct as
+the tool writes it, and its `<>` and `PAGE = 1` variants, which no round has printed, on a multi-page and
+a one-page purchase order.
 
 Each item folder carries the `.docx` to upload, this
 tool's own mock render of it, a README naming the questions that item's BC render answers, and the full

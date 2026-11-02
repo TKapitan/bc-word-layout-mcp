@@ -91,7 +91,7 @@ internal static class ToolGuards
         TargetVersionResolver.Resolve(layoutPath, BcVersionEnvironmentValue);
 
     /// <summary>
-    /// Shared choreography for all 22 mutating tools — every tool that writes through <see cref="GuardEdit"/>,
+    /// Shared choreography for all 23 mutating tools — every tool that writes through <see cref="GuardEdit"/>,
     /// <see cref="GuardCellEdit"/>, <see cref="GuardTableEdit"/> or <see cref="GuardRefresh"/>: copy
     /// <paramref name="layoutPath"/> to a private temp working copy, open THAT copy read-write
     /// (<see cref="OpenSettings.AutoSave"/> off), apply <paramref name="mutate"/>, drop any link to an external
@@ -1562,6 +1562,10 @@ internal static class ToolGuards
         "alignment" =>
             "alignment must be 'left', 'center' or 'right' (case-insensitive); omit it to keep the paragraph's "
             + "existing alignment.",
+
+        "when" =>
+            "when picks the pages insert_page_conditional_text's text prints on: 'lastPage' (IF PAGE = NUMPAGES), "
+            + "'notLastPage' (IF PAGE <> NUMPAGES) or 'firstPage' (IF PAGE = 1), case-insensitive.",
 
         "paragraphstyle" =>
             "paragraphStyle is the id of a PARAGRAPH style the layout's styles part defines, e.g. 'Heading1' (the "

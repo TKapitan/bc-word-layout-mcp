@@ -21,6 +21,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - A new error code, `bc_version_unsupported`, refuses a call that would write a feature the target
     lacks, or any such call when the target is unknown. No shipped tool writes one yet: theme colours
     and paragraph styles (#145, #146) will. The README lists the features and their versions.
+- **New tool `insert_page_conditional_text`: text on the last page only, every page but the last,
+  or the first page only** (GitHub issue #11). It inserts static text inside a Word `IF` field over
+  `PAGE` and `NUMPAGES`: `when` is `lastPage` (`IF PAGE = NUMPAGES`), `notLastPage` (`<>`) or
+  `firstPage` (`PAGE = 1`), e.g. company details on the last page or "continued on the next page".
+  - The `lastPage` runs are exactly sandbox probe P11's, which Business Central 28 evaluated per page on
+    a two-page and a one-page order. The other two differ only in the comparison; new pack item P25
+    prints all three.
+  - It takes the insert tools' locations, `layoutPart`/`partName` and `format`, and, like
+    `insert_page_number`, creates no content control.
+  - Text only: a double quote or backslash is refused, since the field syntax reads them. A bound value
+    inside the field is untested.
+  - The tool count is now 29 (23 mutating).
 - **Theme colours** (GitHub issue #145). `format.color`, on every tool that writes text, and
   `set_cell_format`'s `fill` now also take a theme slot: `text1`, `background1`, `text2`,
   `background2`, `accent1` to `accent6`, `hyperlink` or `followedHyperlink`. A slot may add
