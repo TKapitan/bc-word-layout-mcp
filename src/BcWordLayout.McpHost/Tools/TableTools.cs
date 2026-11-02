@@ -52,6 +52,12 @@ public static class TableTools
         + "'TableGrid' (create_layout's blank layouts define it) or a branded templatePath shell's own table style. "
         + "Refused when the layout does not define it; the error lists the ones it does. Ids are case-sensitive.";
 
+    /// <summary>The <c>borderColor</c> parameter's description, shared by the two table-creating tools.</summary>
+    private const string TableBorderColorDescription =
+        "Optional colour of the rules borders draws: six hex digits RRGGBB (e.g. '002060'), 'auto' (black, the "
+        + "default), or a theme colour such as 'accent1' or 'text2 lighter 40%' (BC 29 and later; see format.color). "
+        + "Refused with borders 'none', which draws no rule.";
+
     [McpServerTool(Name = "insert_repeater_table")]
     [Description("Insert a complete repeater TABLE bound to a repeating data item (e.g. '/Header/Line', as "
                  + "reported by list_dataset_fields): a header row (label controls where a label column "
@@ -103,13 +109,16 @@ public static class TableTools
                      + "real BC lines table; 'none' draws no border at all (e.g. a composable body whose theme's "
                      + "table style supplies the look); 'grid' draws an explicit single-line border on every edge "
                      + "and between every cell. Use set_cell_format afterwards for the other rules a BC document "
-                     + "has (e.g. above a totals block).")] [BordersValues] string borders = "headerRule")
+                     + "has (e.g. above a totals block).")] [BordersValues] string borders = "headerRule",
+        [Description(TableBorderColorDescription)] string? borderColor = null)
     {
-        return GuardEdit(layoutPath, doc =>
+        return GuardEdit(layoutPath, (doc, target) =>
         {
+            RequireThemableFormatting(target, [borderColor]);
             var options = new RepeaterTableOptions
             {
                 Borders = ParseBordersOrThrow(borders, TableBorderLook.HeaderRule),
+                BorderColor = borderColor,
                 HeaderFromLabels = headerFromLabels,
                 TableStyle = string.IsNullOrWhiteSpace(tableStyle) ? null : tableStyle,
             };
@@ -150,9 +159,9 @@ public static class TableTools
         IReadOnlyList<RowCellArgument> cells,
         [Description(TextFormatArgument.RowDescription)] TextFormatArgument? format = null)
     {
-        return GuardEdit(layoutPath, doc =>
+        return GuardEdit(layoutPath, (doc, target) =>
             LayoutEditor.InsertRepeaterRow(
-                doc, parentControlId, dataItem, TableArguments.ToRowCells(cells), TextFormatArgument.ToDomain(format)));
+                doc, parentControlId, dataItem, TableArguments.ToRowCells(cells), TextFormatArgument.ToDomain(format, target)));
     }
 
     [McpServerTool(Name = "insert_subtotal_row")]
@@ -184,10 +193,10 @@ public static class TableTools
         IReadOnlyList<RowCellArgument> cells,
         [Description(TextFormatArgument.RowDescription)] TextFormatArgument? format = null)
     {
-        return GuardEdit(layoutPath, doc =>
+        return GuardEdit(layoutPath, (doc, target) =>
         {
             return LayoutEditor.InsertSubtotalRow(
-                doc, parentControlId, TableArguments.ToRowCells(cells), TextFormatArgument.ToDomain(format));
+                doc, parentControlId, TableArguments.ToRowCells(cells), TextFormatArgument.ToDomain(format, target));
         });
     }
 
@@ -231,11 +240,11 @@ public static class TableTools
                      + "'header2.xml'); omit to target the DEFAULT header/footer part (see get_layout_info's "
                      + "partDetails for each part's role).")] string? partName = null)
     {
-        return GuardTableEdit(layoutPath, doc =>
+        return GuardTableEdit(layoutPath, (doc, target) =>
         {
             var part = ParseLayoutPartOrThrow(layoutPart);
             return TableStructureEditor.InsertStaticRow(
-                doc, part, partName, tableIndex, atRow, TableArguments.ToRowCells(cells), TextFormatArgument.ToDomain(format));
+                doc, part, partName, tableIndex, atRow, TableArguments.ToRowCells(cells), TextFormatArgument.ToDomain(format, target));
         });
     }
 
@@ -280,6 +289,7 @@ public static class TableTools
                      + "rule under the first row, the rule set_cell_format draws for a bottom edge; 'grid' draws an "
                      + "explicit single-line border on every edge and between every cell.")]
         [BordersValues] string borders = "none",
+        [Description(TableBorderColorDescription)] string? borderColor = null,
         [Description(TableStyleDescription)] string? tableStyle = null,
         [Description("Which OOXML part locationType resolves within: 'body' (default), 'header', or "
                      + "'footer' (case-insensitive).")] [LayoutPartValues] string layoutPart = "body",
@@ -288,13 +298,15 @@ public static class TableTools
                      + "to target the DEFAULT part - the everyday header/footer, which is often NOT the first "
                      + "part in the package (partDetails gives each part's role).")] string? partName = null)
     {
-        return GuardTableEdit(layoutPath, doc =>
+        return GuardTableEdit(layoutPath, (doc, target) =>
         {
+            RequireThemableFormatting(target, [borderColor]);
             var location = BuildLocation(locationType, controlId, tableIndex, row, col, searchText, layoutPart, partName);
             return LayoutEditor.InsertPlainTable(
                 doc, rowCount, TableArguments.ToTableColumns(columns), location,
                 ParseBordersOrThrow(borders, TableBorderLook.None),
-                string.IsNullOrWhiteSpace(tableStyle) ? null : tableStyle);
+                string.IsNullOrWhiteSpace(tableStyle) ? null : tableStyle,
+                borderColor);
         });
     }
 
@@ -533,9 +545,11 @@ public static class TableTools
                  + "edges is an array of 'top', 'bottom', 'left', 'right' (or 'all'); "
                  + "borderStyle='single' (default) draws a line, 'none' clears those edges explicitly (they "
                  + "stay clear even in a table that declares its own border grid). Edges you do NOT name are "
-                 + "left exactly as they were. Drawing over a rule the cell already has changes its thickness "
-                 + "and keeps its colour, a theme colour included; a new rule is black (auto). fill is six hex digits RRGGBB (e.g. 'E8E8E8', the stock light "
-                 + "grey) or 'auto' for no fill. Pass edges, fill, or both. Cosmetic only - no cell, row, "
+                 + "left exactly as they were. borderColor colours the edges drawn (e.g. '002060', or a theme "
+                 + "colour such as 'accent1'); without it, drawing over a rule the cell already has changes its "
+                 + "thickness and keeps its colour, a theme colour included, and a new rule is black (auto). fill is "
+                 + "six hex digits RRGGBB (e.g. 'E8E8E8', the stock light grey), 'auto' for no fill, or a theme "
+                 + "colour. Pass edges, fill, or both. Cosmetic only - no cell, row, "
                  + "column, grid or binding is touched, so unlike the other table tools this one also works on "
                  + "tables that use vMerge. To format the TEXT in the cells, use set_text_format. Same "
                  + "write/validate/save-or-reject safety as insert_field.")]
@@ -554,17 +568,22 @@ public static class TableTools
                      + "the named edges.")] [BorderStyleValues] string? borderStyle = null,
         [Description("For edges: rule thickness in EIGHTHS of a point (2-96); default 4 = 1/2 pt, the only "
                      + "thickness the real BC corpus uses.")] [Range(2, 96)] int? borderSize = null,
-        [Description("Cell fill: six hex digits RRGGBB (e.g. 'E8E8E8'; a leading '#' is fine) or 'auto' for no "
-                     + "fill. Omit to leave the fill alone.")] string? fill = null,
+        [Description("For edges drawn: the rule colour - six hex digits RRGGBB (e.g. '002060'), 'auto' (black), or "
+                     + "a theme colour such as 'accent1' or 'text2 lighter 40%' (BC 29 and later; see format.color). "
+                     + "Omit to draw a new rule black and keep the colour of a rule drawn over.")] string? borderColor = null,
+        [Description("Cell fill: six hex digits RRGGBB (e.g. 'E8E8E8'; a leading '#' is fine), 'auto' for no "
+                     + "fill, or a theme colour such as 'accent1' or 'background2 darker 25%' (BC 29 and later; see "
+                     + "format.color). Omit to leave the fill alone.")] string? fill = null,
         [Description("Which OOXML part the table is in: 'body' (default), 'header', or 'footer'.")] [LayoutPartValues] string layoutPart = "body",
         [Description("Only used when layoutPart is 'header'/'footer': a specific part file name (e.g. "
                      + "'header2.xml'); omit to target the DEFAULT header/footer part (see get_layout_info's "
                      + "partDetails for each part's role).")] string? partName = null)
     {
-        return GuardTableEdit(layoutPath, doc =>
+        return GuardTableEdit(layoutPath, (doc, target) =>
         {
+            RequireThemableFormatting(target, [fill, borderColor]);
             var part = ParseLayoutPartOrThrow(layoutPart);
-            var borders = ParseCellBorderOptionsOrThrow(edges, borderStyle, borderSize);
+            var borders = ParseCellBorderOptionsOrThrow(edges, borderStyle, borderSize, borderColor);
             return TableStructureEditor.SetCellFormat(doc, part, partName, tableIndex, row, col, borders, fill);
         });
     }
@@ -641,18 +660,19 @@ public static class TableTools
     /// <see cref="CellBorderOptions"/>, or null when none of them is given (the call only sets a fill). The "no
     /// edge selected"/"size out of range" rejections belong to <see cref="TableStructureEditor.SetCellFormat"/>
     /// (they are domain rules, checked there for every caller); this rejects what the flat form itself can get
-    /// wrong — an unknown edge name or style, and a style or size without edges, which would otherwise be
+    /// wrong — an unknown edge name or style, and a style, size or colour without edges, which would otherwise be
     /// silently ignored. A null style or size is its documented default (<c>single</c>, ½ pt).
     /// </summary>
-    internal static CellBorderOptions? ParseCellBorderOptionsOrThrow(IReadOnlyList<string?>? edges, string? borderStyle, int? borderSize)
+    internal static CellBorderOptions? ParseCellBorderOptionsOrThrow(
+        IReadOnlyList<string?>? edges, string? borderStyle, int? borderSize, string? borderColor = null)
     {
         if (edges is null)
         {
-            if (borderStyle is not null || borderSize is not null)
+            if (borderStyle is not null || borderSize is not null || borderColor is not null)
             {
                 throw new ArgumentException(
-                    "borderStyle and borderSize describe the edges you name, but edges was not given; pass edges "
-                    + "too (e.g. 'top'), or drop them to set only the fill.",
+                    "borderStyle, borderSize and borderColor describe the edges you name, but edges was not given; "
+                    + "pass edges too (e.g. 'top'), or drop them to set only the fill.",
                     nameof(edges));
             }
 
@@ -672,6 +692,7 @@ public static class TableTools
         {
             Remove = remove,
             SizeEighthPoints = borderSize ?? CellBorderOptions.DefaultSizeEighthPoints,
+            Color = borderColor,
         };
         for (var i = 0; i < edges.Count; i++)
         {

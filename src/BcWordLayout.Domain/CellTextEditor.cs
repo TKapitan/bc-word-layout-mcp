@@ -37,19 +37,26 @@ public static class CellTextEditor
     /// text was in, keeping its <c>w:pPr</c> (e.g. <c>pStyle</c>), and inherits the first replaced run's
     /// <c>w:rPr</c>, so a re-labelled header keeps its styling. The optional <paramref name="format"/> goes on
     /// the new run over that (see <see cref="RunFormatter"/>), and <paramref name="alignment"/>
-    /// (<c>left</c>/<c>center</c>/<c>right</c>) on the paragraph holding it; omitted, the cell's look is kept.
+    /// (<c>left</c>/<c>center</c>/<c>right</c>) and <paramref name="paragraphStyle"/> (see
+    /// <see cref="CheckParagraphStyle"/>) on the paragraph holding it; omitted, the cell's look is kept.
     /// </summary>
     /// <exception cref="ArgumentException">
     /// <paramref name="location"/> is not a <see cref="LocationKind.TableCell"/> (or is otherwise
     /// structurally invalid); or <paramref name="text"/> is null; or the cell contains a content control
-    /// (see remarks); or <paramref name="format"/> or <paramref name="alignment"/> is malformed.
+    /// (see remarks); or <paramref name="format"/> or <paramref name="alignment"/> is malformed, or
+    /// <paramref name="paragraphStyle"/> names no paragraph style the layout defines.
     /// </exception>
     /// <exception cref="NotFoundException">
     /// <paramref name="location"/> does not resolve against <paramref name="doc"/> (out-of-range
     /// table/row/cell) — propagated from <see cref="LocationResolver.ResolveCellElement"/>.
     /// </exception>
     public static CellEditResult SetCellText(
-        WordprocessingDocument doc, Location location, string text, TextFormat? format = null, string? alignment = null)
+        WordprocessingDocument doc,
+        Location location,
+        string text,
+        TextFormat? format = null,
+        string? alignment = null,
+        string? paragraphStyle = null)
     {
         ArgumentNullException.ThrowIfNull(doc);
         ArgumentNullException.ThrowIfNull(location);
@@ -57,7 +64,8 @@ public static class CellTextEditor
 
         var prepared = RunFormatter.Prepare(format, doc);
         JustificationValues? justification = alignment is null ? null : ParseAlignment(alignment, nameof(alignment));
-        return Edit(doc, location, "set_cell_text", text, prepared, justification);
+        var style = paragraphStyle is null ? null : CheckParagraphStyle(doc, paragraphStyle, nameof(paragraphStyle));
+        return Edit(doc, location, "set_cell_text", text, prepared, justification, style);
     }
 
     /// <summary>
@@ -112,13 +120,59 @@ public static class CellTextEditor
         paragraph.ParagraphProperties.Justification = new Justification { Val = justification };
     }
 
+    /// <summary>
+    /// Sets <paramref name="paragraph"/>'s paragraph style (<c>w:pPr/w:pStyle</c>), creating its <c>w:pPr</c> when
+    /// absent; the typed setter places <c>w:pStyle</c> first, where the schema has it.
+    /// </summary>
+    internal static void SetParagraphStyle(Paragraph paragraph, string styleId)
+    {
+        paragraph.ParagraphProperties ??= new ParagraphProperties();
+        paragraph.ParagraphProperties.ParagraphStyleId = new ParagraphStyleId { Val = styleId };
+    }
+
+    /// <summary>
+    /// Returns <paramref name="styleId"/> when the layout's styles part defines it as a PARAGRAPH style (ids are
+    /// case-sensitive, as in Word's model), else refuses, naming the ones it does: the paragraph twin of
+    /// <c>format.characterStyle</c> (GitHub issue #146). A dangling or non-paragraph <c>w:pStyle</c> is valid OOXML
+    /// that every renderer ignores, printing the paragraph in the default style, so writing one would leave the
+    /// caller believing the text is styled; <c>validate_layout</c>'s <c>paragraph-style-resolves</c> covers the
+    /// references no tool wrote (GitHub issue #147).
+    /// </summary>
+    /// <exception cref="ArgumentException">The layout does not define it as a paragraph style.</exception>
+    internal static string CheckParagraphStyle(WordprocessingDocument doc, string styleId, string paramName)
+    {
+        var styles = doc.MainDocumentPart?.StyleDefinitionsPart?.Styles?.Elements<Style>().ToList() ?? [];
+        var match = styles.FirstOrDefault(s => string.Equals(s.StyleId?.Value, styleId, StringComparison.Ordinal));
+        if (match?.Type?.Value == StyleValues.Paragraph)
+        {
+            return styleId;
+        }
+
+        var paragraphStyles = styles
+            .Where(s => s.Type?.Value == StyleValues.Paragraph && s.StyleId?.Value is { Length: > 0 })
+            .Select(s => s.StyleId!.Value!)
+            .ToList();
+        var available = paragraphStyles.Count == 0
+            ? "This layout defines no paragraph styles: start from a templatePath that defines the style, or set the "
+              + "formatting directly with format."
+            : $"Paragraph styles this layout defines: {string.Join(", ", paragraphStyles.Select(s => $"'{s}'"))}.";
+        var reason = match is null
+            ? "the layout's styles part does not define it"
+            : $"it is a {match.Type?.InnerText ?? "typeless"} style, not a paragraph style";
+
+        throw new ArgumentException(
+            $"paragraphStyle '{styleId}' cannot be applied: {reason}, so the reference would do nothing. " + available,
+            paramName);
+    }
+
     private static CellEditResult Edit(
         WordprocessingDocument doc,
         Location location,
         string operation,
         string? text,
         RunFormatter.Prepared? format = null,
-        JustificationValues? alignment = null)
+        JustificationValues? alignment = null,
+        string? paragraphStyle = null)
     {
         var (cell, partName) = LocationResolver.ResolveCellElement(location, doc);
 
@@ -136,7 +190,7 @@ public static class CellTextEditor
                 nameof(location));
         }
 
-        var (previousText, kept) = ReplaceCellText(cell, text, format, alignment);
+        var (previousText, kept) = ReplaceCellText(cell, text, format, alignment, paragraphStyle);
 
         var newText = text ?? string.Empty;
         return new CellEditResult
@@ -149,6 +203,7 @@ public static class CellTextEditor
             PreviousText = previousText,
             NewText = newText,
             Summary = BuildSummary(operation, location, partName, previousText, newText, kept)
+                + (paragraphStyle is null ? string.Empty : $" Its paragraph takes the paragraph style '{paragraphStyle}'.")
                 + RunFormatter.FontNote(format, doc),
         };
     }
@@ -173,7 +228,7 @@ public static class CellTextEditor
     /// and its only picture cell are both legitimate targets for a caption.
     /// </remarks>
     private static (string PreviousText, List<string> Kept) ReplaceCellText(
-        TableCell cell, string? text, RunFormatter.Prepared? format, JustificationValues? alignment)
+        TableCell cell, string? text, RunFormatter.Prepared? format, JustificationValues? alignment, string? paragraphStyle)
     {
         var paragraphs = cell.Elements<Paragraph>().ToList();
         var textRuns = FindTextRuns(paragraphs);
@@ -233,6 +288,11 @@ public static class CellTextEditor
         if (host is not null && alignment is { } justification)
         {
             Align(host, justification);
+        }
+
+        if (host is not null && paragraphStyle is not null)
+        {
+            SetParagraphStyle(host, paragraphStyle);
         }
 
         // On the new run only, never on a picture or field run kept beside it.

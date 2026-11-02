@@ -208,8 +208,21 @@ commission % [verified: P07, P16].
   style the layout defines (`Strong` in the stock document layouts [stock]).
 - Restyle what is already there with `set_text_format`: a stock control by id, a header row in one
   call (`target="row"`), or one exact piece of text.
+- Headings can come from paragraph styles instead of direct formatting: `set_text_format` (or
+  `set_cell_text`) with `paragraphStyle` `"Heading1"`, plus `clearDirectFormatting` so the style is not
+  hidden under a direct font and size. Microsoft's themable layouts style the title and company name
+  `Heading1`/`Heading2` this way [stock: StandardSalesInvoiceBlueSimpleThemable]. It needs a BC 29 target
+  and a style the layout defines (a blank `create_layout` build's only paragraph style is `Normal`, so
+  headings need a `templatePath` that defines them).
 - Shade cells with `set_cell_format`'s `fill`: the stock fills are a light grey `E8E8E8` and the
   accent blue `0070C0` [stock]. Most stock tables carry no fill at all, so use it sparingly.
+- A colour can name a theme slot instead of a hex value: `accent1`, `text2 lighter 40%`,
+  `background2 darker 25%`, as Word's palette names them. The text, fill or rule then follows the
+  layout's own theme part. Microsoft's themable layouts colour every accent through `accent1` this way
+  [stock: the three themable captures]. Prefer a slot when the layout should take a theme's colour,
+  and a hex value when the colour is fixed by the brand. A slot needs a layout with a theme part (a
+  blank `create_layout` build has none) and a BC 29 target. Whether a BC report theme re-colours
+  `accent1` is not yet known (#142); without one, BC prints the layout's own theme colour.
 - Anything beyond that (margins, page setup, a whole brand) has no tool: use a branded
   `templatePath` shell or hand-edit the OOXML and re-validate (al-word-layout §3). When the look
   already exists as a finished Word design with sample values, follow al-word-layout-from-design
@@ -233,7 +246,7 @@ commission % [verified: P07, P16].
 
 | Stock idiom | Why no tool | Route |
 |---|---|---|
-| Page-position-CONDITIONAL content (`IF PAGE = NUMPAGES`) | BC evaluates it per page [verified: P11, on a two-page and a one-page order], but no tool writes it yet (#11); plain `PAGE`/`NUMPAGES` itself IS buildable — `insert_page_number` (§4 Chrome) | `templatePath` shell carrying the construct, or hand-edit + `validate_layout` |
+| Page-position-conditional BOUND content (a field inside `IF PAGE = NUMPAGES`) | Static text is buildable: `insert_page_conditional_text` (`lastPage`, `notLastPage`, `firstPage`), which BC evaluates per page [verified: P11, on a two-page and a one-page order]. A bound control inside the `IF` result is untested in Word and BC (#11) | Put the static caption on the last page with the tool and leave the bound value unconditional, or hand-edit + `validate_layout` |
 | Hide-if-empty add-in controls | No tool writes them (#123). Row/table variants captured [stock: 115, SubcontractorDispatchList]. Outside a repeater neither hides anything, for a missing first child record [verified: P09, P10] or an empty value [verified: P19]. Inside a repeater the row variant hides the WHOLE repeated item (the line and every row in it) when its cell is a missing record or an empty value, and keeps it when filled [verified: P20, P21, P22]. The table variant around one cell does nothing, inside a repeater or outside [verified: P23, P24, P10]; around a whole table it is untested. *Hide Field if Zero* never captured (#8) | To drop repeated items whose value is empty: hand-wrap a cell of the item in the captured shape (a cell-level control in the wrapper), then `validate_layout`; otherwise reserve the rows/cells, as stock layouts do |
 
 ## 6. Design-time mock caveats

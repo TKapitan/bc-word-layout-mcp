@@ -47,6 +47,10 @@ public class AllowedValueAttributesTests
         AssertEachAccepted<TargetValuesAttribute>(value => EditTools.ParseTextFormatTargetOrThrow(value));
 
     [Fact]
+    public void Every_listed_page_condition_is_accepted() =>
+        AssertEachAccepted<PageConditionValuesAttribute>(value => EditTools.ParsePageConditionOrThrow(value));
+
+    [Fact]
     public void Every_listed_validation_level_is_accepted() =>
         AssertEachAccepted<LevelValuesAttribute>(value => Assert.True(ReadTools.TryParseLevel(value, out _), value));
 
@@ -65,6 +69,7 @@ public class AllowedValueAttributesTests
         ["edges"] = typeof(EdgeValuesAttribute),
         ["mode"] = typeof(ColumnModeValuesAttribute),
         ["target"] = typeof(TargetValuesAttribute),
+        ["when"] = typeof(PageConditionValuesAttribute),
         ["level"] = typeof(LevelValuesAttribute),
         ["converter"] = typeof(ConverterValuesAttribute),
     };

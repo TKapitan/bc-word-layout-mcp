@@ -31,8 +31,9 @@ namespace BcWordLayout.Domain;
 /// Word lets them win over the names; the East Asian font and the hint are kept. Any name is written, but the
 /// tool summary warns when Business Central online lacks the font (<see cref="FontNote"/>).</item>
 /// <item><c>Color</c>: <c>w:color w:val</c> as <c>RRGGBB</c> or <c>auto</c> (<c>0070C0</c> 23 times,
-/// <c>auto</c> 7, in 3 layouts). Theme-colour attributes are dropped for the same reason as theme fonts;
-/// writing theme colours is out of scope (two witnesses, and they depend on the theme part).</item>
+/// <c>auto</c> 7, in 3 layouts), or a theme slot written as <c>w:themeColor</c> beside the colour it has in the
+/// layout's theme (<see cref="LayoutColor"/>, GitHub issue #145). A literal colour drops the theme-colour
+/// attributes for the same reason as theme fonts, and <see cref="Apply"/> reports that it did.</item>
 /// <item><c>CharacterStyle</c>: <c>w:rStyle</c> (<c>Strong</c> 20 times, <c>PageNumber</c>,
 /// <c>Heading1Char</c> and others, in 4 layouts), refused unless the layout's styles part defines it as a
 /// CHARACTER style: a dangling or paragraph-style reference does nothing in any renderer.</item>
@@ -53,7 +54,7 @@ internal static class RunFormatter
         bool? Underline,
         string? HalfPoints,
         string? FontName,
-        string? Color,
+        LayoutColor? Color,
         string? CharacterStyle);
 
     /// <summary>The longest font name accepted; no installed font family comes close.</summary>
@@ -83,40 +84,19 @@ internal static class RunFormatter
             format.Underline,
             format.FontSizePoints is { } points ? HalfPoints(points, nameof(format)) : null,
             format.FontName is { } font ? CheckFontName(font, nameof(format)) : null,
-            format.Color is { } color ? NormalizeColor(color, "format.color", nameof(format)) : null,
+            format.Color is { } color ? LayoutColor.Parse(color, "format.color", nameof(format), doc, ColorUse.Text) : null,
             format.CharacterStyle is { } style ? CheckCharacterStyle(style, doc, nameof(format)) : null);
-    }
-
-    /// <summary>
-    /// Normalizes a colour argument to what OOXML stores: <c>auto</c>, or six upper-case hex digits (a leading
-    /// <c>#</c> is accepted). Shared with <c>set_cell_format</c>'s fill, which takes the same values.
-    /// </summary>
-    /// <exception cref="ArgumentException">Anything else, naming <paramref name="what"/> and keyed on <paramref name="paramName"/>.</exception>
-    internal static string NormalizeColor(string value, string what, string paramName)
-    {
-        var trimmed = value.Trim();
-        if (string.Equals(trimmed, "auto", StringComparison.OrdinalIgnoreCase))
-        {
-            return "auto";
-        }
-
-        var hex = trimmed.StartsWith('#') ? trimmed[1..] : trimmed;
-        if (hex.Length == 6 && hex.All(Uri.IsHexDigit))
-        {
-            return hex.ToUpperInvariant();
-        }
-
-        throw new ArgumentException(
-            $"{what} must be a colour as six hex digits RRGGBB (e.g. '0070C0'; a leading '#' is fine) or 'auto' "
-            + $"(got '{value}').",
-            paramName);
     }
 
     /// <summary>
     /// Writes <paramref name="format"/> onto <paramref name="properties"/>: a run's <c>w:rPr</c>, a control's
     /// <c>w:sdtPr/w:rPr</c>, or a paragraph mark's <c>w:pPr/w:rPr</c>. Members left null are not touched.
     /// </summary>
-    internal static void Apply(OpenXmlCompositeElement properties, Prepared format)
+    /// <returns>
+    /// True when a literal <see cref="Prepared.Color"/> replaced a theme colour, so the text no longer follows the
+    /// theme: what <c>set_text_format</c>'s summary reports (GitHub issue #145).
+    /// </returns>
+    internal static bool Apply(OpenXmlCompositeElement properties, Prepared format)
     {
         ArgumentNullException.ThrowIfNull(properties);
         ArgumentNullException.ThrowIfNull(format);
@@ -175,11 +155,53 @@ internal static class RunFormatter
             Set(properties, fonts);
         }
 
+        var droppedTheme = false;
         if (format.Color is { } color)
         {
-            Set(properties, new Color { Val = color });
+            droppedTheme = !color.IsTheme && properties.GetFirstChild<Color>()?.ThemeColor is not null;
+            Set(properties, color.ToRunColor());
         }
+
+        return droppedTheme;
     }
+
+    /// <summary>
+    /// Removes the direct formatting from <paramref name="properties"/> (a run's <c>w:rPr</c>, a control's
+    /// <c>w:sdtPr/w:rPr</c> or a paragraph mark's), so the paragraph and character styles decide the look: what
+    /// <c>set_text_format</c>'s <c>clearDirectFormatting</c> does (GitHub issue #146). The themable captures make a
+    /// title a heading this way: StandardSalesInvoiceBlueSimpleThemable drops the direct <c>w:rFonts</c> and
+    /// <c>w:sz</c> its plain twin gives that line and lets <c>Heading1</c> decide. What is not formatting stays (see
+    /// <see cref="IsKeptByClear"/>). Returns true when anything was removed.
+    /// </summary>
+    internal static bool ClearDirectFormatting(OpenXmlCompositeElement properties)
+    {
+        ArgumentNullException.ThrowIfNull(properties);
+
+        var removed = false;
+        foreach (var child in properties.ChildElements.Where(c => !IsKeptByClear(c)).ToList())
+        {
+            child.Remove();
+            removed = true;
+        }
+
+        return removed;
+    }
+
+    /// <summary>
+    /// True when <paramref name="properties"/> carries direct formatting <see cref="ClearDirectFormatting"/> would
+    /// remove: formatting that overrides what a paragraph style sets.
+    /// </summary>
+    internal static bool HasDirectFormatting(OpenXmlCompositeElement? properties) =>
+        properties?.ChildElements.Any(c => !IsKeptByClear(c)) == true;
+
+    /// <summary>
+    /// What clearing direct formatting keeps: the character style (a style, not direct formatting), and what is not
+    /// formatting at all - the proofing language, no-proofing, hidden text, script and direction, Office Math, and
+    /// revision marks.
+    /// </summary>
+    private static bool IsKeptByClear(OpenXmlElement child) =>
+        child is RunStyle or Languages or NoProof or Vanish or SpecVanish or WebHidden or RightToLeftText
+            or ComplexScript or OfficeMath or RunPropertiesChange or Inserted or Deleted or MoveFrom or MoveTo;
 
     /// <summary>
     /// The sentence a tool summary carries when <paramref name="format"/> names a font Business Central online
@@ -228,7 +250,7 @@ internal static class RunFormatter
 
         if (format.Color is { } color)
         {
-            parts.Add($"colour {color}");
+            parts.Add($"colour {color.Describe()}");
         }
 
         return string.Join(", ", parts);

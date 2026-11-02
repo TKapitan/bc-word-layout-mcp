@@ -196,6 +196,87 @@ public static class LayoutEditor
     }
 
     /// <summary>
+    /// Inserts text that prints only on some pages (GitHub issue #11) at <paramref name="location"/>: a Word <c>IF</c>
+    /// field over <c>PAGE</c> and <c>NUMPAGES</c> whose result is <paramref name="text"/> where <paramref name="when"/>
+    /// holds — see <see cref="PageNumberFieldFactory.BuildPageConditional"/> for the shape and its sandbox evidence.
+    /// Placed and formatted exactly like <see cref="InsertPageNumber"/>'s runs, and like them it creates no control.
+    /// </summary>
+    /// <exception cref="ArgumentException">
+    /// <paramref name="text"/> is empty, or holds a double quote, a backslash or a control character (the field
+    /// syntax would read them); or <paramref name="format"/> has a bad member.
+    /// </exception>
+    /// <exception cref="NotFoundException">Propagated from <see cref="LocationResolver.Resolve"/>.</exception>
+    public static EditResult InsertPageConditionalText(
+        WordprocessingDocument doc, string text, PageCondition when, Location location, TextFormat? format = null)
+    {
+        ArgumentNullException.ThrowIfNull(doc);
+        ArgumentNullException.ThrowIfNull(location);
+
+        if (string.IsNullOrEmpty(text) || text.Trim().Length == 0)
+        {
+            throw new ArgumentException(
+                "insert_page_conditional_text needs a non-blank text: it is what prints on the pages the condition "
+                + "selects.",
+                nameof(text));
+        }
+
+        if (text.IndexOfAny(['"', '\\']) >= 0 || text.Any(char.IsControl))
+        {
+            throw new ArgumentException(
+                $"text '{text}' holds a double quote, a backslash or a control character. The text sits inside the IF "
+                + "field's instruction, where Word reads those as field syntax, so it would not print as given. Use "
+                + "typographic quotes (“ ”) instead of \", and one line of text.",
+                nameof(text));
+        }
+
+        var prepared = RunFormatter.Prepare(format, doc);
+
+        var scaffolded = EnsureTargetPartExists(doc, location);
+        var anchor = LocationResolver.Resolve(location, doc);
+        var inherited = anchor.InheritedRunProperties();
+
+        var runs = PageNumberFieldFactory.BuildPageConditional(when, text);
+        foreach (var run in runs)
+        {
+            StyleRun(run, inherited, prepared);
+        }
+
+        anchor.InsertInline(runs[0]);
+        for (var i = 1; i < runs.Count; i++)
+        {
+            runs[i - 1].InsertAfterSelf(runs[i]);
+        }
+
+        var pages = when switch
+        {
+            PageCondition.LastPage => "on the last page only (IF PAGE = NUMPAGES)",
+            PageCondition.NotLastPage => "on every page but the last (IF PAGE <> NUMPAGES)",
+            _ => "on the first page only (IF PAGE = 1)",
+        };
+        return new EditResult
+        {
+            Operation = "insert_page_conditional_text",
+            ControlId = 0, // field codes are plain runs; no content control exists to carry an id
+            Kind = "PageConditionalField",
+            Part = anchor.PartName,
+            Summary = $"Inserted \"{text}\" {pages} at {DescribeLocation(location, anchor.PartName)}. It is a Word IF "
+                + "field, not a content control, so there is no controlId and it cannot be targeted by remove_control or "
+                + "used as an afterControl anchor. Word and Business Central evaluate it on every page when they render."
+                + (location.Part == LayoutPart.Body
+                    ? " In the body it prints once, where it sits, and only if that spot falls on such a page: a "
+                      + "header or footer repeats it on every page."
+                    : string.Empty)
+                + InheritedFormatNote(inherited)
+                + RunFormatter.FontNote(prepared, doc)
+                + (scaffolded
+                    ? $" The layout had no {location.Part.ToString().ToLowerInvariant()} part, so an empty "
+                      + $"{anchor.PartName} was created and wired into the page setup first."
+                    : string.Empty)
+                + FirstPageVisibilityNote(doc, location, anchor.PartName),
+        };
+    }
+
+    /// <summary>
     /// Inserts a PICTURE content control bound to <paramref name="datasetPath"/> at
     /// <paramref name="location"/> — the placeholder BC fills with a real image at render time, e.g. the
     /// company logo (<c>/Header/CompanyPicture</c>) a from-scratch layout could not carry at all before this
@@ -364,6 +445,7 @@ public static class LayoutEditor
             TableShell.CheckTableStyle(doc, options.TableStyle, "tableStyle");
         }
 
+        var ruleColor = TableShell.CheckBorderColor(doc, options.Borders, options.BorderColor);
         var schema = SchemaProvider.FromLayoutForBinding(doc);
         var nextId = MakeIdGenerator(doc);
 
@@ -371,7 +453,7 @@ public static class LayoutEditor
         // the width of wherever the table lands - the page's content width, or the host cell's.
         var anchor = LocationResolver.Resolve(location, doc);
         var table = SdtFactory.BuildRepeaterTable(
-            schema, dataItemPath, columns, options, nextId, ResolveAvailableWidthTwips(doc, anchor));
+            schema, dataItemPath, columns, options, nextId, ResolveAvailableWidthTwips(doc, anchor), ruleColor);
 
         anchor.InsertBlock(table);
         SeparateFromAdjacentTables(table);
@@ -1029,7 +1111,9 @@ public static class LayoutEditor
     /// <exception cref="ArgumentException">
     /// <paramref name="rowCount"/> or the number of <paramref name="columns"/> out of range; a column naming a field
     /// (a plain table binds nothing); given widths that leave nothing for the columns without one; an unrecognized
-    /// alignment; or <paramref name="tableStyle"/> naming no table style the layout defines.
+    /// alignment; <paramref name="tableStyle"/> naming no table style the layout defines; or
+    /// <paramref name="borderColor"/> not a colour, or given with <see cref="TableBorderLook.None"/> (see
+    /// <see cref="TableShell.CheckBorderColor"/>).
     /// </exception>
     /// <exception cref="NotFoundException">Propagated from <see cref="LocationResolver.Resolve"/>.</exception>
     public static TableEditResult InsertPlainTable(
@@ -1038,7 +1122,8 @@ public static class LayoutEditor
         IReadOnlyList<TableColumn> columns,
         Location location,
         TableBorderLook borders = TableBorderLook.None,
-        string? tableStyle = null)
+        string? tableStyle = null,
+        string? borderColor = null)
     {
         ArgumentNullException.ThrowIfNull(doc);
         ArgumentNullException.ThrowIfNull(columns);
@@ -1070,6 +1155,7 @@ public static class LayoutEditor
             TableShell.CheckTableStyle(doc, tableStyle, nameof(tableStyle));
         }
 
+        var ruleColor = TableShell.CheckBorderColor(doc, borders, borderColor);
         var scaffolded = EnsureTargetPartExists(doc, location);
 
         // Resolved before the build (Resolve only reads) because, with no explicit widths, the columns split
@@ -1082,7 +1168,7 @@ public static class LayoutEditor
         var grid = new TableGrid(widths.Select(w =>
             (OpenXmlElement)new GridColumn { Width = w.ToString(System.Globalization.CultureInfo.InvariantCulture) }));
 
-        var table = new Table(TableShell.Properties(widths, borders, tableStyle), grid);
+        var table = new Table(TableShell.Properties(widths, borders, tableStyle, ruleColor), grid);
         for (var r = 0; r < rowCount; r++)
         {
             var row = new TableRow();
@@ -1117,7 +1203,7 @@ public static class LayoutEditor
 
         if (borders == TableBorderLook.HeaderRule)
         {
-            TableShell.DrawHeaderRule(table.Elements<TableRow>().First().Elements<TableCell>());
+            TableShell.DrawHeaderRule(table.Elements<TableRow>().First().Elements<TableCell>(), ruleColor);
         }
 
         anchor.InsertBlock(table);

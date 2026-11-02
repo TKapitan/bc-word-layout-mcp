@@ -418,4 +418,125 @@ public class PageNumberFieldTests
         Assert.Equal("invalid_argument", response.Error!.Code);
         Assert.False(string.IsNullOrWhiteSpace(response.Error.Hint));
     }
+
+    // ---- insert_page_conditional_text (GitHub issue #11) ----
+
+    private const string W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+
+    private static string Fld(string kind) => $"<w:r><w:fldChar w:fldCharType=\"{kind}\"/></w:r>";
+
+    private static string Instr(string text) => $"<w:r><w:instrText xml:space=\"preserve\">{text}</w:instrText></w:r>";
+
+    private static string Nested(string instruction) =>
+        Fld("begin") + Instr(instruction) + Fld("separate") + "<w:r><w:instrText>1</w:instrText></w:r>" + Fld("end");
+
+    private static System.Xml.Linq.XElement Paragraph(IEnumerable<Run> runs) =>
+        System.Xml.Linq.XElement.Parse(new Paragraph(runs.Select(r => (OpenXmlElement)r.CloneNode(true))).OuterXml);
+
+    [Fact]
+    public void The_last_page_construct_is_run_for_run_what_sandbox_probe_P11_printed()
+    {
+        // tools/e2e/sandbox_pack.py's LAST_PAGE_PARAGRAPH, which BC 28 evaluated per page (issue #11, round 3 and the
+        // rc.2 re-run) and which Word for Microsoft 365 saved back unchanged.
+        var p11 = System.Xml.Linq.XElement.Parse(
+            $"<w:p xmlns:w=\"{W}\">"
+            + Fld("begin") + Instr(" IF ") + Nested(" PAGE ") + Instr(" = ") + Nested(" NUMPAGES ")
+            + Instr(" \"LAST PAGE ONLY\" \"\" ")
+            + Fld("separate") + "<w:r><w:t>LAST PAGE ONLY</w:t></w:r>" + Fld("end")
+            + "</w:p>");
+
+        var built = Paragraph(PageNumberFieldFactory.BuildPageConditional(PageCondition.LastPage, "LAST PAGE ONLY"));
+
+        Assert.True(System.Xml.Linq.XNode.DeepEquals(p11, built), built.ToString());
+    }
+
+    [Fact]
+    public void The_other_conditions_differ_only_in_the_comparison()
+    {
+        var notLast = Paragraph(PageNumberFieldFactory.BuildPageConditional(PageCondition.NotLastPage, "Continued"));
+        var first = Paragraph(PageNumberFieldFactory.BuildPageConditional(PageCondition.FirstPage, "Original"));
+
+        Assert.True(System.Xml.Linq.XNode.DeepEquals(
+            System.Xml.Linq.XElement.Parse(
+                $"<w:p xmlns:w=\"{W}\">" + Fld("begin") + Instr(" IF ") + Nested(" PAGE ") + Instr(" &lt;&gt; ") + Nested(" NUMPAGES ")
+                + Instr(" \"Continued\" \"\" ") + Fld("separate") + "<w:r><w:t>Continued</w:t></w:r>" + Fld("end") + "</w:p>"),
+            notLast));
+        Assert.True(System.Xml.Linq.XNode.DeepEquals(
+            System.Xml.Linq.XElement.Parse(
+                $"<w:p xmlns:w=\"{W}\">" + Fld("begin") + Instr(" IF ") + Nested(" PAGE ") + Instr(" = 1 \"Original\" \"\" ")
+                + Fld("separate") + "<w:r><w:t>Original</w:t></w:r>" + Fld("end") + "</w:p>"),
+            first));
+    }
+
+    [Fact]
+    public void insert_page_conditional_text_puts_the_field_in_the_default_footer_formatted_and_valid()
+    {
+        var path = CopyOfCorpus(Corpus.StandardPurchaseOrder);
+        try
+        {
+            var response = EditTools.InsertPageConditionalText(
+                path, "Thank you for your business", "lastPage", "documentEnd", layoutPart: "footer",
+                format: new TextFormatArgument { Bold = true, FontSizePoints = 8 });
+
+            Assert.True(response.Ok, response.Error?.Message);
+            var dto = Assert.IsType<EditResultDto>(response.Data);
+            Assert.Equal("insert_page_conditional_text", dto.Operation);
+            Assert.Equal(0, dto.ControlId);
+            Assert.Equal("PageConditionalField", dto.Kind);
+            Assert.Contains("on the last page only (IF PAGE = NUMPAGES)", dto.Summary, StringComparison.Ordinal);
+            Assert.Equal(0, dto.QuickValidation.ErrorCount);
+
+            using var reopened = WordprocessingDocument.Open(path, false);
+            var footer = reopened.MainDocumentPart!.FooterParts.Single(f => PartWalker.PartFileName(f) == dto.Part);
+            var runs = footer.Footer!.Descendants<Run>()
+                .SkipWhile(r => r.GetFirstChild<FieldCode>()?.Text != " IF ").ToList();
+            Assert.NotEmpty(runs);
+            var fieldRuns = runs.Take(16).ToList();
+            Assert.Equal("Thank you for your business", fieldRuns[14].InnerText);
+            Assert.All(fieldRuns, r =>
+            {
+                Assert.NotNull(r.RunProperties?.Bold);
+                Assert.Equal("16", r.RunProperties!.FontSize!.Val!.Value);
+            });
+            Assert.DoesNotContain(new OpenXmlValidator(FileFormatVersions.Office2021).Validate(reopened),
+                e => e.Part?.Uri.ToString().Contains("footer", StringComparison.Ordinal) == true);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Theory]
+    [InlineData("Say \"hi\"", "lastPage", "text", "holds a double quote, a backslash or a control character")]
+    [InlineData("C:\\path", "lastPage", "text", "holds a double quote, a backslash or a control character")]
+    [InlineData("two\nlines", "lastPage", "text", "holds a double quote, a backslash or a control character")]
+    [InlineData("   ", "lastPage", "text", "needs a non-blank text")]
+    [InlineData("x", "middlePage", "when", "Unknown when 'middlePage'")]
+    public void insert_page_conditional_text_refuses_text_the_field_syntax_would_read_and_an_unknown_condition(
+        string text, string when, string parameter, string fragment)
+    {
+        var path = CopyOfCorpus(Corpus.StandardPurchaseOrder);
+        try
+        {
+            var before = File.ReadAllBytes(path);
+
+            var response = EditTools.InsertPageConditionalText(path, text, when, "documentEnd", layoutPart: "footer");
+
+            Assert.False(response.Ok);
+            Assert.Equal("invalid_argument", response.Error!.Code);
+            Assert.Contains(fragment, response.Error.Message, StringComparison.Ordinal);
+            Assert.False(string.IsNullOrWhiteSpace(response.Error.Hint));
+            if (parameter == "when")
+            {
+                Assert.Contains("'lastPage'", response.Error.Hint, StringComparison.Ordinal);
+            }
+
+            Assert.Equal(before, File.ReadAllBytes(path));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
 }

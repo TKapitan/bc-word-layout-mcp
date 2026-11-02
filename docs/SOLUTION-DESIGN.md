@@ -53,8 +53,12 @@ unreliable in a file format where a single misplaced element silently corrupts t
 - **Broad cosmetic formatting** (margins, page setup, branding). Text and cell formatting are supported
   (issue [#15](https://github.com/TKapitan/bc-word-layout-mcp/issues/15)): one `format` object (bold,
   italic, underline, size, font, colour, character style) on every tool that writes text,
-  `set_text_format` to restyle text already in the layout, cell/column `alignment`, and
-  `set_cell_format` for cell rules and fills. A control inserted into a freshly authored table cell has
+  `set_text_format` to restyle text already in the layout (or give it a paragraph style, or clear its
+  direct formatting so the styles decide), cell/column `alignment`, and `set_cell_format` for cell
+  rules (in any colour) and fills. Colours may be theme colours (`accent1`, `text2 lighter 40%`),
+  written as Word writes them; theme colours and paragraph styles need BC 29 (issues
+  [#145](https://github.com/TKapitan/bc-word-layout-mcp/issues/145),
+  [#146](https://github.com/TKapitan/bc-word-layout-mcp/issues/146)). A control inserted into a freshly authored table cell has
   no styling to inherit and would otherwise look obviously wrong. Where there IS
   styling to inherit, inline inserts take the run formatting of the text before them, as typing in Word
   does, so they match a stock layout's own runs without any knob (issue
@@ -197,7 +201,7 @@ alongside the quick checks in `Domain.LayoutValidator`.
 
 ## 4. Tool surface
 
-**28 tools.** The per-parameter reference is the companion skill's §2
+**29 tools.** The per-parameter reference is the companion skill's §2
 ([`skills/al-word-layout/SKILL.md`](../skills/al-word-layout/SKILL.md)); this is the shape and the grouping.
 
 | Group | Tools |
@@ -205,7 +209,7 @@ alongside the quick checks in `Domain.LayoutValidator`.
 | Inspect | `get_layout_info`, `list_dataset_fields` |
 | Validate | `validate_layout` (`quick` \| `full`) |
 | Preview | `preview_layout`, `render_preview_pages` |
-| Author | `create_layout`, `insert_field`, `insert_label`, `insert_text`, `insert_page_number`, `insert_picture`, `insert_table`, `insert_repeater_table`, `insert_repeater_row`, `insert_subtotal_row`, `wrap_in_repeater` |
+| Author | `create_layout`, `insert_field`, `insert_label`, `insert_text`, `insert_page_number`, `insert_page_conditional_text`, `insert_picture`, `insert_table`, `insert_repeater_table`, `insert_repeater_row`, `insert_subtotal_row`, `wrap_in_repeater` |
 | Table structure | `insert_table_row`, `insert_column`, `remove_column`, `set_column_widths`, `merge_cells`, `split_cells`, `set_cell_text`, `clear_cell_text` |
 | Format | `set_text_format`, `set_cell_format` |
 | Lifecycle | `remove_control`, `refresh_xml_part` |

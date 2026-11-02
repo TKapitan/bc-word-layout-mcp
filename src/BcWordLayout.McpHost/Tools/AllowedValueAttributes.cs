@@ -33,6 +33,9 @@ internal sealed class ColumnModeValuesAttribute() : AllowedValuesAttribute("fiel
 /// <summary><c>set_text_format</c>'s <c>target</c>.</summary>
 internal sealed class TargetValuesAttribute() : AllowedValuesAttribute("control", "cell", "row", "text");
 
+/// <summary><c>insert_page_conditional_text</c>'s <c>when</c>.</summary>
+internal sealed class PageConditionValuesAttribute() : AllowedValuesAttribute("lastPage", "notLastPage", "firstPage");
+
 /// <summary><c>validate_layout</c>'s <c>level</c>.</summary>
 internal sealed class LevelValuesAttribute() : AllowedValuesAttribute("quick", "full");
 

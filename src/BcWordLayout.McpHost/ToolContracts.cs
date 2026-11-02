@@ -160,6 +160,7 @@ public sealed record PartInfoDto(string Name, string Kind, string? Role, bool Is
 /// <c>first</c>-role header/footer (or none), not the <c>default</c> one — the reason a correctly
 /// inserted default-header field can be invisible on a one-page render (GitHub issue #5). <see cref="Target"/>
 /// is the target BC version the call resolved, which <see cref="Validation"/>'s <c>bc-version</c> check used.
+/// <see cref="Look"/> is the layout's theme, colours and styles (GitHub issue #149).
 /// </summary>
 public sealed record LayoutInfoDto(
     ReportInfoDto Report,
@@ -170,7 +171,33 @@ public sealed record LayoutInfoDto(
     IReadOnlyList<TableDto> Tables,
     IReadOnlyList<PartInfoDto> PartDetails,
     bool HasTitlePage,
-    TargetVersionDto Target);
+    TargetVersionDto Target,
+    LayoutLookDto Look);
+
+/// <summary>
+/// <c>get_layout_info</c>'s <c>look</c> (GitHub issue #149): the embedded <see cref="Theme"/> (null when the layout has no
+/// theme part), the <see cref="Colors"/> the body, headers and footers use, and the <see cref="Styles"/> they refer to.
+/// </summary>
+public sealed record LayoutLookDto(ThemeDto? Theme, IReadOnlyList<ColorUsageDto> Colors, IReadOnlyList<StyleUsageDto> Styles);
+
+/// <summary>
+/// A layout's theme part: its name, its colour scheme's name and colours, keyed by the theme colours the colour
+/// arguments take (<c>accent1</c> = <c>F24F4F</c>, read through the document's colour-scheme mapping), and its heading
+/// (<see cref="MajorFont"/>) and body (<see cref="MinorFont"/>) fonts.
+/// </summary>
+public sealed record ThemeDto(
+    string? Name, string? ColorScheme, IReadOnlyDictionary<string, string> Colors, string? MajorFont, string? MinorFont);
+
+/// <summary>
+/// One group of identical colour references in one part: <see cref="Kind"/> <c>text</c>/<c>fill</c>/<c>rule</c>, what
+/// carries it (<c>run</c>, <c>paragraphMark</c>, <c>control</c>, <c>cell</c>, <c>table</c>, <c>paragraph</c>,
+/// <c>page</c>), the literal <see cref="Color"/>, the <see cref="ThemeColor"/> in the form the colour arguments take
+/// (null for a literal colour), and how many elements carry it.
+/// </summary>
+public sealed record ColorUsageDto(string Part, string Kind, string Carrier, string Color, string? ThemeColor, int Count);
+
+/// <summary>A style id the content refers to: <see cref="Kind"/> <c>paragraph</c>/<c>character</c>/<c>table</c>, and how often.</summary>
+public sealed record StyleUsageDto(string StyleId, string Kind, int Count);
 
 public sealed record ColumnDto(string Name, string Path, bool IsLabel, bool? Bound);
 

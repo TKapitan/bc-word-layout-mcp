@@ -21,6 +21,71 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - A new error code, `bc_version_unsupported`, refuses a call that would write a feature the target
     lacks, or any such call when the target is unknown. No shipped tool writes one yet: theme colours
     and paragraph styles (#145, #146) will. The README lists the features and their versions.
+- **New tool `insert_page_conditional_text`: text on the last page only, every page but the last,
+  or the first page only** (GitHub issue #11). It inserts static text inside a Word `IF` field over
+  `PAGE` and `NUMPAGES`: `when` is `lastPage` (`IF PAGE = NUMPAGES`), `notLastPage` (`<>`) or
+  `firstPage` (`PAGE = 1`), e.g. company details on the last page or "continued on the next page".
+  - The `lastPage` runs are exactly sandbox probe P11's, which Business Central 28 evaluated per page on
+    a two-page and a one-page order. The other two differ only in the comparison; new pack item P25
+    prints all three.
+  - It takes the insert tools' locations, `layoutPart`/`partName` and `format`, and, like
+    `insert_page_number`, creates no content control.
+  - Text only: a double quote or backslash is refused, since the field syntax reads them. A bound value
+    inside the field is untested.
+  - The tool count is now 29 (23 mutating).
+- **Theme colours** (GitHub issue #145). `format.color`, on every tool that writes text, and
+  `set_cell_format`'s `fill` now also take a theme slot: `text1`, `background1`, `text2`,
+  `background2`, `accent1` to `accent6`, `hyperlink` or `followedHyperlink`. A slot may add
+  `lighter N%` or `darker N%`, as Word's palette names its tints and shades, e.g. `"accent1"` or
+  `"text2 lighter 40%"`. The text or fill then follows the layout's theme part, as in Microsoft's
+  themable layouts.
+  - The OOXML is what Word writes: `w:themeColor` / `w:themeFill`, with `w:themeTint` /
+    `w:themeShade` / `w:themeFillShade`, beside the colour the slot has in the layout's own theme.
+  - Themable formatting needs BC 29, so a theme colour is refused with `bc_version_unsupported` for a
+    lower or unknown target. A hex colour is never gated.
+  - A theme colour is refused in a layout with no theme part (a blank `create_layout` build has none),
+    and so is a lighter theme fill, since no captured layout carries `w:themeFillTint`.
+  - `set_text_format` and `set_cell_format` now say when a hex colour or fill replaces a theme
+    colour: that text or fill stops following the theme.
+- **Rule colours: `borderColor`** (GitHub issue #143). Every rule the tools drew was black (`auto`),
+  so none of the coloured tables in Microsoft's layouts could be rebuilt; the stock Blue invoice has
+  rules in `002060` and in `text2` lighter 40%.
+  - `set_cell_format` takes a `borderColor` for the edges it draws. Without it, a redrawn rule keeps
+    its colour (#144) and a new one is black, as before. A hex colour over a theme-coloured rule drops
+    the theme colour, and the summary says so.
+  - `insert_table` and `insert_repeater_table` take one for the rules their `borders` look draws: the
+    header rule, or every edge of the grid. With `borders: "none"` it is refused, as there is no rule.
+  - The values are those of `fill`: `RRGGBB`, `auto` or a theme colour, a theme colour from BC 29.
+- **Paragraph styles and clearing direct formatting** (GitHub issue #146). Until now no tool could
+  make a line `Heading1`, nor remove the direct formatting that hides a style.
+  - `set_text_format` and `set_cell_text` take a `paragraphStyle`, written as `w:pStyle` on the
+    target's paragraphs, beside `alignment`. It must be a paragraph style the layout defines; any other
+    id is refused with the defined ones listed. Paragraph styles are themable formatting, so this needs
+    BC 29.
+  - `set_text_format` takes `clearDirectFormatting`. It first removes the direct run formatting from
+    the target's runs, its controls' own formatting and its paragraph marks, so the styles decide; the
+    character style, language and hidden-text marks stay. It is never gated. With a `paragraphStyle`,
+    the styled paragraphs' marks are cleared too, even for an inline control.
+  - The summary says when a styled paragraph still carries direct formatting, which wins over the style.
+  - In one call, StandardSalesInvoiceVatSpec's directly formatted title becomes what the themable capture
+    has: `Heading1` with an `accent1` colour.
+- **`get_layout_info` reports the layout's look** (GitHub issue #149), so an agent no longer has to
+  read the OOXML to learn that one layout colours everything through `accent1` and another
+  hard-codes `0070C0`. The new `look` section holds:
+  - `theme`: the colour scheme's name, each theme colour's RGB (through the document's colour-scheme
+    mapping) and the heading and body fonts; `null` without a theme part.
+  - `colors`: every colour the body, headers and footers use, grouped per part by kind (text, fill,
+    rule), by carrier and by colour, with the theme colour in the form the colour arguments take
+    (`"text2 lighter 40%"`). The carrier separates a run's colour from colours on paragraph marks and
+    a control's own properties, which show no text of their own. Microsoft's themable invoice keeps
+    literal `0070C0` only there, while the themable shipment has two captions whose runs stayed blue.
+  - `styles`: the paragraph, character and table style ids the content uses, with counts.
+- **New `validate_layout` check `paragraph-style-resolves` (warning)** (GitHub issue #147). It warns
+  about a `w:pStyle` that names no paragraph style the layout defines, including one that names a
+  character or table style. In Business Central such a paragraph prints as plain text, with no error.
+  There is one finding per style id, giving how many paragraphs use it and in which parts. With
+  `table-style-resolves` and `character-style-resolves`, all three kinds of style reference are now
+  checked. No corpus layout trips it.
 
 ### Changed
 

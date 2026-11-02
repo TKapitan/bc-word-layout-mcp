@@ -97,8 +97,8 @@ theme layout for Tenant Report Defaults.
   running header in `default`; give both footers the page number (`PAGE` / `NUMPAGES` fields) [verified].
   Use `get_layout_info` `partDetails` to address the right part (al-word-layout §4).
 - The document body of this file stays empty except its `w:sectPr`.
-- `insert_table` / `insert_field` / `insert_label` / `insert_picture` / `insert_page_number` with
-  `layoutPart` `header`/`footer` work on this file like on any layout — build the masthead and the
+- `insert_table` / `insert_field` / `insert_label` / `insert_picture` / `insert_page_number` /
+  `insert_page_conditional_text` with `layoutPart` `header`/`footer` work on this file like on any layout — build the masthead and the
   company-details footer as plain tables; there is no repeater in a header/footer.
 
 ## 4. Theme
@@ -130,12 +130,12 @@ theme layout for Tenant Report Defaults.
 ## 5. The style contract — check it every time
 
 Before handing over, list every `w:pStyle` / `w:rStyle` / `w:tblStyle` the body and the header/footer
-use and confirm each id exists in: the theme, the body's own `styles.xml`, and any Microsoft theme the
+use (`get_layout_info`'s `look.styles` lists them with counts) and confirm each id exists in: the theme, the body's own `styles.xml`, and any Microsoft theme the
 customer might pick instead (Calm, Default, Playful). In BC a missing id renders as plain text with no
-error. Within one file, `validate_layout` catches two of the three kinds: `table-style-resolves` (a
-`w:tblStyle`) and `character-style-resolves` (a `w:rStyle`, including one that names a paragraph style)
-warn about ids that file's own `styles.xml` does not define. `w:pStyle` ids, and every check against the
-theme file, stay manual. Fonts get the same care: `font-installed` warns about a font Business Central
+error. Within one file, `validate_layout` catches all three kinds: `table-style-resolves` (a
+`w:tblStyle`), `character-style-resolves` (a `w:rStyle`, including one that names a paragraph style) and
+`paragraph-style-resolves` (a `w:pStyle`, including one that names a character or table style) warn about
+ids that file's own `styles.xml` does not define. Every check against the theme file stays manual. Fonts get the same care: `font-installed` warns about a font Business Central
 online does not have, including the theme's heading or body font when text refers to it, since BC prints
 such text in a substitute font. Watch for Word's duplicate ids (`BCLabel0`, `BCLabelNumber0`) that appear when a body was attached to
 a template in Word — no theme defines them [MS sample: WordBody_3].

@@ -360,6 +360,13 @@ public sealed record CellBorderOptions
     /// <summary>Rule thickness in eighths of a point (2–96); see <see cref="DefaultSizeEighthPoints"/>.</summary>
     public int SizeEighthPoints { get; init; } = DefaultSizeEighthPoints;
 
+    /// <summary>
+    /// The colour of the rules drawn (GitHub issue #143): <c>RRGGBB</c>, <c>auto</c>, or a theme colour such as
+    /// <c>accent1</c> or <c>text2 lighter 40%</c> (see <see cref="BcWordLayout.Domain.LayoutColor"/>). Null draws a new rule
+    /// black (<c>auto</c>) and keeps the colour of a rule drawn over. Not used with <see cref="Remove"/>.
+    /// </summary>
+    public string? Color { get; init; }
+
     /// <summary>True when at least one edge is selected (a call selecting none changes nothing and is rejected).</summary>
     public bool AnyEdge => Top || Bottom || Left || Right;
 }
@@ -376,6 +383,12 @@ public sealed class RepeaterTableOptions
     /// <see cref="TableBorderLook"/> for the corpus evidence.
     /// </summary>
     public TableBorderLook Borders { get; init; } = TableBorderLook.HeaderRule;
+
+    /// <summary>
+    /// The colour of the rules <see cref="Borders"/> draws (GitHub issue #143), as <see cref="CellBorderOptions.Color"/>
+    /// takes it; null draws them black (<c>auto</c>). Refused with <see cref="TableBorderLook.None"/>, which draws none.
+    /// </summary>
+    public string? BorderColor { get; init; }
 
     /// <summary>
     /// When true (the default), each header cell binds to its column's label column (by default suffixed

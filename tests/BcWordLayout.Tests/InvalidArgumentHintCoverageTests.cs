@@ -586,7 +586,7 @@ public class InvalidArgumentHintCoverageTests
         }
     }
 
-    // ---- "fill" — RunFormatter.NormalizeColor, from TableStructureEditor.SetCellFormat ----
+    // ---- "fill" — LayoutColor.Parse, from TableStructureEditor.SetCellFormat ----
 
     [Fact]
     public void SetCellFormat_bad_fill_hint_names_the_colour_forms()

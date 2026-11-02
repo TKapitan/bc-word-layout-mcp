@@ -60,10 +60,10 @@ public static class EditTools
                      + "part in the package (get_layout_info's partDetails gives each part's role).")] string? partName = null,
         [Description(TextFormatArgument.InsertDescription)] TextFormatArgument? format = null)
     {
-        return GuardEdit(layoutPath, doc =>
+        return GuardEdit(layoutPath, (doc, target) =>
         {
             var location = BuildLocation(locationType, controlId, tableIndex, row, col, searchText, layoutPart, partName);
-            return LayoutEditor.InsertField(doc, field, location, TextFormatArgument.ToDomain(format));
+            return LayoutEditor.InsertField(doc, field, location, TextFormatArgument.ToDomain(format, target));
         });
     }
 
@@ -93,10 +93,10 @@ public static class EditTools
                      + "part in the package (get_layout_info's partDetails gives each part's role).")] string? partName = null,
         [Description(TextFormatArgument.InsertDescription)] TextFormatArgument? format = null)
     {
-        return GuardEdit(layoutPath, doc =>
+        return GuardEdit(layoutPath, (doc, target) =>
         {
             var location = BuildLocation(locationType, controlId, tableIndex, row, col, searchText, layoutPart, partName);
-            return LayoutEditor.InsertLabel(doc, label, location, TextFormatArgument.ToDomain(format));
+            return LayoutEditor.InsertLabel(doc, label, location, TextFormatArgument.ToDomain(format, target));
         });
     }
 
@@ -137,10 +137,10 @@ public static class EditTools
                      + "part in the package (get_layout_info's partDetails gives each part's role).")] string? partName = null,
         [Description(TextFormatArgument.InsertDescription)] TextFormatArgument? format = null)
     {
-        return GuardEdit(layoutPath, doc =>
+        return GuardEdit(layoutPath, (doc, target) =>
         {
             var location = BuildLocation(locationType, controlId, tableIndex, row, col, searchText, layoutPart, partName);
-            return LayoutEditor.InsertText(doc, text, location, TextFormatArgument.ToDomain(format));
+            return LayoutEditor.InsertText(doc, text, location, TextFormatArgument.ToDomain(format, target));
         });
     }
 
@@ -184,12 +184,74 @@ public static class EditTools
                      + "instead of the default one).")] string? partName = null,
         [Description(TextFormatArgument.InsertDescription)] TextFormatArgument? format = null)
     {
-        return GuardEdit(layoutPath, doc =>
+        return GuardEdit(layoutPath, (doc, target) =>
         {
             var location = BuildLocation(locationType, controlId, tableIndex, row, col, searchText, layoutPart, partName);
-            return LayoutEditor.InsertPageNumber(doc, location, includeTotal, TextFormatArgument.ToDomain(format));
+            return LayoutEditor.InsertPageNumber(doc, location, includeTotal, TextFormatArgument.ToDomain(format, target));
         });
     }
+
+    [McpServerTool(Name = "insert_page_conditional_text")]
+    [Description("Insert STATIC text that prints only on some pages - 'company details on the last page only', "
+                 + "'continued on the next page' on every page but the last - as a Word IF field over PAGE and "
+                 + "NUMPAGES: when='lastPage' { IF { PAGE } = { NUMPAGES } \"text\" \"\" }, 'notLastPage' (PAGE <> "
+                 + "NUMPAGES), 'firstPage' (PAGE = 1). Business Central evaluates the field on every page, as Word does "
+                 + "(sandbox-verified for lastPage on BC 28, on a two-page and a one-page order; the other two are the "
+                 + "same field with another comparison). It belongs in a header or footer (pass layoutPart), which "
+                 + "repeats on every page; in the body it prints once, where it sits. Mind a layout with a different "
+                 + "first page (get_layout_info's hasTitlePage): page 1 shows the 'first'-role footer, so insert there "
+                 + "too. With locationType='documentEnd' the field gets a paragraph of its own, which stays as an empty "
+                 + "line on the pages it prints nothing on; insert it inline beside other text (afterControl/atText) to "
+                 + "avoid the gap. Text only: a bound value cannot "
+                 + "go inside the field yet. Like insert_page_number, it creates NO content control - the response's "
+                 + "controlId is 0 and the runs cannot be targeted by remove_control or used as an afterControl "
+                 + "anchor. Same locations as insert_field; a header/footer 'documentEnd' insert scaffolds an empty "
+                 + "part first if the layout has none. Same write/validate/save-or-reject safety as insert_field.")]
+    public static ToolResponse InsertPageConditionalText(
+        [Description("Absolute path to the .docx layout file.")] string layoutPath,
+        [Description("The text to print, one line; double quotes and backslashes are refused (the field syntax "
+                     + "reads them) - use typographic quotes.")] string text,
+        [Description("On which pages it prints: 'lastPage', 'notLastPage' or 'firstPage' (case-insensitive).")]
+        [PageConditionValues] string when,
+        [Description("Where to insert: 'documentEnd', 'afterControl', 'tableCell', or 'atText' "
+                     + "(case-insensitive).")] [LocationTypeValues] string locationType,
+        [Description("Required for 'afterControl': the w:id of the control to insert after.")] int? controlId = null,
+        [Description("Required for 'tableCell': 0-based table index in document order.")] int? tableIndex = null,
+        [Description("Required for 'tableCell': 0-based row index within the table.")] int? row = null,
+        [Description("Required for 'tableCell': 0-based cell/column index within the row.")] int? col = null,
+        [Description("Required for 'atText': substring to search for in existing run text (ordinal match).")]
+        string? searchText = null,
+        [Description("Which OOXML part locationType resolves within: 'body' (default), 'header', or "
+                     + "'footer' (case-insensitive). Page-conditional text belongs in a header or footer.")]
+        [LayoutPartValues] string layoutPart = "body",
+        [Description("Only used when layoutPart is 'header'/'footer': a specific part file name, e.g. "
+                     + "'footer2.xml'. Omit to target the DEFAULT part - the everyday header/footer, which is often "
+                     + "NOT the first part in the package (get_layout_info's partDetails gives each part's role; in a "
+                     + "hasTitlePage layout, page 1 renders the 'first'-role part instead).")] string? partName = null,
+        [Description(TextFormatArgument.InsertDescription)] TextFormatArgument? format = null)
+    {
+        return GuardEdit(layoutPath, (doc, target) =>
+        {
+            var condition = ParsePageConditionOrThrow(when);
+            var location = BuildLocation(locationType, controlId, tableIndex, row, col, searchText, layoutPart, partName);
+            return LayoutEditor.InsertPageConditionalText(
+                doc, text, condition, location, TextFormatArgument.ToDomain(format, target));
+        });
+    }
+
+    /// <summary>
+    /// Parses <c>insert_page_conditional_text</c>'s <c>when</c> (case-insensitive). It is required with no default, so
+    /// an explicit JSON <c>null</c> is refused as <c>invalid_argument</c> rather than guessed.
+    /// </summary>
+    internal static PageCondition ParsePageConditionOrThrow(string? when) => when?.Trim().ToLowerInvariant() switch
+    {
+        "lastpage" => PageCondition.LastPage,
+        "notlastpage" => PageCondition.NotLastPage,
+        "firstpage" => PageCondition.FirstPage,
+        _ => throw new ArgumentException(
+            (when is null ? "when is required (got null)." : $"Unknown when '{when}'.")
+            + " Use 'lastPage', 'notLastPage', or 'firstPage'.", nameof(when)),
+    };
 
     [McpServerTool(Name = "insert_picture")]
     [Description("Insert a PICTURE content control bound to a picture dataset path (e.g. "
@@ -322,9 +384,9 @@ public static class EditTools
                  + "column - is always preserved. If the cell contains a content control (a bound field/"
                  + "label), this is REJECTED (use remove_control / insert_field / insert_label for those). "
                  + "To edit a cell in a header/footer, pass layoutPart='header'/'footer' (optionally partName). "
-                 + "OPTIONAL FORMATTING: format (bold, italic, underline, size, font, colour, character style) "
-                 + "and alignment ('left'/'center'/'right') each apply only when passed - omit them and the "
-                 + "cell's existing look is preserved exactly as before. They matter most for cells in a "
+                 + "OPTIONAL FORMATTING: format (bold, italic, underline, size, font, colour, character style), "
+                 + "alignment ('left'/'center'/'right') and paragraphStyle each apply only when passed - omit them "
+                 + "and the cell's existing look is preserved exactly as before. They matter most for cells in a "
                  + "freshly authored plain table (insert_table), which have no styling to inherit: caption "
                  + "cells want bold, amount columns want right alignment, a document title wants a bigger "
                  + "size. To restyle a cell without changing its text, use set_text_format. "
@@ -341,14 +403,25 @@ public static class EditTools
                      + "partDetails for each part's role).")] string? partName = null,
         [Description(TextFormatArgument.SetCellTextDescription)] TextFormatArgument? format = null,
         [Description("Optional paragraph alignment 'left'/'center'/'right'; omit to keep the cell's "
-                     + "existing alignment.")] [AlignmentValues] string? alignment = null)
+                     + "existing alignment.")] [AlignmentValues] string? alignment = null,
+        [Description(ParagraphStyleDescription)] string? paragraphStyle = null)
     {
-        return GuardCellEdit(layoutPath, doc =>
+        return GuardCellEdit(layoutPath, (doc, target) =>
         {
+            RequireThemableFormatting(target, [], paragraphStyle);
             var location = BuildLocation("tableCell", null, tableIndex, row, col, null, layoutPart, partName);
-            return CellTextEditor.SetCellText(doc, location, text, TextFormatArgument.ToDomain(format), alignment);
+            return CellTextEditor.SetCellText(
+                doc, location, text, TextFormatArgument.ToDomain(format, target), alignment, paragraphStyle);
         });
     }
+
+    /// <summary>The <c>paragraphStyle</c> parameter's description on <c>set_text_format</c> and <c>set_cell_text</c>.</summary>
+    private const string ParagraphStyleDescription =
+        "Optional id of a PARAGRAPH style the layout's styles part defines, e.g. 'Heading1' or 'Title', set on the "
+        + "target's paragraphs (w:pStyle) so the style decides their look; refused when the layout does not define it "
+        + "(the error lists the ones it does). Ids are case-sensitive. Direct run formatting wins over a style, so the "
+        + "summary says when some is left (set_text_format's clearDirectFormatting removes it). Needs a target of BC "
+        + "29 or later (get_layout_info's target).";
 
     [McpServerTool(Name = "set_text_format")]
     [Description("Change the formatting of text that is ALREADY in the layout, without changing the text - "
@@ -361,8 +434,12 @@ public static class EditTools
                  + "e.g. a bold 8 pt header row in one call; 'text' (searchText): exactly that text, split out of "
                  + "its run if it is only part of one - it must occur exactly once in the part, and text inside a "
                  + "data-bound control is refused (format the control instead). format is the same object the "
-                 + "insert tools take; alignment ('left'/'center'/'right') goes on the target's paragraphs (for "
-                 + "an inline control or a text match, the whole line it sits in). Pass at least one of them. "
+                 + "insert tools take; alignment ('left'/'center'/'right') and paragraphStyle (e.g. 'Heading1') go "
+                 + "on the target's paragraphs (for an inline control or a text match, the whole line it sits in); "
+                 + "clearDirectFormatting=true first removes the direct run formatting (font, size, colour, bold and "
+                 + "the like) so the paragraph and character styles decide - e.g. clearDirectFormatting plus "
+                 + "paragraphStyle 'Heading1' turns a directly formatted title into a heading, the way Microsoft's "
+                 + "themable layouts style it. Pass at least one of them. "
                  + "layoutPart/partName pick the part for 'cell', 'row' and 'text'. Same "
                  + "write/validate/save-or-reject safety as insert_field.")]
     public static ToolResponse SetTextFormat(
@@ -382,14 +459,20 @@ public static class EditTools
                      + "is left as the text has it.")] TextFormatArgument? format = null,
         [Description("Optional paragraph alignment 'left'/'center'/'right' for the target's paragraphs.")]
         [AlignmentValues] string? alignment = null,
+        [Description(ParagraphStyleDescription)] string? paragraphStyle = null,
+        [Description("When true, first removes the target's direct run formatting - from its runs, its controls' own "
+                     + "formatting and its paragraph marks - keeping the character style, language and hidden-text "
+                     + "marks, so the paragraph and character styles decide the look; format is then applied over "
+                     + "it. Default false.")] bool clearDirectFormatting = false,
         [Description("For 'cell'/'row'/'text': which part the target is in - 'body' (default), 'header', or "
                      + "'footer'. A control is found by its id in any part.")] [LayoutPartValues] string layoutPart = "body",
         [Description("Only used when layoutPart is 'header'/'footer': a specific part file name (e.g. "
                      + "'header2.xml'); omit to target the DEFAULT header/footer part (see get_layout_info's "
                      + "partDetails for each part's role).")] string? partName = null)
     {
-        return GuardEdit(layoutPath, doc =>
+        return GuardEdit(layoutPath, (doc, bcTarget) =>
         {
+            RequireThemableFormatting(bcTarget, [], paragraphStyle);
             if (!TryParseLayoutPart(layoutPart, out var part))
             {
                 throw new ArgumentException(
@@ -407,7 +490,8 @@ public static class EditTools
                 Part = part,
                 PartName = partName,
             };
-            return TextFormatEditor.SetTextFormat(doc, formatTarget, TextFormatArgument.ToDomain(format), alignment);
+            return TextFormatEditor.SetTextFormat(
+                doc, formatTarget, TextFormatArgument.ToDomain(format, bcTarget), alignment, paragraphStyle, clearDirectFormatting);
         });
     }
 
