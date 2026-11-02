@@ -36,6 +36,9 @@ internal sealed class TargetValuesAttribute() : AllowedValuesAttribute("control"
 /// <summary><c>insert_page_conditional_text</c>'s <c>when</c>.</summary>
 internal sealed class PageConditionValuesAttribute() : AllowedValuesAttribute("lastPage", "notLastPage", "firstPage");
 
+/// <summary><c>create_layout</c>'s <c>theme</c>: the one theme it can add (<see cref="BcWordLayout.Domain.ThemeScaffold"/>).</summary>
+internal sealed class ThemeValuesAttribute() : AllowedValuesAttribute("office");
+
 /// <summary><c>validate_layout</c>'s <c>level</c>.</summary>
 internal sealed class LevelValuesAttribute() : AllowedValuesAttribute("quick", "full");
 

@@ -51,6 +51,10 @@ public class AllowedValueAttributesTests
         AssertEachAccepted<PageConditionValuesAttribute>(value => EditTools.ParsePageConditionOrThrow(value));
 
     [Fact]
+    public void Every_listed_theme_is_accepted() =>
+        AssertEachAccepted<ThemeValuesAttribute>(value => Assert.True(BcWordLayout.Domain.ThemeScaffold.IsKnown(value), value));
+
+    [Fact]
     public void Every_listed_validation_level_is_accepted() =>
         AssertEachAccepted<LevelValuesAttribute>(value => Assert.True(ReadTools.TryParseLevel(value, out _), value));
 
@@ -70,6 +74,7 @@ public class AllowedValueAttributesTests
         ["mode"] = typeof(ColumnModeValuesAttribute),
         ["target"] = typeof(TargetValuesAttribute),
         ["when"] = typeof(PageConditionValuesAttribute),
+        ["theme"] = typeof(ThemeValuesAttribute),
         ["level"] = typeof(LevelValuesAttribute),
         ["converter"] = typeof(ConverterValuesAttribute),
     };

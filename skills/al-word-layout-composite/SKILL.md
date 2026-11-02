@@ -112,6 +112,8 @@ theme layout for Tenant Report Defaults.
   Band / Total*) that shows the main table style — it has no function.
 - `settings.xml` declares `<w:linkStyles/>` (update the document's styles from the template) and a
   `w:clrSchemeMapping` (maps `text1`/`background1`/`accent1…` to the theme colours) [MS sample; verified].
+- `set_layout_theme` sets the colours and fonts of a *layout's own* theme part, not of a theme `.dotx`;
+  change a report theme's `theme1.xml` in Word (Design > Colors / Fonts) until a tool covers it.
 - **Restyle, do not invent.** The theme redefines styles that bodies reference; a style id no body
   uses does nothing. Define BOTH:
   - the **BC style set** — `BCLabel`, `BCLabelNumber`, `BCNumber`, `BCNoteBullet`, `BCBlockTable`,

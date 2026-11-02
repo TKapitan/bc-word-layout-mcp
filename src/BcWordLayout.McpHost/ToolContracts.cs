@@ -311,6 +311,27 @@ public sealed record CellEditResultDto(
     ValidationSummaryDto QuickValidation);
 
 /// <summary>
+/// Result of <c>set_layout_theme</c> (GitHub issue #150): each slot set, with its colour before and after; the heading
+/// (<see cref="MajorFont"/>) and body (<see cref="MinorFont"/>) fonts when set; and how many theme-coloured references
+/// had their cached colour rewritten. Built only by <c>Tools.ToolGuards.GuardThemeEdit</c>, with a fresh post-edit
+/// quick validation, like every other edit result.
+/// </summary>
+public sealed record ThemeEditResultDto(
+    string Operation,
+    IReadOnlyList<ThemeColorChangeDto> Colors,
+    ThemeFontChangeDto? MajorFont,
+    ThemeFontChangeDto? MinorFont,
+    int RecachedReferences,
+    string Summary,
+    ValidationSummaryDto QuickValidation);
+
+/// <summary>One theme slot <c>set_layout_theme</c> set: its <c>RRGGBB</c> before (null when the scheme had none) and now.</summary>
+public sealed record ThemeColorChangeDto(string Slot, string? Previous, string Value);
+
+/// <summary>One theme font <c>set_layout_theme</c> set: before (null when the theme named none) and now.</summary>
+public sealed record ThemeFontChangeDto(string? Previous, string Value);
+
+/// <summary>
 /// Result of a table-STRUCTURE edit tool (<c>insert_table</c>, <c>insert_table_row</c>,
 /// <c>set_column_widths</c>, <c>insert_column</c>, <c>remove_column</c>, <c>merge_cells</c>, <c>split_cells</c>,
 /// <c>set_cell_format</c>). The table is addressed by its 0-based document-order index (the same one
@@ -354,7 +375,8 @@ public sealed record CreateResultDto(
     bool UsedTemplate,
     bool ReplacedExistingBcPart,
     ValidationSummaryDto QuickValidation,
-    IReadOnlyList<string>? UnlinkedAttachedTemplates = null);
+    IReadOnlyList<string>? UnlinkedAttachedTemplates = null,
+    string? AddedTheme = null);
 
 /// <summary>
 /// A BC binding whose <c>w:storeItemID</c> named no part in the package, re-pointed by <c>refresh_xml_part</c> to the

@@ -21,6 +21,23 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - A new error code, `bc_version_unsupported`, refuses a call that would write a feature the target
     lacks, or any such call when the target is unknown. No shipped tool writes one yet: theme colours
     and paragraph styles (#145, #146) will. The README lists the features and their versions.
+- **New tool `set_layout_theme`: a layout's own theme colours and fonts** (GitHub issue #150). It sets
+  the colour a layout's theme gives each slot (`colors`, e.g. `{"accent1": "0070C0"}`) and its heading
+  and body fonts (`majorFont`, `minorFont`). The stock themable Blue invoice prints coral red because its
+  theme's `accent1` is `F24F4F`; one slot makes it blue.
+  - Text, fills, rules and styles coloured through a changed slot follow. Word caches the colour each
+    such reference resolves to; those values are rewritten too, tint or shade applied, so a renderer
+    that reads only the cache prints the new colour as well. The result reports each slot's colour
+    before and after, and how many references it rewrote.
+  - It edits the layout's own `word/theme/theme1.xml`, not a report theme `.dotx`. Whether a BC report
+    theme overrides a layout's own theme is still open (#142).
+  - Needs a BC 29 target (`themable-formatting`, like theme colours). A layout with no theme part is
+    refused.
+  - `create_layout` gains `theme: "office"`: the new layout gets the stock Office theme part (the one
+    five stock corpus layouts carry: colour scheme Office, fonts Calibri Light and Calibri), so theme
+    colours resolve in a from-scratch layout and `set_layout_theme` has a theme to edit. Not gated; a
+    template that already has a theme is refused. The result reports it as `addedTheme`.
+  - 30 tools, 24 of them mutating.
 - **Tables with vertical merges** (`w:vMerge`, GitHub issue #9). Microsoft's own BC 29 header/footer
   designs merge their report-caption column down the header table, and every table tool used to refuse
   them. Now:

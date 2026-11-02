@@ -35,12 +35,12 @@ public class DocDriftGuardTests
 
     /// <summary>
     /// The mutating tools, derived from the code that actually saves: every tool whose body writes through one
-    /// of <see cref="ToolGuards"/>' four <c>GuardMutate</c> instantiations. Nothing marks a tool as mutating by
+    /// of <see cref="ToolGuards"/>' five <c>GuardMutate</c> instantiations. Nothing marks a tool as mutating by
     /// hand, so there is no marker to forget.
     /// </summary>
     private static readonly Lazy<IReadOnlySet<string>> MutatingTools = new(() =>
     {
-        string[] writeWrappers = ["GuardEdit(", "GuardCellEdit(", "GuardTableEdit(", "GuardRefresh("];
+        string[] writeWrappers = ["GuardEdit(", "GuardCellEdit(", "GuardTableEdit(", "GuardThemeEdit(", "GuardRefresh("];
         var mutating = new HashSet<string>(StringComparer.Ordinal);
         foreach (var file in RepoFiles.SourceFiles("src/BcWordLayout.McpHost/Tools"))
         {
@@ -63,7 +63,7 @@ public class DocDriftGuardTests
     public void The_derived_tool_facts_are_plausible()
     {
         // Pins the derivations above, so a broken scan cannot make every later test pass vacuously.
-        Assert.Equal(29, LiveTools.Value.Count);
+        Assert.Equal(30, LiveTools.Value.Count);
         Assert.Contains("insert_field", MutatingTools.Value);
         Assert.Contains("set_cell_format", MutatingTools.Value);
         Assert.Contains("refresh_xml_part", MutatingTools.Value);

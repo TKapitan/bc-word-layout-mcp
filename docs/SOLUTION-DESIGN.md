@@ -201,7 +201,7 @@ alongside the quick checks in `Domain.LayoutValidator`.
 
 ## 4. Tool surface
 
-**29 tools.** The per-parameter reference is the companion skill's §2
+**30 tools.** The per-parameter reference is the companion skill's §2
 ([`skills/al-word-layout/SKILL.md`](../skills/al-word-layout/SKILL.md)); this is the shape and the grouping.
 
 | Group | Tools |
@@ -211,7 +211,7 @@ alongside the quick checks in `Domain.LayoutValidator`.
 | Preview | `preview_layout`, `render_preview_pages` |
 | Author | `create_layout`, `insert_field`, `insert_label`, `insert_text`, `insert_page_number`, `insert_page_conditional_text`, `insert_picture`, `insert_table`, `insert_repeater_table`, `insert_repeater_row`, `insert_subtotal_row`, `wrap_in_repeater` |
 | Table structure | `insert_table_row`, `insert_column`, `remove_column`, `set_column_widths`, `merge_cells`, `split_cells`, `set_cell_text`, `clear_cell_text` |
-| Format | `set_text_format`, `set_cell_format` |
+| Format | `set_text_format`, `set_cell_format`, `set_layout_theme` |
 | Lifecycle | `remove_control`, `refresh_xml_part` |
 
 Conventions that hold across the surface:

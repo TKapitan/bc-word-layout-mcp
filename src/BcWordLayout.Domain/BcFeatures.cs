@@ -46,16 +46,17 @@ public static class BcFeatures
         "2026 release wave 2; a composite body + header/footer + theme set printed on 2026-10-17");
 
     /// <summary>
-    /// Authoring themable formatting: theme-slot values for text colour, cell fill and border colour, and paragraph
-    /// styles. Only what the tools write is gated: theme colours and paragraph styles already in a layout print on
-    /// BC 28, and Microsoft's own BC 28 layouts carry them, so the validator does not flag them.
+    /// Authoring themable formatting: theme-slot values for text colour, cell fill and border colour, paragraph
+    /// styles, and the colours and fonts of the layout's own theme (<c>set_layout_theme</c>, GitHub issue #150). Only
+    /// what the tools write is gated: theme colours and paragraph styles already in a layout print on BC 28, and
+    /// Microsoft's own BC 28 layouts carry them, so the validator does not flag them.
     /// </summary>
     public static readonly BcFeature ThemableFormatting = new(
         "themable-formatting",
         BcFeatureKind.Capability,
         new BcVersion(29, 0),
         null,
-        "themable formatting: theme-slot colours for text, cell fills and borders, and paragraph styles",
+        "themable formatting: theme-slot colours for text, cell fills and borders, paragraph styles, and the layout's own theme colours and fonts",
         "decided with report themes, 2026-10-27 (GitHub issue #152)");
 
     /// <summary>Every entry, in the order the README's version table lists them.</summary>

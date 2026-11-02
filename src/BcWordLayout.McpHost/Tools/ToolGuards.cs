@@ -707,6 +707,27 @@ internal static class ToolGuards
         });
 
     /// <summary>
+    /// Thin <see cref="GuardMutate{TResult}"/> instantiation for <see cref="ThemeTools"/>'s <c>set_layout_theme</c>
+    /// (GitHub issue #150), building <see cref="ThemeEditResultDto"/>, with the call's target BC version for the
+    /// <see cref="BcFeatures.ThemableFormatting"/> gate.
+    /// </summary>
+    internal static ToolResponse GuardThemeEdit(
+        string layoutPath, Func<WordprocessingDocument, TargetVersion, ThemeEditResult> mutate) =>
+        GuardMutate(layoutPath, mutate, (result, quick, unlinkedTemplates) =>
+        {
+            var dto = new ThemeEditResultDto(
+                result.Operation,
+                result.Colors.Select(c => new ThemeColorChangeDto(c.Slot, c.Previous, c.Value)).ToList(),
+                result.MajorFont is { } major ? new ThemeFontChangeDto(major.Previous, major.Value) : null,
+                result.MinorFont is { } minor ? new ThemeFontChangeDto(minor.Previous, minor.Value) : null,
+                result.RecachedReferences,
+                result.Summary + UnlinkedTemplatesNote(unlinkedTemplates),
+                new ValidationSummaryDto("quick", quick.Passed, quick.ErrorCount, quick.WarningCount));
+
+            return ToolResponse.Success(dto);
+        });
+
+    /// <summary>
     /// Thin <see cref="GuardMutate{TResult}"/> instantiation for <see cref="LifecycleTools"/>'s
     /// <c>refresh_xml_part</c>, building <see cref="RefreshResultDto"/>. Reports the
     /// <see cref="ValidationResult"/> <see cref="GuardMutate{TResult}"/> passes, not
@@ -1568,6 +1589,22 @@ internal static class ToolGuards
         "when" =>
             "when picks the pages insert_page_conditional_text's text prints on: 'lastPage' (IF PAGE = NUMPAGES), "
             + "'notLastPage' (IF PAGE <> NUMPAGES) or 'firstPage' (IF PAGE = 1), case-insensitive.",
+
+        "colors" =>
+            "set_layout_theme's colors maps theme slots - text1, background1, text2, background2, accent1 to accent6, "
+            + "hyperlink, followedHyperlink - to six hex digits RRGGBB, e.g. {\"accent1\": \"0070C0\"}. Pass colors, "
+            + "majorFont or minorFont (or several). A layout with no theme part has no theme to set: create_layout "
+            + "with theme 'office' gives a new layout the stock Office theme.",
+
+        "majorfont" or "minorfont" =>
+            "set_layout_theme's majorFont (headings) and minorFont (body text) are font family names such as "
+            + "'Segoe UI', 1 to 64 characters. A layout with no theme part has no theme fonts: create_layout with "
+            + "theme 'office' gives a new layout the stock Office theme.",
+
+        "theme" =>
+            "create_layout's theme is 'office', the stock Office theme, or omitted for none. A templatePath that "
+            + "already has a theme keeps it: omit theme, and change the template theme's colours and fonts with "
+            + "set_layout_theme after the build.",
 
         "paragraphstyle" =>
             "paragraphStyle is the id of a PARAGRAPH style the layout's styles part defines, e.g. 'Heading1' (the "

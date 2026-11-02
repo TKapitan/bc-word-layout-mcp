@@ -44,6 +44,12 @@ public sealed class CreateResult
     public IReadOnlyList<string> UnlinkedAttachedTemplates { get; init; } = [];
 
     /// <summary>
+    /// The theme <c>create_layout</c> added (<c>office</c>, see <see cref="BcWordLayout.Domain.ThemeScaffold"/>), or
+    /// null when it added none.
+    /// </summary>
+    public string? AddedTheme { get; init; }
+
+    /// <summary>
     /// The result of running <see cref="BcWordLayout.Domain.LayoutValidator.Quick"/> against the built
     /// layout while the package was still open (before it was committed to <see cref="OutputPath"/>). A
     /// freshly created (non-template) layout always passes; the one case that used to reach this property

@@ -97,8 +97,20 @@ public static class ThemePalette
             return null;
         }
 
+        var index = SchemeIndex(main, slot)
+            ?? throw new ArgumentOutOfRangeException(nameof(slot), slot, "Not a theme colour slot.");
+        return EntryColor(Entry(scheme, index));
+    }
+
+    /// <summary>
+    /// The colour-scheme entry <paramref name="themeColor"/> (a <c>w:themeColor</c> / <c>w:themeFill</c> value) names:
+    /// one of <see cref="Slots"/> through the document's <c>w:clrSchemeMapping</c>, or <c>dark1</c>, <c>light1</c>,
+    /// <c>dark2</c> and <c>light2</c> directly; null for <c>none</c> or anything else.
+    /// </summary>
+    internal static ColorSchemeIndexValues? SchemeIndex(MainDocumentPart main, string? themeColor)
+    {
         var mapping = main.DocumentSettingsPart?.Settings?.GetFirstChild<ColorSchemeMapping>();
-        var index = slot switch
+        return themeColor switch
         {
             "text1" => mapping?.Text1?.Value ?? ColorSchemeIndexValues.Dark1,
             "background1" => mapping?.Background1?.Value ?? ColorSchemeIndexValues.Light1,
@@ -112,23 +124,32 @@ public static class ThemePalette
             "accent6" => mapping?.Accent6?.Value ?? ColorSchemeIndexValues.Accent6,
             "hyperlink" => mapping?.Hyperlink?.Value ?? ColorSchemeIndexValues.Hyperlink,
             "followedHyperlink" => mapping?.FollowedHyperlink?.Value ?? ColorSchemeIndexValues.FollowedHyperlink,
-            _ => throw new ArgumentOutOfRangeException(nameof(slot), slot, "Not a theme colour slot."),
+            "dark1" => ColorSchemeIndexValues.Dark1,
+            "light1" => ColorSchemeIndexValues.Light1,
+            "dark2" => ColorSchemeIndexValues.Dark2,
+            "light2" => ColorSchemeIndexValues.Light2,
+            _ => null,
         };
+    }
 
-        OpenXmlCompositeElement? entry =
-            index == ColorSchemeIndexValues.Dark1 ? scheme.Dark1Color
-            : index == ColorSchemeIndexValues.Light1 ? scheme.Light1Color
-            : index == ColorSchemeIndexValues.Dark2 ? scheme.Dark2Color
-            : index == ColorSchemeIndexValues.Light2 ? scheme.Light2Color
-            : index == ColorSchemeIndexValues.Accent1 ? scheme.Accent1Color
-            : index == ColorSchemeIndexValues.Accent2 ? scheme.Accent2Color
-            : index == ColorSchemeIndexValues.Accent3 ? scheme.Accent3Color
-            : index == ColorSchemeIndexValues.Accent4 ? scheme.Accent4Color
-            : index == ColorSchemeIndexValues.Accent5 ? scheme.Accent5Color
-            : index == ColorSchemeIndexValues.Accent6 ? scheme.Accent6Color
-            : index == ColorSchemeIndexValues.Hyperlink ? scheme.Hyperlink
-            : scheme.FollowedHyperlinkColor;
+    /// <summary>The entry of <paramref name="scheme"/> at <paramref name="index"/>: <c>a:dk1</c>, <c>a:accent1</c> and so on.</summary>
+    internal static OpenXmlCompositeElement? Entry(A.ColorScheme scheme, ColorSchemeIndexValues index) =>
+        index == ColorSchemeIndexValues.Dark1 ? scheme.Dark1Color
+        : index == ColorSchemeIndexValues.Light1 ? scheme.Light1Color
+        : index == ColorSchemeIndexValues.Dark2 ? scheme.Dark2Color
+        : index == ColorSchemeIndexValues.Light2 ? scheme.Light2Color
+        : index == ColorSchemeIndexValues.Accent1 ? scheme.Accent1Color
+        : index == ColorSchemeIndexValues.Accent2 ? scheme.Accent2Color
+        : index == ColorSchemeIndexValues.Accent3 ? scheme.Accent3Color
+        : index == ColorSchemeIndexValues.Accent4 ? scheme.Accent4Color
+        : index == ColorSchemeIndexValues.Accent5 ? scheme.Accent5Color
+        : index == ColorSchemeIndexValues.Accent6 ? scheme.Accent6Color
+        : index == ColorSchemeIndexValues.Hyperlink ? scheme.Hyperlink
+        : scheme.FollowedHyperlinkColor;
 
+    /// <summary>The <c>RRGGBB</c> colour a scheme entry holds, or null when it holds none.</summary>
+    internal static string? EntryColor(OpenXmlCompositeElement? entry)
+    {
         // A system colour (dk1/lt1 are windowText/window in every corpus theme) carries the RGB it last had.
         var rgb = entry?.GetFirstChild<A.RgbColorModelHex>()?.Val?.Value
                   ?? entry?.GetFirstChild<A.SystemColor>()?.LastColor?.Value;
