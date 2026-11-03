@@ -173,4 +173,11 @@ public sealed class TableCellInfo
     /// pass to <c>remove_control</c>.
     /// </summary>
     public required IReadOnlyList<int> InnerControlIds { get; init; }
+
+    /// <summary>
+    /// <c>restart</c> when the cell starts a vertical merge (<c>w:vMerge</c>), <c>continue</c> when it continues the
+    /// one above it, else null (GitHub issue #9). Word shows a merge's content from its <c>restart</c> cell only, so
+    /// text and controls go there.
+    /// </summary>
+    public string? VerticalMerge { get; init; }
 }

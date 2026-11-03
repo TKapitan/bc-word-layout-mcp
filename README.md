@@ -12,7 +12,7 @@ Microsoft Word report layouts for Microsoft Dynamics 365 Business Central** thro
 typed tools — instead of free-hand OOXML editing, which is unreliable in a file format where a
 single misplaced element silently corrupts the document.
 
-**29 typed MCP tools** over stdio: inspect any layout, validate it (structurally, and via a real
+**30 typed MCP tools** over stdio: inspect any layout, validate it (structurally, and via a real
 dry-run merge), render an offline mock PDF preview the agent can look at, and author edits — fields,
 labels, repeater tables, nested detail rows, block repeaters, table structure, text and cell
 formatting, full lifecycle refresh. One uniform
@@ -195,8 +195,9 @@ the first match wins:
 - A tool that would write a feature from the table below refuses with `bc_version_unsupported` below
   the feature's version and when the target is unknown. Today that is a theme colour such as
   `accent1` in `format.color`, `set_cell_format`'s `fill`, or the `borderColor` of `set_cell_format`,
-  `insert_table` and `insert_repeater_table`, and a `paragraphStyle` on `set_text_format` or
-  `set_cell_text`. A hex colour and `clearDirectFormatting` are never gated.
+  `insert_table` and `insert_repeater_table`, a `paragraphStyle` on `set_text_format` or
+  `set_cell_text`, and `set_layout_theme`. A hex colour, `clearDirectFormatting` and `create_layout`'s
+  `theme` are never gated.
 - `validate_layout`'s `bc-version` check reports such a feature a layout already has: a header/footer
   layout bound to Tenant Report Defaults is an error below 29.0 and a warning for an unknown target.
   Theme colours and paragraph styles already in a layout are not flagged: BC 28 prints them.
@@ -204,7 +205,7 @@ the first match wins:
 | Feature | Kind | Since | Covers | Evidence |
 |---|---|---|---|---|
 | `report-themes` | capability | 29.0 | report theme `.dotx` files, header/footer layouts bound to `Tenant_Report_Defaults` | 2026 release wave 2; a composite body + header/footer + theme set printed on 2026-10-17 |
-| `themable-formatting` | capability | 29.0 | theme-slot colours for text, cell fills and borders, and paragraph styles | decided with report themes, 2026-10-27 (#152) |
+| `themable-formatting` | capability | 29.0 | theme-slot colours for text, cell fills and borders, paragraph styles, and the layout's own theme colours and fonts | decided with report themes, 2026-10-27 (#152) |
 
 ## Supported platforms
 
@@ -230,7 +231,7 @@ other tool is conversion-free and works everywhere the server runs.
 | `validate_layout` | Validate a layout: `level=quick` (structural + binding checks, including a `repeater-downgraded` error for a repeater a Word save turned into a plain content control, a `top-level-repeater-group` error for a block-level repeater over the top-level data item without the `w:group` wrapper Business Central needs to print it, an `attached-template` error for a layout that links an external Word template (Business Central refuses to upload one), a warning when a layout containing repeaters declares a Word compatibility mode below 15, a `duplicate-control-id` warning when two content controls share a `w:id`, `table-style-resolves`, `character-style-resolves` and `paragraph-style-resolves` warnings for a style reference the layout does not define, a `font-installed` warning for a font Business Central online does not have, and a `bc-version` finding for a feature the [target BC version](#target-business-central-version) lacks) or `level=full` (adds a dry-run merge that surfaces every unresolved binding as a finding). Reports the target it used. |
 | `preview_layout` | Mock preview: merges deterministic (or supplied) sample data into a working copy and converts it to PDF via Word COM or LibreOffice. |
 | `render_preview_pages` | Render pages of a preview PDF (the `pdfPath` from `preview_layout`) as PNG images returned inline as MCP image content blocks, so the calling agent can visually inspect the preview (default 3 pages, cap 10 per call; page onward via `firstPage`; each page capped at 5000 px a side and 20 MP, a larger one rendered smaller and flagged `downscaled`). Pass `outputDir` to also write each page as a `.png` a human can open — optionally with `inlineImages=false` to skip the token cost of the inline copies. |
-| `create_layout` | Create a new blank layout `.docx` from a schema, optionally starting from a branded/styled (unbound) template. A blank build ships deterministic default typography (Calibri 11 pt via a scaffolded styles part) so it renders with the same font in Word and in BC, plus a settings part declaring `compatibilityMode` 15 so its repeaters survive being opened and saved in Word. |
+| `create_layout` | Create a new blank layout `.docx` from a schema, optionally starting from a branded/styled (unbound) template. A blank build ships deterministic default typography (Calibri 11 pt via a scaffolded styles part) so it renders with the same font in Word and in BC, plus a settings part declaring `compatibilityMode` 15 so its repeaters survive being opened and saved in Word. `theme: "office"` adds the stock Office theme part, so theme colours resolve and `set_layout_theme` can recolour it. |
 | `insert_field` | Insert a plain-text FIELD content control bound to a dataset path, in the body, a header, or a footer. |
 | `insert_label` | Insert a plain-text LABEL content control bound to a label-suffixed (`Lbl`/`_Lbl`) dataset path. |
 | `insert_text` | Insert plain STATIC text — a literal run, not a content control: the separator space, colon or `" / "` that glues two inline controls together (without it, chained controls render as `Document NoDOCU-0150`). Creates no control, so it has no `controlId` and cannot be targeted by `remove_control`. |
@@ -244,6 +245,7 @@ other tool is conversion-free and works everywhere the server runs.
 | `remove_control` | Remove a content control (field/label/repeater/picture/unbound) by its `w:id`, searching the body and every header/footer; `keepText=true` on a block-level repeater unwraps it and keeps its content. |
 | `set_cell_text` | Set (replace) the PLAIN TEXT of a table cell, addressed by table/row/column index — e.g. re-label a line-items column header. Rejects cells that hold a bound control. |
 | `set_text_format` | Restyle text that is ALREADY in the layout without changing it: a control by id, a table cell, a whole row, or one exact piece of text, with the same `format` object the insert tools take (bold, italic, underline, size, font, colour, character style), an optional alignment and paragraph style (`Heading1`), and `clearDirectFormatting` to let the styles decide. |
+| `set_layout_theme` | Change a layout's own theme: the colour each theme slot (`accent1`, `text2`…) resolves to, and the heading and body fonts. Everything coloured through a slot follows — the stock themable Blue invoice prints coral red until `accent1` is set to `0070C0` — and every cached colour of a changed slot is rewritten too. Needs a BC 29 target. |
 | `clear_cell_text` | Remove all PLAIN TEXT from a table cell, leaving a valid empty cell (the cell/column is preserved) — e.g. blank an unwanted column-header label. |
 | `insert_subtotal_row` | Append a STATIC per-group row at the end of an existing repeater's item — the stock BC shape for group subtotal (and spacer) rows: it renders once per PARENT row, after the nested detail rows, never per detail row. Its cells take the formatting of the row above them, as `insert_repeater_row`'s do. |
 | `insert_table_row` | Insert ONE STATIC (non-repeating) row into an existing table — the stock BC shape for the totals block INSIDE the line-items table (spacer cells, a spanned bound caption cell, a right-aligned bound amount cell). Cells bind FULL dataset paths; the row renders exactly once, never per data row. Its cells take the formatting of the row above them (below, at the top of a table), as `insert_repeater_row`'s do. |
@@ -273,10 +275,10 @@ options the SDK applies to every other tool, so parsers see an identical shape e
 
 On failure, `error` is populated with `{ code, message, hint }` — `hint` is always
 a non-empty, agent-actionable next step (which argument to fix and its valid values, or which
-inspection tool to call first). Nothing throws across the MCP boundary. The 23 mutating tools
+inspection tool to call first). Nothing throws across the MCP boundary. The 24 mutating tools
 (`insert_field`, `insert_label`, `insert_text`, `insert_page_number`, `insert_page_conditional_text`, `insert_picture`, `insert_table`,
 `insert_repeater_table`, `insert_repeater_row`, `insert_subtotal_row`, `insert_table_row`,
-`wrap_in_repeater`, `remove_control`, `set_cell_text`, `set_text_format`, `clear_cell_text`, `set_column_widths`, `insert_column`,
+`wrap_in_repeater`, `remove_control`, `set_cell_text`, `set_text_format`, `set_layout_theme`, `clear_cell_text`, `set_column_widths`, `insert_column`,
 `remove_column`, `merge_cells`, `split_cells`, `set_cell_format`, `refresh_xml_part`) additionally run
 `OpenXmlValidator` *before* saving — a write that would introduce a **new** structural error is
 rejected (`edit_would_corrupt`) and the file on disk is left untouched. Every one of them is also
@@ -397,19 +399,22 @@ Error `message`/`hint` texts are not part of the contract — never parse them.
   labels from the dataset's own label columns, falling back to humanized element names, so captions read
   differently from a real BC render. Pass a real exported dataset via `dataOverridesPath` when caption
   text matters: the dataset carries BC's own captions, and they then match the real render.
-- **Table-structure changes** — largely supported (`insert_column`, `remove_column`,
-  `set_column_widths`, horizontal `merge_cells`/`split_cells` — all `gridSpan`-aware,
+- **Table-structure changes** — supported (`insert_column`, `remove_column`, `set_column_widths`,
+  `insert_table_row`, horizontal `merge_cells`/`split_cells` — all `gridSpan`-aware,
   grid-column-addressed, guarded against desyncing a row from its `w:tblGrid`; rows skipping grid
-  columns via `w:gridBefore`/`w:gridAfter` are handled). Still deferred and refused with a clear
-  message, pending real-add-in OOXML capture: any table using **vertical merges** (`w:vMerge`) —
-  except `set_cell_format`, which is cosmetic and accepts them. See
-  [issue #9](https://github.com/TKapitan/bc-word-layout-mcp/issues/9).
-- **Cosmetic formatting beyond text and cells** (margins, page setup, defining styles, the theme part) —
+  columns via `w:gridBefore`/`w:gridAfter` are handled). Tables with **vertical merges** (`w:vMerge`,
+  as in Microsoft's BC 29 header/footer designs) are edited too, and each merge is kept whole: a row
+  inserted inside one continues it, `split_cells` splits every row of one, and `merge_cells` refuses to
+  cut through one ([issue #9](https://github.com/TKapitan/bc-word-layout-mcp/issues/9)). No tool
+  creates or removes a vertical merge.
+- **Cosmetic formatting beyond text, cells and the theme** (margins, page setup, defining styles) —
   no dedicated tool. Text has the `format` object (bold, italic, underline, size, font, colour, character
   style) on every tool that writes it, plus `set_text_format` to restyle text already in the layout, give
   it a paragraph style the layout defines, or clear its direct formatting; colours may be hex or theme
-  colours; cells have the alignment arguments and `set_cell_format`'s rules and fills; and a blank `create_layout` ships
-  deterministic default typography (Calibri 11 pt via its scaffolded styles part). For the rest,
+  colours; cells have the alignment arguments and `set_cell_format`'s rules and fills; `set_layout_theme`
+  sets the layout's own theme colours and fonts (not a report theme `.dotx`); and a blank `create_layout` ships
+  deterministic default typography (Calibri 11 pt via its scaffolded styles part), plus the Office theme
+  with `theme: "office"`. For the rest,
   restyle via `create_layout`'s `templatePath` or hand-edit the OOXML directly, then run
   `validate_layout` to confirm the edit didn't break structure or bindings. Restyling in **Word** is
   safe for a layout this tool created — it declares `compatibilityMode` 15, so Word preserves the
@@ -501,7 +506,7 @@ Or write the requests to a file of your own and pipe it (`Get-Content requests.j
 | `src/BcWordLayout.Domain` | Core: dataset models, `SchemaProvider` (schema parsing), `LayoutReader` (control inventory), `LayoutValidator` (quick validation), `LayoutEditor`/`SdtFactory`/`Location`+`LocationResolver` (edits), `TableStructureEditor`/`TableShell` (table structure and new-table shells), `CellTextEditor`/`TextFormatEditor`/`RunFormatter` (cell text and formatting), `LayoutBuilder` (`create_layout`), `LayoutRefresher` (`refresh_xml_part`). |
 | `src/BcWordLayout.Merge` | `SampleDataGenerator` (seeded, type-aware fakes), `MergeEngine` (binding fill, repeater expansion incl. nested/re-anchored XPaths, picture placeholders), `FullValidator` (the dry-run merge behind `validate_layout level=full`). |
 | `src/BcWordLayout.Render` | `IPdfConverter` + `WordComConverter` (primary) / `LibreOfficeConverter` (fallback) + `PdfConverterFactory` (auto-selection) + PDF output sanity checks. |
-| `src/BcWordLayout.McpHost` | The MCP stdio server (console app): the 29 tool definitions (`Tools/ReadTools.cs`, `Tools/EditTools.cs`, `Tools/TableTools.cs`, `Tools/LifecycleTools.cs`, sharing `Tools/ToolGuards.cs`), their structured arguments (`Tools/TableArguments.cs`, `Tools/TextFormatArgument.cs`, the enum lists in `Tools/AllowedValueAttributes.cs`), the `{ok,data,error}` envelope (`ToolContracts.cs`), the call filter that keeps malformed calls inside it (`ToolCallBoundary.cs`), and the schema correction that puts a list parameter's allowed values and range on its items (`ToolInputSchemas.cs`). |
+| `src/BcWordLayout.McpHost` | The MCP stdio server (console app): the 30 tool definitions (`Tools/ReadTools.cs`, `Tools/EditTools.cs`, `Tools/TableTools.cs`, `Tools/ThemeTools.cs`, `Tools/LifecycleTools.cs`, sharing `Tools/ToolGuards.cs`), their structured arguments (`Tools/TableArguments.cs`, `Tools/TextFormatArgument.cs`, the enum lists in `Tools/AllowedValueAttributes.cs`), the `{ok,data,error}` envelope (`ToolContracts.cs`), the call filter that keeps malformed calls inside it (`ToolCallBoundary.cs`), and the schema correction that puts a list parameter's allowed values and range on its items (`ToolInputSchemas.cs`). |
 | `tests/BcWordLayout.Tests` | xUnit tests: the 13 real corpus layouts in `tests/corpus/` plus synthetic fixtures — reader/validator/merge/editor/refresher/converter coverage, snapshot tests, MCP host tool tests, packaging-manifest guards, and the fidelity harness. |
 
 ## Contributing and security

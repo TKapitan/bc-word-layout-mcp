@@ -36,7 +36,7 @@ What the target controls:
 - **Per call, not at startup.** Editing `app.json` takes effect on the next call, with no restart, and two
   layouts in two projects get their own targets.
 - **No per-call parameter.** Every mutating response carries a validation summary that depends on the target,
-  so the parameter would have to be on all 29 tools, and an agent would have to pass it consistently.
+  so the parameter would have to be on all 30 tools, and an agent would have to pass it consistently.
 - **Unknown refuses (ADR-0003).** Allowing a gated feature for an unknown target is a guess that surfaces as a
   layout BC cannot use. Refusing costs one question to the user.
 - **major.minor.** BC behaviour can change within a major version: 28.0 and 28.3 accepted an external attached

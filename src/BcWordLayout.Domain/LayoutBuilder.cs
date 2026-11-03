@@ -67,8 +67,13 @@ public static class LayoutBuilder
     /// check (see <see cref="LayoutValidator.Quick(WordprocessingDocument, TargetVersion?)"/>); null skips that
     /// check. It never refuses the build: a <c>bc-version</c> Error is reported, not counted as a stale template.
     /// </param>
+    /// <param name="theme">
+    /// <see cref="ThemeScaffold.Office"/> to give the layout the stock Office theme part (<see cref="ThemeScaffold"/>,
+    /// GitHub issue #150), so theme colours resolve and <c>set_layout_theme</c> has a theme to edit; null for none.
+    /// </param>
     /// <exception cref="ArgumentException">
-    /// A path argument is empty; <paramref name="templatePath"/> is a macro-enabled Word package
+    /// <paramref name="theme"/> is not <see cref="ThemeScaffold.Office"/>, or names a theme for a template that
+    /// already has one; a path argument is empty; <paramref name="templatePath"/> is a macro-enabled Word package
     /// (<c>.dotm</c>/<c>.docm</c>); or <paramref name="outputPath"/> resolves to <paramref name="schemaSource"/>
     /// (and not also to <paramref name="templatePath"/>) while that file carries bound content controls
     /// (<see cref="ArgumentException.ParamName"/> <c>outputPath</c>). <paramref name="outputPath"/> is never
@@ -104,8 +109,21 @@ public static class LayoutBuilder
     /// <paramref name="outputPath"/> is unchanged when this is thrown.
     /// </exception>
     public static CreateResult Create(
-        string schemaSource, string outputPath, string? templatePath = null, string? headingText = null, TargetVersion? target = null)
+        string schemaSource,
+        string outputPath,
+        string? templatePath = null,
+        string? headingText = null,
+        TargetVersion? target = null,
+        string? theme = null)
     {
+        if (theme is not null && !ThemeScaffold.IsKnown(theme))
+        {
+            throw new ArgumentException(
+                $"theme must be '{ThemeScaffold.Office}' (the stock Office theme, which Microsoft's own layouts carry) or "
+                + $"omitted for none; got '{theme}'.",
+                nameof(theme));
+        }
+
         if (string.IsNullOrWhiteSpace(schemaSource))
         {
             throw new ArgumentException("Schema source path must not be empty.", nameof(schemaSource));
@@ -193,6 +211,7 @@ public static class LayoutBuilder
             bool replacedExistingBcPart;
             IReadOnlyList<string> unlinkedTemplates;
             ValidationResult quick;
+            var addTheme = theme is null ? null : ThemeScaffold.Office;
 
             if (usedTemplate)
             {
@@ -213,7 +232,7 @@ public static class LayoutBuilder
                     EnsureDocumentPackage(doc, templatePath!);
 
                     (storeItemId, replacedExistingBcPart, unlinkedTemplates, quick) =
-                        AttachEverything(doc, datasetBytes, identity, headingText, scaffoldBlankDefaults: false, target);
+                        AttachEverything(doc, datasetBytes, identity, headingText, scaffoldBlankDefaults: false, target, addTheme);
                 }
                 catch (System.Xml.XmlException ex)
                 {
@@ -235,7 +254,7 @@ public static class LayoutBuilder
                 main.Document = new Document(new Body());
 
                 (storeItemId, replacedExistingBcPart, unlinkedTemplates, quick) =
-                    AttachEverything(doc, datasetBytes, identity, headingText, scaffoldBlankDefaults: true, target);
+                    AttachEverything(doc, datasetBytes, identity, headingText, scaffoldBlankDefaults: true, target, addTheme);
             }
 
             // REFUSE rather than half-succeed: a template that already carried its
@@ -292,6 +311,7 @@ public static class LayoutBuilder
                 ReplacedExistingBcPart = replacedExistingBcPart,
                 UnlinkedAttachedTemplates = unlinkedTemplates,
                 QuickValidation = quick,
+                AddedTheme = addTheme,
             };
         }
         finally
@@ -469,7 +489,7 @@ public static class LayoutBuilder
     /// </summary>
     private static (string StoreItemId, bool Replaced, IReadOnlyList<string> UnlinkedTemplates, ValidationResult Quick) AttachEverything(
         WordprocessingDocument doc, byte[] datasetBytes, ReportIdentity identity, string? headingText,
-        bool scaffoldBlankDefaults, TargetVersion? target)
+        bool scaffoldBlankDefaults, TargetVersion? target, string? theme)
     {
         var main = doc.MainDocumentPart!;
         var replaced = RemoveExistingBcParts(main);
@@ -493,6 +513,23 @@ public static class LayoutBuilder
             HeaderFooterScaffold.EnsureFooter(main);
             DefaultStylesScaffold.EnsureDefaultStyles(main);
             DocumentSettingsScaffold.EnsureCompatibilityMode(main);
+        }
+
+        // On request only, for a blank build or a template without one (GitHub issue #150): a template's own theme is
+        // its look, so asking for another is refused rather than either one silently winning.
+        if (theme is not null)
+        {
+            if (main.ThemePart is not null)
+            {
+                var existing = main.ThemePart.Theme?.Name?.Value;
+                throw new ArgumentException(
+                    $"theme '{theme}' adds a theme part, but templatePath already has one"
+                    + (string.IsNullOrEmpty(existing) ? string.Empty : $" ('{existing}')")
+                    + ". Omit theme to keep the template's theme, and change its colours and fonts with set_layout_theme.",
+                    nameof(theme));
+            }
+
+            ThemeScaffold.AddOfficeTheme(main);
         }
 
         // A template keeps its own settings, except the link to ITS template: Business Central refuses to upload

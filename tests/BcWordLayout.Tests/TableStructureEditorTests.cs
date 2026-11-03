@@ -734,31 +734,6 @@ public class TableStructureEditorTests
         }
     }
 
-    // ---- unsupported shapes (vMerge) are rejected, not mishandled ----
-
-    [Fact]
-    public void Column_ops_reject_a_table_that_uses_vMerge()
-    {
-        var body =
-            "<w:tbl><w:tblPr/><w:tblGrid><w:gridCol w:w=\"2000\"/><w:gridCol w:w=\"2000\"/></w:tblGrid>"
-            + "<w:tr><w:tc><w:tcPr><w:vMerge w:val=\"restart\"/></w:tcPr><w:p><w:r><w:t>a</w:t></w:r></w:p></w:tc>"
-            + "<w:tc><w:tcPr/><w:p><w:r><w:t>b</w:t></w:r></w:p></w:tc></w:tr>"
-            + "<w:tr><w:tc><w:tcPr><w:vMerge/></w:tcPr><w:p/></w:tc>"
-            + "<w:tc><w:tcPr/><w:p><w:r><w:t>c</w:t></w:r></w:p></w:tc></w:tr></w:tbl>";
-        var path = SyntheticLayout.Create(body);
-        try
-        {
-            using var doc = WordprocessingDocument.Open(path, true);
-            var ex = Assert.Throws<ArgumentException>(() =>
-                TableStructureEditor.SetColumnWidths(doc, LayoutPart.Body, null, 0, new[] { 2000, 2000 }));
-            Assert.Contains("vMerge", ex.Message);
-        }
-        finally
-        {
-            File.Delete(path);
-        }
-    }
-
     // ---- merge_cells / split_cells (horizontal) ----
 
     [Fact]

@@ -31,8 +31,8 @@ public static class Corpus
     /// <c>Standard_Sales_Invoice/1306</c> (VAT-spec variant) — the corpus's ONLY <c>w:gridAfter</c> table,
     /// and it is the line-items repeater table itself (11 grid columns, 7 <c>gridSpan</c>, 3 <c>gridAfter</c>).
     /// This is the fixture long believed not to exist (see GitHub issue #9's history) — it is what LIFTED the blanket gridAfter
-    /// refusal (see <c>TableStructureEditorTests</c>' gridAfter suite; <c>w:vMerge</c> remains the
-    /// refused shape). Also carries two Microsoft-shipped defects: bindings whose <c>storeItemID</c>
+    /// refusal (see <c>TableStructureEditorTests</c>' gridAfter suite; <c>w:vMerge</c> followed with
+    /// <see cref="ExternalDefault"/> and <see cref="SpendRequestDocument"/>). Also carries two Microsoft-shipped defects: bindings whose <c>storeItemID</c>
     /// names a part that is not in the package, and a <c>w15:dataBinding</c> whose <c>w:prefixMappings</c>
     /// is a bare URI with no <c>xmlns:ns0=</c> declaration while its XPath still uses the <c>ns0:</c> prefix.
     /// </summary>
@@ -94,6 +94,24 @@ public static class Corpus
     /// styles and theme), and the corpus's only <c>w:fldSimple</c> page field.
     /// </summary>
     public const string StandardPurchaseOrderThemable = "StandardPurchaseOrderThemable.docx";
+
+    // ---- 2026-11-03 vertical-merge additions (microsoft/BCApps, see PROVENANCE.md): the first corpus tables that
+    // merge cells vertically (w:vMerge), which lifted the tools' blanket refusal of that shape (GitHub issue #9).
+
+    /// <summary>
+    /// <c>Tenant_Report_Defaults/2000000001</c>, the BC 29 header/footer design <i>External Default</i>: a header
+    /// layout for report themes. Its header table merges its first column (the report caption) down every row: two
+    /// rows in <c>header3.xml</c>, three in <c>header2.xml</c>. Validates with 0 errors and 2 warnings
+    /// (<c>bc-version</c> for an unknown target, and a <c>content-write-failed</c> date control).
+    /// </summary>
+    public const string ExternalDefault = "ExternalDefault.docx";
+
+    /// <summary>
+    /// <c>Spend_Request_Document/6850</c>: its info grid (table 0, a <c>w:gridAfter</c> grid of six columns) merges the
+    /// <c>gridSpan</c> 2 Purpose value over rows 3 and 4, so a vertical merge meets a spanned cell and a skipped
+    /// grid column in one table. Validates clean.
+    /// </summary>
+    public const string SpendRequestDocument = "SpendRequestDocument.docx";
 
     // QuantityExplosionofBOM.docx was REMOVED from the corpus (2026-08-01). Business Central rejected it
     // on upload — InvalidPrefixMapping on nine bindings naming Quantity_Explosion_of_BOM/50000 and

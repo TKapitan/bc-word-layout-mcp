@@ -115,7 +115,14 @@ public static class LifecycleTools
                      + "pass a human title (e.g. 'Sales Order Confirmation') when authoring a document from "
                      + "scratch; pass an empty string for NO heading at all (the body starts with one empty "
                      + "paragraph). Ignored when the template's body already has content.")]
-        string? headingText = null)
+        string? headingText = null,
+        [Description("Optional 'office' to give the new layout the stock Office theme part (colour scheme Office, "
+                     + "fonts Calibri Light/Calibri, as Microsoft's own layouts carry): theme colours such as "
+                     + "format.color 'accent1' then resolve, and set_layout_theme can change the theme's colours "
+                     + "and fonts. Omit for no theme part, as before. A template that already has a theme is "
+                     + "refused with theme 'office' - it keeps its own.")]
+        [ThemeValues]
+        string? theme = null)
     {
         return Guard(() =>
         {
@@ -148,7 +155,7 @@ public static class LifecycleTools
                 }
 
                 // The target comes from above outputPath: the AL project the new layout will belong to.
-                var result = LayoutBuilder.Create(schemaSource, outputPath, templatePath, headingText, ResolveTarget(outputPath));
+                var result = LayoutBuilder.Create(schemaSource, outputPath, templatePath, headingText, ResolveTarget(outputPath), theme);
                 var dto = new CreateResultDto(
                     result.OutputPath,
                     result.ReportName,
@@ -162,7 +169,8 @@ public static class LifecycleTools
                         result.QuickValidation.Passed,
                         result.QuickValidation.ErrorCount,
                         result.QuickValidation.WarningCount),
-                    result.UnlinkedAttachedTemplates.Count > 0 ? result.UnlinkedAttachedTemplates : null);
+                    result.UnlinkedAttachedTemplates.Count > 0 ? result.UnlinkedAttachedTemplates : null,
+                    result.AddedTheme);
 
                 return ToolResponse.Success(dto);
             }

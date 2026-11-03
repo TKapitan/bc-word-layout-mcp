@@ -214,8 +214,7 @@ public static class LocationResolver
         {
             LocationKind.DocumentEnd => ResolveDocumentEnd(root, partName),
             LocationKind.AfterControl => ResolveAfterControl(root, location.ControlId!.Value, partName, partDescription),
-            LocationKind.TableCell => ResolveTableCell(
-                root, location.TableIndex!.Value, location.Row!.Value, location.Col!.Value, partName, partDescription),
+            LocationKind.TableCell => ResolveTableCell(root, location, partName, partDescription),
             LocationKind.AtText => ResolveAtText(root, location.SearchText!, partName, partDescription),
             _ => throw new ArgumentException($"Unsupported location kind '{location.Type}'.", nameof(location)),
         };
@@ -605,9 +604,10 @@ public static class LocationResolver
     // [SdtCell, w:tc, SdtCell], which has one bare w:tc, so col 1/2 would wrongly read as out of range even
     // though get_layout_info reports three cells for that row.
     private static InsertionAnchor ResolveTableCell(
-        OpenXmlElement root, int tableIndex, int row, int col, string partName, string partDescription)
+        OpenXmlElement root, Location location, string partName, string partDescription)
     {
-        var (targetCell, _) = FindTableCell(root, tableIndex, row, col, partName, partDescription);
+        var (targetCell, _) = FindTableCell(
+            root, location.TableIndex!.Value, location.Row!.Value, location.Col!.Value, partName, partDescription, location);
         return AnchorInsideCell(targetCell, partName);
     }
 
@@ -622,9 +622,11 @@ public static class LocationResolver
     /// <see cref="LocationKind.TableCell"/> (or is otherwise structurally invalid — see
     /// <see cref="Location.Validate"/>), or a <see cref="NotFoundException"/> (<see cref="NotFoundTarget.TableCoordinate"/>)
     /// when the well-formed location does not resolve against <paramref name="doc"/> (out-of-range
-    /// table/row/cell, or a cell-level control with no inner cell).
+    /// table/row/cell, or a cell-level control with no inner cell). <paramref name="forContent"/> refuses a cell that
+    /// continues a vertical merge, as writing into it would (see <see cref="FindTableCell"/>).
     /// </summary>
-    public static (TableCell Cell, string PartName) ResolveCellElement(Location location, WordprocessingDocument doc)
+    public static (TableCell Cell, string PartName) ResolveCellElement(
+        Location location, WordprocessingDocument doc, bool forContent = false)
     {
         ArgumentNullException.ThrowIfNull(location);
         ArgumentNullException.ThrowIfNull(doc);
@@ -640,11 +642,24 @@ public static class LocationResolver
 
         var (root, partName) = ResolvePartRoot(location, doc);
         var partDescription = DescribePart(partName);
-        return FindTableCell(root, location.TableIndex!.Value, location.Row!.Value, location.Col!.Value, partName, partDescription);
+        return FindTableCell(
+            root,
+            location.TableIndex!.Value,
+            location.Row!.Value,
+            location.Col!.Value,
+            partName,
+            partDescription,
+            forContent ? location : null);
     }
 
+    /// <summary>
+    /// The cell at (<paramref name="tableIndex"/>, <paramref name="row"/>, <paramref name="col"/>). Given the
+    /// <paramref name="location"/> content is about to be written to, a cell that continues a vertical merge
+    /// (<c>w:vMerge</c>, GitHub issue #9) is refused, naming the merge's first cell: Word shows that cell's content
+    /// over the whole merge, so text or a control put further down would never print.
+    /// </summary>
     private static (TableCell Cell, string PartName) FindTableCell(
-        OpenXmlElement root, int tableIndex, int row, int col, string partName, string partDescription)
+        OpenXmlElement root, int tableIndex, int row, int col, string partName, string partDescription, Location? location = null)
     {
         var table = TableGridNavigator.TableAt(root, tableIndex, partDescription);
 
@@ -672,6 +687,15 @@ public static class LocationResolver
                 $"Table {tableIndex}, row {row}, col {col} resolves to a cell-level control with no inner "
                 + "table cell to operate on.",
                 NotFoundTarget.TableCoordinate);
+
+        if (location is not null && VerticalMerges.Of(table).ContinuedBy(targetCell) is { } merge)
+        {
+            throw new ArgumentException(
+                $"Table {tableIndex}, row {row}, col {col} is part of a vertically merged cell (w:vMerge, "
+                + $"{merge.DescribeRows()}), and Word shows the merge's content from its first cell only: anything "
+                + $"put here would not print. Address that cell instead: row {merge.First.Row}, col {merge.First.Col}.",
+                nameof(location));
+        }
 
         return (targetCell, partName);
     }

@@ -174,7 +174,8 @@ public static class CellTextEditor
         JustificationValues? alignment = null,
         string? paragraphStyle = null)
     {
-        var (cell, partName) = LocationResolver.ResolveCellElement(location, doc);
+        // Text written into a cell that continues a vertical merge would never print; clearing one is harmless.
+        var (cell, partName) = LocationResolver.ResolveCellElement(location, doc, forContent: text is not null);
 
         // Never clobber a bound field/label: a cell is not "plain text" if it either CONTAINS a content
         // control (a block/inline sdt inside the w:tc) or IS the content of a cell-level control (an

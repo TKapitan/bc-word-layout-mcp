@@ -6,9 +6,11 @@
 
 The tools only *emit* OOXML shapes that have been seen in a real Business Central layout (the corpus
 in `tests/corpus/`, plus captures reviewed during development), and only *accept for structural
-edits* the shapes they can reason about. Shapes absent from every reviewed layout — the standing
-example is vertical merges (`w:vMerge`) — are **refused**, not implemented from the OOXML
-specification.
+edits* the shapes they can reason about. Shapes absent from every reviewed layout — the current
+example is a lighter theme fill (`w:themeFillTint`) — are **refused**, not implemented from the OOXML
+specification. Vertical merges (`w:vMerge`) were the standing example until Microsoft's own BC 29
+header/footer designs turned out to use them (2026-11-03, GitHub issue #9): two of those layouts joined
+the corpus, and the table tools now edit such tables.
 
 ## Why
 

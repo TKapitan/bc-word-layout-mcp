@@ -10,7 +10,7 @@ namespace BcWordLayout.Tests;
 /// GitHub issue #80: <see cref="TableGridNavigator.Rows"/> yielded one row per direct child of the
 /// <c>w:tbl</c>, resolving a row-level control to the FIRST <c>w:tr</c> inside it. Every other row of a
 /// repeater item — nested detail repeaters, subtotal and spacer rows, the extra rows of a multi-row item — was
-/// invisible, to the column tools, the width re-slicing, the vMerge refusal, <c>get_layout_info</c>,
+/// invisible, to the column tools, the width re-slicing, the vertical-merge reading, <c>get_layout_info</c>,
 /// <c>tableCell</c> addressing and <see cref="TableGridConsistencyGuard"/> alike. A column edit therefore left
 /// those rows on the old grid while the guard built to reject exactly that saw nothing.
 /// </summary>
@@ -296,17 +296,18 @@ public class NestedRepeaterRowTests
     }
 
     [Fact]
-    public void The_vMerge_refusal_sees_a_vertical_merge_in_a_nested_row()
+    public void The_grid_guard_sees_a_broken_vertical_merge_in_a_nested_row()
     {
+        // The item's SECOND row continues a vertical merge the row above it never started (GitHub issue #9).
         var path = SyntheticLayout.Create(MultiRowItemTable(secondItemRowCell:
-            "<w:tc><w:tcPr><w:vMerge w:val=\"restart\"/></w:tcPr><w:p/></w:tc>"));
+            "<w:tc><w:tcPr><w:vMerge/></w:tcPr><w:p/></w:tc>"));
         try
         {
-            var response = TableTools.InsertColumn(path, tableIndex: 0, mode: "plainText");
+            using var doc = WordprocessingDocument.Open(path, false);
+            var violation = Assert.Single(TableGridConsistencyGuard.Find(doc));
 
-            Assert.False(response.Ok);
-            Assert.Equal("invalid_argument", response.Error!.Code);
-            Assert.Contains("w:vMerge", response.Error.Message);
+            Assert.Equal(TableGridViolationKind.BrokenVerticalMerge, violation.Kind);
+            Assert.Equal(2, violation.RowIndex);
         }
         finally
         {

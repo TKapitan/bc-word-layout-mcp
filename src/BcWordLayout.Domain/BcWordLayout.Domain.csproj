@@ -9,4 +9,9 @@
     <InternalsVisibleTo Include="BcWordLayout.Merge" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- The stock Office theme create_layout adds on request (ThemeScaffold, GitHub issue #150). -->
+    <EmbeddedResource Include="Resources\OfficeTheme.xml" LogicalName="BcWordLayout.Domain.OfficeTheme.xml" />
+  </ItemGroup>
+
 </Project>

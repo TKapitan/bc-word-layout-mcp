@@ -95,6 +95,8 @@ public sealed record ControlSummaryDto(int Field, int Label, int Repeater, int P
 /// coordinate the column tools take (<c>remove_column</c>'s <c>column</c>, <c>insert_column</c>'s
 /// <c>atColumn</c>, the position in <c>set_column_widths</c>' list). The two differ on almost every real BC
 /// table (GitHub issue #81). Both grid fields were added at the end so the shape stays additive.
+/// <see cref="VerticalMerge"/> is <c>restart</c>/<c>continue</c> for a cell of a vertical merge, else null
+/// (GitHub issue #9): a merge's text and controls go in its <c>restart</c> cell, the one Word shows.
 /// </summary>
 public sealed record TableCellDto(
     int ColIndex,
@@ -106,7 +108,8 @@ public sealed record TableCellDto(
     string Text,
     IReadOnlyList<int> InnerControlIds,
     int GridColumn,
-    int GridSpan);
+    int GridSpan,
+    string? VerticalMerge = null);
 
 /// <summary>
 /// One row of a <see cref="TableDto"/> — one per <c>w:tr</c>, so every row of a multi-row repeater item
@@ -308,6 +311,27 @@ public sealed record CellEditResultDto(
     ValidationSummaryDto QuickValidation);
 
 /// <summary>
+/// Result of <c>set_layout_theme</c> (GitHub issue #150): each slot set, with its colour before and after; the heading
+/// (<see cref="MajorFont"/>) and body (<see cref="MinorFont"/>) fonts when set; and how many theme-coloured references
+/// had their cached colour rewritten. Built only by <c>Tools.ToolGuards.GuardThemeEdit</c>, with a fresh post-edit
+/// quick validation, like every other edit result.
+/// </summary>
+public sealed record ThemeEditResultDto(
+    string Operation,
+    IReadOnlyList<ThemeColorChangeDto> Colors,
+    ThemeFontChangeDto? MajorFont,
+    ThemeFontChangeDto? MinorFont,
+    int RecachedReferences,
+    string Summary,
+    ValidationSummaryDto QuickValidation);
+
+/// <summary>One theme slot <c>set_layout_theme</c> set: its <c>RRGGBB</c> before (null when the scheme had none) and now.</summary>
+public sealed record ThemeColorChangeDto(string Slot, string? Previous, string Value);
+
+/// <summary>One theme font <c>set_layout_theme</c> set: before (null when the theme named none) and now.</summary>
+public sealed record ThemeFontChangeDto(string? Previous, string Value);
+
+/// <summary>
 /// Result of a table-STRUCTURE edit tool (<c>insert_table</c>, <c>insert_table_row</c>,
 /// <c>set_column_widths</c>, <c>insert_column</c>, <c>remove_column</c>, <c>merge_cells</c>, <c>split_cells</c>,
 /// <c>set_cell_format</c>). The table is addressed by its 0-based document-order index (the same one
@@ -351,7 +375,8 @@ public sealed record CreateResultDto(
     bool UsedTemplate,
     bool ReplacedExistingBcPart,
     ValidationSummaryDto QuickValidation,
-    IReadOnlyList<string>? UnlinkedAttachedTemplates = null);
+    IReadOnlyList<string>? UnlinkedAttachedTemplates = null,
+    string? AddedTheme = null);
 
 /// <summary>
 /// A BC binding whose <c>w:storeItemID</c> named no part in the package, re-pointed by <c>refresh_xml_part</c> to the

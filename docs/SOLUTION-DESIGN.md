@@ -201,7 +201,7 @@ alongside the quick checks in `Domain.LayoutValidator`.
 
 ## 4. Tool surface
 
-**29 tools.** The per-parameter reference is the companion skill's §2
+**30 tools.** The per-parameter reference is the companion skill's §2
 ([`skills/al-word-layout/SKILL.md`](../skills/al-word-layout/SKILL.md)); this is the shape and the grouping.
 
 | Group | Tools |
@@ -211,7 +211,7 @@ alongside the quick checks in `Domain.LayoutValidator`.
 | Preview | `preview_layout`, `render_preview_pages` |
 | Author | `create_layout`, `insert_field`, `insert_label`, `insert_text`, `insert_page_number`, `insert_page_conditional_text`, `insert_picture`, `insert_table`, `insert_repeater_table`, `insert_repeater_row`, `insert_subtotal_row`, `wrap_in_repeater` |
 | Table structure | `insert_table_row`, `insert_column`, `remove_column`, `set_column_widths`, `merge_cells`, `split_cells`, `set_cell_text`, `clear_cell_text` |
-| Format | `set_text_format`, `set_cell_format` |
+| Format | `set_text_format`, `set_cell_format`, `set_layout_theme` |
 | Lifecycle | `remove_control`, `refresh_xml_part` |
 
 Conventions that hold across the surface:
@@ -317,10 +317,11 @@ first match. The cost of a wrong guess is a corrupt
 deliverable a developer discovers in a sandbox; the cost of a refusal is one clear message.
 
 **4. Emit only OOXML that has been seen in a real layout.** Shapes absent from every reviewed layout
-(`w:vMerge`) stay unsupported rather than being implemented from the spec, because "valid per the schema"
-and "what the BC add-in produces" are not the same thing. The corollary matters as much: when a shape turns
-out to be real, the rejection is a bug — `w:gridAfter` was refused for months on the belief it was exotic,
-while sitting on the line-items table of the stock sales-invoice layout.
+(a lighter theme fill, `w:themeFillTint`) stay unsupported rather than being implemented from the spec,
+because "valid per the schema" and "what the BC add-in produces" are not the same thing. The corollary
+matters as much: when a shape turns out to be real, the rejection is a bug — `w:gridAfter` was refused for
+months on the belief it was exotic, while sitting on the line-items table of the stock sales-invoice
+layout, and `w:vMerge` until Microsoft's own BC 29 header/footer designs turned out to use it (#9).
 
 **5. Treat the layout as untrusted input.** It comes from a repo the agent did not write.
 `ResourceLimits` caps part size, part count, and recursion depth so a zip-bomb or a deeply-nested file

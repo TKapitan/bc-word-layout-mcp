@@ -73,15 +73,17 @@ public sealed class ThemeColorTests : IDisposable
     [Fact]
     public void Tinted_and_shaded_theme_colours_match_the_corpus_cache_to_within_one_step()
     {
-        // Word's arithmetic is undocumented: truncating the float HSL result reproduces 14 of the 18 distinct cached
-        // values exactly, the rules a tool would redraw among them, and the other four within one step per channel.
+        // Word's arithmetic is undocumented: truncating the float HSL result reproduces 69 of the 89 distinct cached
+        // values exactly, the rules a tool would redraw among them, and the other 20 within one step per channel. The
+        // corpus held 18 when the formula was chosen (14 exact); the two vertical-merge layouts added on 2026-11-03
+        // brought 71 more (55 exact), and it met them unchanged.
         var distinct = CorpusThemeColours()
             .Where(c => c.Tint is not null || c.Shade is not null)
             .Select(c => (c.Resolved, c.Tint, c.Shade, c.Cached))
             .Distinct()
             .ToList();
 
-        Assert.Equal(18, distinct.Count);
+        Assert.Equal(89, distinct.Count);
         var exact = 0;
         foreach (var (rgb, tint, shade, cached) in distinct)
         {
@@ -96,7 +98,7 @@ public sealed class ThemeColorTests : IDisposable
             exact += computed == cached ? 1 : 0;
         }
 
-        Assert.Equal(14, exact);
+        Assert.Equal(69, exact);
         Assert.Equal("9B9482", ThemePalette.ApplyTintShade("4C483D", "99", null)); // text2 lighter 40% in VatSpec's rules
         Assert.Equal("AEAAAA", ThemePalette.ApplyTintShade("E7E6E6", null, "BF")); // background2 darker 25%
     }
