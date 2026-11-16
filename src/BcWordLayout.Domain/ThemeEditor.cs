@@ -56,7 +56,8 @@ public sealed class ThemeEditResult
 /// w:fill</c>, a border's <c>w:color</c>, tint or shade applied) and recomputes it from the theme when it opens the
 /// file. Every reference to a changed entry, in the content parts, the styles and the numbering, gets the new value
 /// (<see cref="ThemePalette.ApplyTintShade"/>), so a renderer that reads only the cached colour prints the new one
-/// too. Whether a Business Central report theme overrides a layout's own theme is open (GitHub issue #142).
+/// too. A report theme selected in Business Central replaces the layout's own theme at print time, colours and fonts
+/// alike, so the edit decides how the layout prints with no report theme (sandbox round 4, BC 29, GitHub issue #142).
 /// </para>
 /// </remarks>
 public static class ThemeEditor
