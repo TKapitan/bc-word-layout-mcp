@@ -24,6 +24,57 @@ through the tools alone; `sandbox_pack.py`/`bc_compare.py` build and re-check th
 validation pack (see `docs/FIDELITY-CHECKLIST.md`). The Python tools have their own standard-library
 tests, which CI runs on its Linux leg: `python -m unittest discover -s tools/tests`.
 
+### Running your build as an MCP server
+
+The repo-root [`.mcp.json`](.mcp.json) launches the server from your working tree with
+`dotnet run --project src/BcWordLayout.McpHost --artifacts-path .mcp-run`, so there is no publish step
+while iterating. The separate `.mcp-run/` folder matters on Windows: a running server locks the DLLs it
+loaded, and building into the normal `bin/` folders would block `dotnet build` and `dotnet test` while a
+session is open.
+
+Claude Code starts every `.mcp.json` server when a session opens, so the committed
+[`.claude/settings.json`](.claude/settings.json) disables this one (`disabledMcpjsonServers`). To use
+your build, add it under your own local scope, which that setting does not cover:
+
+```pwsh
+claude mcp add --scope local bc-word-layout-dev -- dotnet run --project src/BcWordLayout.McpHost --artifacts-path .mcp-run
+```
+
+Remove it with `claude mcp remove --scope local bc-word-layout-dev`. The server runs the code as built
+when the session started; restart the session to pick up later edits.
+
+To check a build by hand: the server speaks newline-delimited JSON-RPC on stdout and logs to stderr.
+Run `dotnet run --project src/BcWordLayout.McpHost` and send one object per line:
+
+```json
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"smoke","version":"1.0"}}}
+{"jsonrpc":"2.0","method":"notifications/initialized"}
+{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}
+```
+
+### Publishing and packing
+
+- `dotnet publish src/BcWordLayout.McpHost -c Release -r win-x64 --self-contained` builds a
+  self-contained deployment in `src/BcWordLayout.McpHost/bin/Release/net10.0/win-x64/publish/`. Ship
+  the whole folder: the `.exe` depends on the `.dll`s beside it.
+- `dotnet pack src/BcWordLayout.McpHost -c Release` builds the top-level `BcWordLayout.Mcp` package
+  (with the `.mcp/server.json` manifest nuget.org shows as install config) and one package per Windows
+  RID; they are always pushed together.
+- `scripts/build-release-zips.ps1` builds the per-RID zips and checksums a GitHub Release carries, and
+  `python tools/release/verify_server.py -- <command>` smoke-tests any install channel.
+- Releases follow [`docs/RELEASING.md`](docs/RELEASING.md); `PackagingMetadataTests` fails the suite
+  when a version bump misses one of the manifests.
+
+### Project layout
+
+| Project | Role |
+|---|---|
+| `src/BcWordLayout.Domain` | Reading, validating and editing layouts: schema parsing, the control inventory, quick validation, the edit and table engines, formatting, `create_layout` and `refresh_xml_part`. |
+| `src/BcWordLayout.Merge` | Sample data, the merge engine behind the preview, and the dry-run merge behind `validate_layout level=full`. |
+| `src/BcWordLayout.Render` | PDF conversion: Word COM (primary) and LibreOffice (untested fallback). |
+| `src/BcWordLayout.McpHost` | The MCP stdio server: the tool definitions (`Tools/*Tools.cs`, sharing `Tools/ToolGuards.cs`), their arguments, the `{ok,data,error}` envelope (`ToolContracts.cs`), and the call filter that keeps malformed calls inside it (`ToolCallBoundary.cs`). |
+| `tests/BcWordLayout.Tests` | xUnit tests over the real corpus layouts in `tests/corpus/` (see its `PROVENANCE.md`) and synthetic fixtures, including Word COM conversion tests that pass whether or not Word is installed. |
+
 ## The design constraints (read before proposing)
 
 [`docs/SOLUTION-DESIGN.md`](docs/SOLUTION-DESIGN.md) is the source of truth for design decisions —

@@ -8,8 +8,8 @@ using ModelContextProtocol.Server;
 namespace BcWordLayout.Tests;
 
 /// <summary>
-/// Pins what the call boundary returns for calls that never reach a tool body — the cases README's "Response
-/// envelope" section and ADR-0004 describe — by driving the real server pipeline (<see cref="McpHostPipeline"/>:
+/// Pins what the call boundary returns for calls that never reach a tool body — the cases ADR-0004 describes and the
+/// README's "Responses and errors" section summarises — by driving the real server pipeline (<see cref="McpHostPipeline"/>:
 /// SDK framing, tool lookup, argument binding, and <c>ToolCallBoundary</c>'s filter). Every one of these used
 /// to be undocumented or mis-coded (GitHub issue #97): a wrong-typed argument and an unknown tool came back as
 /// <c>internal_error</c>, and an explicit null for an enum-like string crashed the tool body. These tests are

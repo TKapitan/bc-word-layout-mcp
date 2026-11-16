@@ -7,6 +7,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-11-16
+
+A minor release: two new tools (`insert_page_conditional_text`, `set_layout_theme`), theme colours, rule
+colours and paragraph styles, tables with vertical merges, and a target Business Central version that
+gates what needs BC 29. Nothing is breaking: every change is a new tool, a new optional argument, a new
+response field, a new warning, or a table shape that used to be refused. The whole sandbox pack was
+printed in a BC 29 sandbox (round 4, recorded in `docs/FIDELITY-CHECKLIST.md`), including the new page
+conditions and `set_layout_theme`.
+
 ### Added
 
 - **Target Business Central version** (GitHub issue #152, ADR-0007). Some layout features need a newer
@@ -19,8 +28,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     warning for an unknown one, so such layouts outside an AL project now draw a warning. Theme
     colours and paragraph styles already in a layout are not flagged.
   - A new error code, `bc_version_unsupported`, refuses a call that would write a feature the target
-    lacks, or any such call when the target is unknown. No shipped tool writes one yet: theme colours
-    and paragraph styles (#145, #146) will. The README lists the features and their versions.
+    lacks, or any such call when the target is unknown. Theme colours, paragraph styles and
+    `set_layout_theme`, all below, are what it gates. The README lists the features and their versions.
 - **New tool `set_layout_theme`: a layout's own theme colours and fonts** (GitHub issue #150). It sets
   the colour a layout's theme gives each slot (`colors`, e.g. `{"accent1": "0070C0"}`) and its heading
   and body fonts (`majorFont`, `minorFont`). The stock themable Blue invoice prints coral red because its
@@ -133,12 +142,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
-- **`ModelContextProtocol` SDK 2.2.0 → 2.3.0** (Dependabot #141, GitHub issue #153). Tool lookup,
-  argument binding, the call-tool filter and the advertised schemas are unchanged; the host-level
-  tests that pin them pass on both versions. The SDK now lists tools in the order they are registered
-  (SDK #1924), so a client may see `tools/list` in a different order. 2.3.0 also makes the client's
-  `ServerInfo` nullable, because a server may now omit its identity; this server still sends its
-  name and product version, and the test that checks it now asserts that it is present.
+- **`ModelContextProtocol` SDK 2.2.0 → 2.4.0** (Dependabot #141 and #161, GitHub issue #153). Tool
+  lookup, argument binding, the call-tool filter and the advertised schemas are unchanged; the
+  host-level tests that pin them pass on every version. Since 2.3.0 the SDK lists tools in the order
+  they are registered (SDK #1924), so a client may see `tools/list` in a different order. 2.3.0 also
+  makes the client's `ServerInfo` nullable, because a server may now omit its identity; this server
+  still sends its name and product version, and the test that checks it now asserts that it is
+  present. 2.4.0 needed no change.
+- **`Microsoft.Extensions.Hosting` 10.0.14 → 11.0.0** (Dependabot #161). The server still targets
+  .NET 10; the full suite, the end-to-end journeys and the release smoke test pass on it.
 
 ### Fixed
 
