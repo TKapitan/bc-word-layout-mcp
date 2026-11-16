@@ -345,17 +345,19 @@ to dev sandbox → run the report), never this tool's PDF alone.
 
 **What has been validated against a real Business Central sandbox:** packs of layouts made with
 these tools were uploaded to real BC sandboxes and rendered by the real report engine, in three rounds
-on **BC 28** (Cronus AU). Rounds 1 and 2 (2026-08, BC 28.0 and 28.3) had five items, then seven, three
+on **BC 28** (Cronus AU) and one on **BC 29**. Rounds 1 and 2 (2026-08, BC 28.0 and 28.3) had five items, then seven, three
 of them from-scratch builds, and every item passed. Round 3 (2026-10) printed seventeen items covering
 what 2.0 writes, plus seven follow-up probes, and found four things the tools got wrong: a link to an
 external template that BC 28 newly refuses on upload, a template conversion that crashed BC's print, a
 detail row's formatting, and a work-description repeater shape BC did not print. Each is fixed in
 2.0.0 and printed correctly again. Round 3 also measured three behaviours the project had no evidence
 for: last-page-only field codes, a `storeItemID` naming no part, and the add-in's hide-if-empty controls.
-[`docs/FIDELITY-CHECKLIST.md`](docs/FIDELITY-CHECKLIST.md) records every round and what it measured.
+Round 4 (2026-11) printed all thirty-two items on BC 29: everything printed as it had on BC 28, all three
+page conditions worked, and its probes measured what a report theme changes and how the add-in's
+conditional controls behave. [`docs/FIDELITY-CHECKLIST.md`](docs/FIDELITY-CHECKLIST.md) records every round and what it measured.
 BC accepts what these tools author, bindings resolve, repeaters expand, and the mock preview's
 structure matched the real render on the dimensions checked. That is what it proves — and no more:
-one BC version family, one localization, the layouts in the pack. The mock preview remains a mock; the
+two BC versions, one localization, the layouts in the pack. The mock preview remains a mock; the
 per-release fidelity procedure and its open manual dimensions live in the same checklist.
 
 ## Public contract and versioning
