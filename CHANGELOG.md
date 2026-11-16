@@ -63,8 +63,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `PAGE` and `NUMPAGES`: `when` is `lastPage` (`IF PAGE = NUMPAGES`), `notLastPage` (`<>`) or
   `firstPage` (`PAGE = 1`), e.g. company details on the last page or "continued on the next page".
   - The `lastPage` runs are exactly sandbox probe P11's, which Business Central 28 evaluated per page on
-    a two-page and a one-page order. The other two differ only in the comparison; new pack item P25
-    prints all three.
+    a two-page and a one-page order. The other two differ only in the comparison, and new pack item P25
+    printed all three correctly on BC 29, on a two-page and a one-page order.
   - It takes the insert tools' locations, `layoutPart`/`partName` and `format`, and, like
     `insert_page_number`, creates no content control.
   - Text only: a double quote or backslash is refused, since the field syntax reads them. A bound value

@@ -84,8 +84,8 @@ inside one, under the lines of the invoice P08 prints, a missing record, an empt
 for the row variant (P20–P22) and a missing record and a filled one for the table variant (P23/P24), one
 wrapped cell each; no new demo data needed. **P25** prints `insert_page_conditional_text`
 ([#11](https://github.com/TKapitan/bc-word-layout-mcp/issues/11)): P11's `IF PAGE = NUMPAGES` construct as
-the tool writes it, and its `<>` and `PAGE = 1` variants, which no round has printed, on a multi-page and
-a one-page purchase order.
+the tool writes it, and its `<>` and `PAGE = 1` variants, on a multi-page and a one-page purchase order;
+round 4 printed all three correctly on BC 29.
 
 **P26**–**P32** need a **BC 29** sandbox. **P26**/**P27** retest #123's row variant in the two placements
 Microsoft's own layouts use (microsoft/BCApps): on a row of a table nested in the repeated line, as the Quality
@@ -173,6 +173,30 @@ passed**; the filled comparison sheet lives with the round's pack output.
   as [#19](https://github.com/TKapitan/bc-word-layout-mcp/issues/19) and since fixed there:
   `MergeEngine`'s flatten-for-render step now unwraps row-level sdt shells entirely
   (`UnwrapRowLevelSdts`).
+
+### Recorded result — 2026-11-16, BC sandbox (round 4: P01–P25 on a BC 29 sandbox)
+
+Every item printed, and nothing differs from what BC 28 printed in round 3. Compared page by page with the
+round-3 prints, thirteen are pixel-identical (P02, P03, P06–P08, P11, P14–P16, P20, P21, P23, P24, and the
+no-lines quote of P09/P10) and P04 and P19 differ by under 0.1%. The rest differ only in their data, not in what BC
+did with the layout: quote 1003 had grown from 40 to 52 lines during round 3 (P01, P05, P09, P10, P13, P17),
+the statement ran from 01/01/01, so every customer took two pages, each starting on a new page with its own
+address and the entries header repeated (P12), and P22's round-3 print came from an earlier build, before
+the row tools copied the row above's formatting. What round 4 adds:
+
+- **BC evaluates all three page conditions per page** (P25,
+  [#11](https://github.com/TKapitan/bc-word-layout-mcp/issues/11)). On a two-page purchase order, `firstPage`
+  and `notLastPage` printed on page 1 and `lastPage` on page 2; on a one-page order, `firstPage` and
+  `lastPage` printed and `notLastPage` did not. Round 3 had printed `lastPage` alone, on BC 28.
+- **BC 29 treats the hide-if-empty wrappers exactly as BC 28 did** (P09, P10, P19–P24,
+  [#123](https://github.com/TKapitan/bc-word-layout-mcp/issues/123)): nothing hidden outside a repeater, the
+  whole invoice line hidden inside one when the wrapped cell is empty (P20, P21) and kept when it is filled
+  (P22), and the table variant around one cell doing nothing (P23, P24).
+- **The capability checks print on BC 29 as on BC 28:** formatting (P13, every line as the mock shows it),
+  block repeaters (P12, P14), totals and subtotal rows (P15, P16), the `.dotx` template build (P17), and the
+  work description held inline still printing nothing beside the built-in layout's (P18).
+
+P26–P32, the BC 29 probes, are not printed yet.
 
 ### Recorded result — 2026-10-24/25, BC sandbox (round 3 and its re-run: twenty-four items on a BC 28 sandbox)
 

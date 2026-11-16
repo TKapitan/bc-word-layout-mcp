@@ -2163,6 +2163,13 @@ P23/P24 do the same with the TABLE variant: a missing record, and a filled value
 **P25** prints `insert_page_conditional_text` (#11): P11's last-page construct as the tool writes it, plus
 its every-page-but-the-last and first-page variants, which no round has printed.
 
+**Round 4 runs on a BC 29 sandbox** (2026 release wave 2), and every item is printed there. **P26-P32 need
+BC 29.** P26/P27 retest the hide-if-empty row variant (#123) in the two placements Microsoft's own layouts
+use, so print P20-P22 again beside them. P28/P29 print the two add-in controls a contributor captured (#8).
+P30-P32 ask what a report theme changes (#142), and whether it overrides `set_layout_theme` (#150). **Print
+P25-P32 and P20-P22 first:** they answer open issues. The other items re-run earlier rounds on the new
+version.
+
 ## The layouts
 
 | Item | What it tests | Report | File | Status |

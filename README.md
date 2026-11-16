@@ -236,7 +236,7 @@ other tool is conversion-free and works everywhere the server runs.
 | `insert_label` | Insert a plain-text LABEL content control bound to a label-suffixed (`Lbl`/`_Lbl`) dataset path. |
 | `insert_text` | Insert plain STATIC text — a literal run, not a content control: the separator space, colon or `" / "` that glues two inline controls together (without it, chained controls render as `Document NoDOCU-0150`). Creates no control, so it has no `controlId` and cannot be targeted by `remove_control`. |
 | `insert_page_number` | Insert Word `PAGE`/`NUMPAGES` field codes — the "Page X / Y" chrome every stock BC document header carries (by default the full `X / Y` shape; `includeTotal=false` for the current page alone). Field codes are plain runs, so no `controlId`. |
-| `insert_page_conditional_text` | Insert static text that prints on the last page only, on every page but the last, or on the first page only — a Word `IF` field over `PAGE` and `NUMPAGES` (`IF PAGE = NUMPAGES` is sandbox-verified: BC evaluates it per page). Meant for a header or footer; a field, so no `controlId`. |
+| `insert_page_conditional_text` | Insert static text that prints on the last page only, on every page but the last, or on the first page only — a Word `IF` field over `PAGE` and `NUMPAGES` (BC evaluates all three per page, sandbox-verified on BC 29). Meant for a header or footer; a field, so no `controlId`. |
 | `insert_repeater_table` | Insert a complete repeater table (label/static header row + one bound data row) for a repeating data item, in the body — the flagship editing tool. Draws the BC-native look by default (no grid, one rule under the header row; `borders` also offers none or a full grid) and can reference a table style the layout defines; optional per-column widths and alignments, pinned with a fixed table layout so Word renders the grid as specified. |
 | `insert_repeater_row` | Add a nested DETAIL ROW repeater inside an existing repeater's item — the standard BC shape for per-line detail (assembly components, serial/lot nos): a row under each line, aligned to the parent grid via spans, repeating once per parent row. Its cells take the run formatting and paragraph style of the row above them, column by column; `format` overrides. |
 | `insert_picture` | Insert a PICTURE content control bound to a picture dataset path (e.g. `/Header/CompanyPicture`) — the logo placeholder a from-scratch layout needs; BC fills it at render time. |
@@ -382,13 +382,11 @@ Error `message`/`hint` texts are not part of the contract — never parse them.
   Table Row, layout comment) — no `set_hide_if_empty` tool yet. What BC 28 does with the two captured
   ones is measured ([#123](https://github.com/TKapitan/bc-word-layout-mcp/issues/123)): inside a repeater, *Hide Table Row If Empty* hides the whole
   repeated item when its cell is empty, and outside a repeater it does nothing; *Hide Table If Empty*
-  around a cell does nothing. A tool is planned after 2.0; until then a hand edit in the captured shape
-  works. Hide Field if Zero and layout comments wait on capturing the BC Word add-in's OOXML
-  ([#8](https://github.com/TKapitan/bc-word-layout-mcp/issues/8), [ADR-0005](docs/adr/0005-emit-only-observed-ooxml.md)).
-- **Page-position-conditional content** (`IF PAGE = NUMPAGES`, e.g. text on the last page only) — no
-  tool yet. Business Central evaluates the field per page, as Word does (sandbox-verified on one- and
-  two-page documents), and a tool is planned after 2.0 ([#11](https://github.com/TKapitan/bc-word-layout-mcp/issues/11)); until then a
-  `templatePath` shell or a hand edit carrying it works.
+  around a cell does nothing. BC 29 does the same. Microsoft's own layouts also place the row variant on a
+  nested table's row, which is being measured before a tool is built; until then a hand edit in the
+  captured shape works. Hide Field if Zero has been captured but not yet printed, and layout comments are
+  uncaptured ([#8](https://github.com/TKapitan/bc-word-layout-mcp/issues/8),
+  [ADR-0005](docs/adr/0005-emit-only-observed-ooxml.md)).
 - **Repeaters in headers/footers** — nothing shows that BC renders a repeating section there, so
   `insert_repeater_table` only creates one in the document body and `wrap_in_repeater` only wraps body
   content; a pre-existing/hand-authored one is still detected by `validate_layout` with a warning
