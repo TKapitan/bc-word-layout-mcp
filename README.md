@@ -9,38 +9,38 @@
 
 An MCP (Model Context Protocol) server that lets AI agents **create, edit, validate, and preview
 Microsoft Word report layouts for Microsoft Dynamics 365 Business Central** through deterministic,
-typed tools — instead of free-hand OOXML editing, which is unreliable in a file format where a
-single misplaced element silently corrupts the document.
+typed tools, instead of editing the OOXML by hand, where one misplaced element silently corrupts the
+document.
 
-**30 typed MCP tools** over stdio: inspect any layout, validate it (structurally, and via a real
-dry-run merge), render an offline mock PDF preview the agent can look at, and author edits — fields,
-labels, repeater tables, nested detail rows, block repeaters, table structure, text and cell
-formatting, full lifecycle refresh. One uniform
-response envelope; nothing throws across the MCP boundary; every mutating edit is validated *before*
-it is saved and rejected outright if it would corrupt the file.
-
-- [`skills/al-word-layout/SKILL.md`](skills/al-word-layout/SKILL.md) — the companion skill: the
-  intended agent workflow (inspect → edit → validate → preview → sandbox verify).
-- [`skills/al-word-layout-design/SKILL.md`](skills/al-word-layout-design/SKILL.md) — the design
-  skill: what a new layout should *look like* — archetype skeletons and observed BC document
-  conventions, each tagged with the stock corpus layout or BC-verified build it comes from.
-- [`skills/al-word-layout-from-design/SKILL.md`](skills/al-word-layout-from-design/SKILL.md) — from a
-  finished Word design plus the report's empty layout to a bound layout: what to ask a consultant for,
-  mapping sample text to dataset fields, binding it, checking it.
-- [`skills/al-word-layout-composite/SKILL.md`](skills/al-word-layout-composite/SKILL.md) — composable
-  layouts: what the body, header/footer and theme files contain, and the style contract between them.
-- [`docs/SOLUTION-DESIGN.md`](docs/SOLUTION-DESIGN.md) — architecture and design rationale.
-- [`docs/adr/`](docs/adr/) — the deliberate design decisions, as ADRs.
+- **30 typed MCP tools** over stdio: inspect a layout and its dataset, author fields, labels, pictures,
+  repeater tables and table structure, format text and cells, and refresh a layout after its dataset
+  changes.
+- **Every edit is validated before it is saved**, and refused with the file untouched if it would
+  corrupt the layout.
+- **An offline mock PDF preview** the agent can look at, and a dry-run merge that finds unresolved
+  bindings.
+- **One response shape** for every tool, with an actionable hint on every error.
 
 ## Install
 
-The server reads and writes layout files **with your own permissions, at paths the calling agent
-supplies** — point it only at repositories and layouts you trust, as you would any local build tool.
+The server reads and writes layout files **with your permissions, at the paths the agent gives it**.
+Point it only at repositories and layouts you trust, as you would any local build tool.
 
-### Option A — NuGet package via `dnx` (needs the .NET 10 SDK)
+### Plugin: the server and its skills (recommended)
 
-The .NET 10 SDK ships [`dnx`](https://learn.microsoft.com/dotnet/core/tools/dnx), which fetches and
-runs the packaged server on demand — no install step, version-pinnable.
+The plugin installs the server together with four skills that teach an agent how to use it (see
+[Skills](#skills)). This repository is a plugin marketplace:
+
+- **Claude Code:** `/plugin marketplace add TKapitan/bc-word-layout-mcp`, then install the
+  `bc-word-layout` plugin.
+- **VS Code / GitHub Copilot** (agent plugins, preview; Copilot CLI too): add
+  `"chat.plugins.marketplaces": ["TKapitan/bc-word-layout-mcp"]` to your user `settings.json`, then
+  install the `bc-word-layout` plugin.
+
+### NuGet package via `dnx` (needs the .NET 10 SDK)
+
+[`dnx`](https://learn.microsoft.com/dotnet/core/tools/dnx), part of the .NET 10 SDK, fetches and runs
+the server on demand.
 
 **VS Code** (`.vscode/mcp.json`, or user-level `mcp.json`):
 
@@ -56,7 +56,7 @@ runs the packaged server on demand — no install step, version-pinnable.
 }
 ```
 
-**Claude Code** (`.mcp.json` in a project, or user scope via the one-liner):
+**Claude Code** (`.mcp.json` in a project):
 
 ```json
 {
@@ -69,95 +69,87 @@ runs the packaged server on demand — no install step, version-pinnable.
 }
 ```
 
-```pwsh
-claude mcp add bc-word-layout -- dnx BcWordLayout.Mcp --yes
-```
+or for your user: `claude mcp add bc-word-layout -- dnx BcWordLayout.Mcp --yes`.
 
-Unpinned, `dnx` resolves the latest stable release at each launch, so updates arrive without config
-edits. Append an exact version — `BcWordLayout.Mcp@1.2.3` — to pin for reproducibility; a pinned
-config stays on that version until you edit it. Pinning is also the only way to run a pre-release,
-which latest-stable resolution skips.
+Without a version, `dnx` runs the latest stable release. Pin one with `BcWordLayout.Mcp@1.2.3`; a
+pre-release runs only when pinned. `dotnet tool install -g BcWordLayout.Mcp` installs the same server
+as the `bc-word-layout-mcp` command instead.
 
-Prefer a pinned global install over on-demand fetch? `dotnet tool install -g BcWordLayout.Mcp`
-installs the same server as the `bc-word-layout-mcp` command; use that as the `command` in the
-blocks above (no `args`).
+### Self-contained Windows binaries (no .NET needed)
 
-### Option B — self-contained binaries (no .NET required)
-
-Each [GitHub Release](https://github.com/TKapitan/bc-word-layout-mcp/releases) carries `win-x64` and
-`win-arm64` zips (the whole publish folder — the exe does not run alone) plus an install script that
-unpacks to a stable location, verifies the checksum, and prints the ready-to-paste config block:
+Each [GitHub Release](https://github.com/TKapitan/bc-word-layout-mcp/releases) has `win-x64` and
+`win-arm64` zips and an installer script that unpacks the latest one to
+`%LOCALAPPDATA%\bc-word-layout-mcp\current\`, verifies its checksum, and prints the config block to
+paste:
 
 ```pwsh
 irm https://github.com/TKapitan/bc-word-layout-mcp/releases/latest/download/install.ps1 | iex
 ```
 
-For a specific version, pre-releases included, run that release's own script with `-Version`:
+For a specific version, run that release's own script with `-Version`:
 
 ```pwsh
 & ([scriptblock]::Create((irm https://github.com/TKapitan/bc-word-layout-mcp/releases/download/v1.2.3/install.ps1))) -Version 1.2.3
 ```
 
-The documented config then points at the fixed path
-`%LOCALAPPDATA%\bc-word-layout-mcp\current\BcWordLayout.McpHost.exe`.
+To run the server from a clone of this repository, see [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
-### Option C — from source (contributors)
+## Skills
 
-The repo-root [`.mcp.json`](.mcp.json) launches the server from your working tree with
-`dotnet run --project src/BcWordLayout.McpHost --artifacts-path .mcp-run`, so there's no publish step
-while iterating. The separate `.mcp-run/` build folder matters on Windows: a running server locks
-the DLLs it loaded, and building into the normal `bin/` folders would stop `dotnet build` and
-`dotnet test` while any session is open.
+The server works on its own, but agents use it noticeably better with its skills. The plugin installs
+them; without it, copy the folders under `skills/` into your project's `.claude/skills/` or
+`.github/skills/` (or your user-level `~/.claude/skills/`).
 
-Claude Code starts every `.mcp.json` server when a session opens, whether or not it's used. So the
-committed [`.claude/settings.json`](.claude/settings.json) lists this one in `disabledMcpjsonServers`,
-and sessions in the repo don't start it. To use your build as a server, add it under your own local
-scope, which that setting doesn't cover:
+- [`al-word-layout`](skills/al-word-layout/SKILL.md): the intended workflow (inspect → edit → validate
+  → preview → sandbox verify), the full tool reference, and the error codes.
+- [`al-word-layout-design`](skills/al-word-layout-design/SKILL.md): what a new layout should look like,
+  from Business Central's own document conventions.
+- [`al-word-layout-from-design`](skills/al-word-layout-from-design/SKILL.md): from a finished Word design
+  and the report's empty layout to a bound layout.
+- [`al-word-layout-composite`](skills/al-word-layout-composite/SKILL.md): composable layouts, meaning the
+  report body, a reusable header/footer layout, and a report theme.
 
-```pwsh
-claude mcp add --scope local bc-word-layout-dev -- dotnet run --project src/BcWordLayout.McpHost --artifacts-path .mcp-run
-```
+## Requirements
 
-Remove it again with `claude mcp remove --scope local bc-word-layout-dev`. Either way, the server
-runs the code as built when the session started; restart the session to pick up later edits. See
-[Building from source](#building-from-source).
+- **Windows (x64 or arm64).** Linux and macOS are not supported yet.
+- **Microsoft Word is optional.** `preview_layout` uses it to turn the merged mock into a PDF. Without
+  it, the preview still returns the merged `.docx` and says why there is no PDF; every other tool works
+  without Word.
 
-### The companion skills and plugin
+## Configuration
 
-Four skills ride along with the server: `al-word-layout` teaches an agent the intended workflow and
-the supported matrix, `al-word-layout-design` teaches what a from-scratch layout should look
-like (archetype skeletons and observed BC document conventions), `al-word-layout-from-design`
-turns a finished Word design plus the report's empty layout into a bound layout — so a functional
-consultant can get a working layout without touching OOXML or AL — and `al-word-layout-composite`
-covers composable layouts: the report body, the reusable header/footer layout and the theme. The server is fully usable without
-them, but agents drive the tools noticeably better with them. The plugin installs the skills and
-the server entry together, and this repository is a plugin marketplace for **both** ecosystems:
+### Target Business Central version
 
-- **Claude Code:** `/plugin marketplace add TKapitan/bc-word-layout-mcp`, then install the
-  `bc-word-layout` plugin it offers.
-- **VS Code / GitHub Copilot (agent plugins, preview):** add
-  `"chat.plugins.marketplaces": ["TKapitan/bc-word-layout-mcp"]` to your **user** `settings.json`,
-  then install the `bc-word-layout` plugin from the marketplace. The same mechanism serves
-  Copilot CLI.
-- **Manual copy (the floor — no plugin system involved):** copy the `skills/` folders
-  (`al-word-layout/`, `al-word-layout-design/`, `al-word-layout-from-design/`, `al-word-layout-composite/`) into your project's `.claude/skills/` or `.github/skills/` (or
-  user-level `~/.claude/skills/`). `SKILL.md` agent skills are an open standard — Claude Code,
-  VS Code, and Copilot CLI all scan these locations natively; the server is then registered
-  separately per Option A/B above.
+Some layout features need a newer Business Central. Each call works out the **target**, the minimum BC
+version the layout must work on; the first match wins:
 
-### Configuration (optional)
+1. **The nearest AL `app.json` above the layout** (above `outputPath` for `create_layout`): its
+   `application`, e.g. `29.0.0.0`. The search stops at a folder containing `.git`.
+2. **`BCWL_BC_VERSION`** (e.g. `29` or `29.1`) in the server's `env` block, for layouts outside an AL
+   project.
+3. Otherwise the target is **unknown**.
 
-Label classification works out of the box for both shapes found in real BC layouts: columns whose
-name ends in `Lbl`/`_Lbl` (BC's documented convention), plus every direct column of a data item
-named `Labels` — a dedicated labels data item, common in older/converted reports whose columns are
-suffixed `Caption`/`Label` or not at all. The second rule is self-scoping: it only affects layouts
-that actually contain a `Labels` data item, so no per-report configuration is needed. Two
-environment variables override this default convention, read once at server startup; an invalid
-value is ignored (logged to stderr) and the default kept:
+`get_layout_info` and `validate_layout` report the target they used. A tool that would write a feature
+from the table below refuses with `bc_version_unsupported` when the target is lower or unknown, and
+`validate_layout` reports such a feature a layout already has. The gated features are:
+- theme colours such as `accent1` (in `format.color`, `fill` and `borderColor`);
+- `paragraphStyle`;
+- `set_layout_theme`.
 
-- `BCWL_LABEL_SUFFIXES` — comma-separated label suffixes, e.g. `Lbl,Caption` (default: `Lbl`).
-- `BCWL_LABELS_DATA_ITEM` — retargets the labels data-item rule to a different data-item name, or
-  disables it entirely with the special value `-` (default: `Labels`).
+Hex colours are never gated.
+
+| Feature | Kind | Since | Covers | Evidence |
+|---|---|---|---|---|
+| `report-themes` | capability | 29.0 | report theme `.dotx` files, header/footer layouts bound to `Tenant_Report_Defaults` | 2026 release wave 2; a composite body + header/footer + theme set printed on 2026-10-17 |
+| `themable-formatting` | capability | 29.0 | theme-slot colours for text, cell fills and borders, paragraph styles, and the layout's own theme colours and fonts | decided with report themes, 2026-10-27 (#152) |
+
+### Label columns
+
+The tools treat a dataset column as a label when its name ends in `Lbl`/`_Lbl`, and every column of a
+data item named `Labels`. Two environment variables change that:
+
+- `BCWL_LABEL_SUFFIXES`: comma-separated label suffixes, e.g. `Lbl,Caption` (default `Lbl`).
+- `BCWL_LABELS_DATA_ITEM`: the labels data item's name, or `-` to turn that rule off (default `Labels`).
 
 ```json
 {
@@ -165,381 +157,132 @@ value is ignored (logged to stderr) and the default kept:
     "bc-word-layout": {
       "command": "dnx",
       "args": ["BcWordLayout.Mcp", "--yes"],
-      "env": {
-        "BCWL_LABEL_SUFFIXES": "Lbl,Caption",
-        "BCWL_LABELS_DATA_ITEM": "ReportLabels"
-      }
+      "env": { "BCWL_BC_VERSION": "29", "BCWL_LABEL_SUFFIXES": "Lbl,Caption" }
     }
   }
 }
 ```
 
-### Target Business Central version
-
-Some layout features need a newer Business Central. The **target** is the *minimum* BC version a layout
-must work on, and every call resolves it again ([ADR-0007](docs/adr/0007-target-bc-version-resolved-per-call.md));
-the first match wins:
-
-1. **The nearest AL `app.json` above the layout** (above `outputPath` for `create_layout`): its
-   `application`, e.g. `29.0.0.0`. The walk stops at the first `app.json`, at a folder containing `.git`,
-   or at the drive root. An `app.json` that cannot be read, or names something that is not a version,
-   makes the target unknown; one with no `application` falls through to the variable.
-2. **`BCWL_BC_VERSION`** (e.g. `29` or `29.1`) in the server's `env` block, for layouts outside an AL
-   project. A project-scoped `.mcp.json` can set it per repository. An invalid value makes the target
-   unknown (logged to stderr at startup).
-3. **Unknown.**
-
-`get_layout_info` and `validate_layout` report it as `target: { bcVersion, source, detail }`, e.g.
-`29.0` from `app.json` (`…pp.json: application 29.0.0.0`). What it controls:
-
-- A tool that would write a feature from the table below refuses with `bc_version_unsupported` below
-  the feature's version and when the target is unknown. Today that is a theme colour such as
-  `accent1` in `format.color`, `set_cell_format`'s `fill`, or the `borderColor` of `set_cell_format`,
-  `insert_table` and `insert_repeater_table`, a `paragraphStyle` on `set_text_format` or
-  `set_cell_text`, and `set_layout_theme`. A hex colour, `clearDirectFormatting` and `create_layout`'s
-  `theme` are never gated.
-- `validate_layout`'s `bc-version` check reports such a feature a layout already has: a header/footer
-  layout bound to Tenant Report Defaults is an error below 29.0 and a warning for an unknown target.
-  Theme colours and paragraph styles already in a layout are not flagged: BC 28 prints them.
-
-| Feature | Kind | Since | Covers | Evidence |
-|---|---|---|---|---|
-| `report-themes` | capability | 29.0 | report theme `.dotx` files, header/footer layouts bound to `Tenant_Report_Defaults` | 2026 release wave 2; a composite body + header/footer + theme set printed on 2026-10-17 |
-| `themable-formatting` | capability | 29.0 | theme-slot colours for text, cell fills and borders, paragraph styles, and the layout's own theme colours and fonts | decided with report themes, 2026-10-27 (#152) |
-
-## Supported platforms
-
-**Windows (x64 / arm64) is the supported platform.** PDF preview conversion uses Microsoft Word via
-COM automation when Word is installed. A LibreOffice converter (`soffice` CLI) exists in the code as
-the fallback and is what non-Windows use would rely on — but it is **untested and unverified end to
-end**, so Linux and macOS are currently *unsupported*, not "supported via LibreOffice" (the
-non-Windows code paths compile and their unit tests run in CI as a rot-guard; that is a build claim,
-not a support claim).
-
-**Neither Word nor LibreOffice is required** to use the server. Without a converter,
-`preview_layout` still merges the sample data and returns the merged `.docx` path — it reports
-`conversionOk: false` with a `conversionError` explaining why, instead of failing the call (and
-removes the PDF an earlier preview left, so no stale render remains next to the new merge). Every
-other tool is conversion-free and works everywhere the server runs.
-
 ## Tools
 
 | Tool | Purpose |
 |---|---|
-| `get_layout_info` | Inspect a layout: report name/id, dataset namespace, `storeItemID`, the full control inventory (kind, alias, tag, `xPath`, part, parent repeater), per-part details (kind, header/footer role `default`/`first`/`even`, and which part a `partName`-less header/footer edit targets) plus a `hasTitlePage` flag, every table's rows (one per `w:tr`, so each row of a multi-row repeater item is addressable, tagged with the repeater it repeats with) and cells — each cell with both its physical `colIndex` (what the cell tools take) and its `gridColumn`/`gridSpan` (what the column tools take; they differ on any spanned row), each row with its `gridBefore`/`gridAfter` — a quick validation summary, the [target BC version](#target-business-central-version) the call resolved, and the layout's look: its theme (colour scheme and fonts), the colours its content uses (by kind, carrier and theme colour), and the style ids it refers to. |
-| `list_dataset_fields` | List the dataset hierarchy (data items + columns) from a `.docx` layout or a standalone schema `.xml`; flags labels and, for a layout, bound/unbound columns. |
-| `validate_layout` | Validate a layout: `level=quick` (structural + binding checks, including a `repeater-downgraded` error for a repeater a Word save turned into a plain content control, a `top-level-repeater-group` error for a block-level repeater over the top-level data item without the `w:group` wrapper Business Central needs to print it, an `attached-template` error for a layout that links an external Word template (Business Central refuses to upload one), a warning when a layout containing repeaters declares a Word compatibility mode below 15, a `duplicate-control-id` warning when two content controls share a `w:id`, `table-style-resolves`, `character-style-resolves` and `paragraph-style-resolves` warnings for a style reference the layout does not define, a `font-installed` warning for a font Business Central online does not have, and a `bc-version` finding for a feature the [target BC version](#target-business-central-version) lacks) or `level=full` (adds a dry-run merge that surfaces every unresolved binding as a finding). Reports the target it used. |
-| `preview_layout` | Mock preview: merges deterministic (or supplied) sample data into a working copy and converts it to PDF via Word COM or LibreOffice. |
-| `render_preview_pages` | Render pages of a preview PDF (the `pdfPath` from `preview_layout`) as PNG images returned inline as MCP image content blocks, so the calling agent can visually inspect the preview (default 3 pages, cap 10 per call; page onward via `firstPage`; each page capped at 5000 px a side and 20 MP, a larger one rendered smaller and flagged `downscaled`). Pass `outputDir` to also write each page as a `.png` a human can open — optionally with `inlineImages=false` to skip the token cost of the inline copies. |
-| `create_layout` | Create a new blank layout `.docx` from a schema, optionally starting from a branded/styled (unbound) template. A blank build ships deterministic default typography (Calibri 11 pt via a scaffolded styles part) so it renders with the same font in Word and in BC, plus a settings part declaring `compatibilityMode` 15 so its repeaters survive being opened and saved in Word. `theme: "office"` adds the stock Office theme part, so theme colours resolve and `set_layout_theme` can recolour it. |
-| `insert_field` | Insert a plain-text FIELD content control bound to a dataset path, in the body, a header, or a footer. |
-| `insert_label` | Insert a plain-text LABEL content control bound to a label-suffixed (`Lbl`/`_Lbl`) dataset path. |
-| `insert_text` | Insert plain STATIC text — a literal run, not a content control: the separator space, colon or `" / "` that glues two inline controls together (without it, chained controls render as `Document NoDOCU-0150`). Creates no control, so it has no `controlId` and cannot be targeted by `remove_control`. |
-| `insert_page_number` | Insert Word `PAGE`/`NUMPAGES` field codes — the "Page X / Y" chrome every stock BC document header carries (by default the full `X / Y` shape; `includeTotal=false` for the current page alone). Field codes are plain runs, so no `controlId`. |
-| `insert_page_conditional_text` | Insert static text that prints on the last page only, on every page but the last, or on the first page only — a Word `IF` field over `PAGE` and `NUMPAGES` (BC evaluates all three per page, sandbox-verified on BC 29). Meant for a header or footer; a field, so no `controlId`. |
-| `insert_repeater_table` | Insert a complete repeater table (label/static header row + one bound data row) for a repeating data item, in the body — the flagship editing tool. Draws the BC-native look by default (no grid, one rule under the header row; `borders` also offers none or a full grid) and can reference a table style the layout defines; optional per-column widths and alignments, pinned with a fixed table layout so Word renders the grid as specified. |
-| `insert_repeater_row` | Add a nested DETAIL ROW repeater inside an existing repeater's item — the standard BC shape for per-line detail (assembly components, serial/lot nos): a row under each line, aligned to the parent grid via spans, repeating once per parent row. Its cells take the run formatting and paragraph style of the row above them, column by column; `format` overrides. |
-| `insert_picture` | Insert a PICTURE content control bound to a picture dataset path (e.g. `/Header/CompanyPicture`) — the logo placeholder a from-scratch layout needs; BC fills it at render time. |
-| `insert_table` | Insert a plain (unbound) table, in the body, a header or a footer — the building block for non-repeating layout sections (address columns, label/value header grids, right-anchored totals blocks, the stock header and footer tables). Borderless by default, with the same `borders` and `tableStyle` options as `insert_repeater_table`. Column widths are pinned with a fixed table layout, so Word keeps the grid you asked for. Returns the new table's index for `set_cell_text`/`insert_field` to fill. |
-| `wrap_in_repeater` | Wrap a run of existing body blocks in a block-level repeater over a data item, so they print once per record: a page per customer in a statement, a paragraph per work-description line. Over a top-level item it adds the `w:group` Business Central needs; over a nested item, a paragraph holding only a field becomes a block-level field control, the shape Business Central prints. |
-| `remove_control` | Remove a content control (field/label/repeater/picture/unbound) by its `w:id`, searching the body and every header/footer; `keepText=true` on a block-level repeater unwraps it and keeps its content. |
-| `set_cell_text` | Set (replace) the PLAIN TEXT of a table cell, addressed by table/row/column index — e.g. re-label a line-items column header. Rejects cells that hold a bound control. |
-| `set_text_format` | Restyle text that is ALREADY in the layout without changing it: a control by id, a table cell, a whole row, or one exact piece of text, with the same `format` object the insert tools take (bold, italic, underline, size, font, colour, character style), an optional alignment and paragraph style (`Heading1`), and `clearDirectFormatting` to let the styles decide. |
-| `set_layout_theme` | Change a layout's own theme: the colour each theme slot (`accent1`, `text2`…) resolves to, and the heading and body fonts. Everything coloured through a slot follows — the stock themable Blue invoice prints coral red until `accent1` is set to `0070C0` — and every cached colour of a changed slot is rewritten too. Needs a BC 29 target. A report theme selected in BC replaces the layout's own theme at print time. |
-| `clear_cell_text` | Remove all PLAIN TEXT from a table cell, leaving a valid empty cell (the cell/column is preserved) — e.g. blank an unwanted column-header label. |
-| `insert_subtotal_row` | Append a STATIC per-group row at the end of an existing repeater's item — the stock BC shape for group subtotal (and spacer) rows: it renders once per PARENT row, after the nested detail rows, never per detail row. Its cells take the formatting of the row above them, as `insert_repeater_row`'s do. |
-| `insert_table_row` | Insert ONE STATIC (non-repeating) row into an existing table — the stock BC shape for the totals block INSIDE the line-items table (spacer cells, a spanned bound caption cell, a right-aligned bound amount cell). Cells bind FULL dataset paths; the row renders exactly once, never per data row. Its cells take the formatting of the row above them (below, at the top of a table), as `insert_repeater_row`'s do. |
-| `set_column_widths` | Set a table's column widths (one twip value per grid column); `gridSpan`-aware — each cell is resized to the sum of the columns it spans. |
-| `insert_column` | Add a new column at any grid position (append by default) — a bound field/label cell (as `insert_field`/`insert_label`) or a plain-text column. Adds the `w:gridCol` and one cell per row; a spanned cell in a row with no content there is widened instead. The table keeps its total width: the new column's width comes out of the existing columns. |
-| `remove_column` | Remove a whole grid column — addressed by the `gridColumn` `get_layout_info` reports for its cells, not their `colIndex`: drops each row's covering cell (a bound cell too) or decrements its `gridSpan`, and removes the `w:gridCol`. The summary says per row which of the two happened. |
-| `merge_cells` | Horizontally merge a run of adjacent cells in one row into a single `gridSpan` cell (keeps the first cell's content). |
-| `split_cells` | Horizontally split one spanned cell back into single-column cells. |
-| `set_cell_format` | Set the appearance of a whole row's cells, or one cell: the per-cell rules a BC document's look is actually made of (a line above a totals row, an underline on one cell), in any colour, and/or a fill colour (a shaded header row). Colours may be hex or theme colours such as `accent1`. |
-| `refresh_xml_part` | Update a layout's BC dataset XML part to a new schema in place; remaps/orphans bindings, re-points any binding left naming a foreign report's namespace (which BC refuses to upload) or a `storeItemID` that names no part, and reports newly-unbound fields. Also the repair for a dataset part that no longer parses (`validate_layout` names the part and the parser error). |
+| `get_layout_info` | Inspect a layout: report identity, every content control, header/footer parts, every table's rows and cells (with the coordinates the cell and column tools take), the target BC version, and its look (theme, colours, styles). |
+| `list_dataset_fields` | List the dataset (data items and columns) from a layout or a schema `.xml`, marking labels and, for a layout, which columns are bound. |
+| `validate_layout` | Check structure and bindings (`level=quick`), or also dry-run merge sample data so every unresolved binding becomes a finding (`level=full`). |
+| `preview_layout` | Merge sample (or real) data into a copy of the layout and convert it to PDF: a mock preview. |
+| `render_preview_pages` | Return pages of a preview PDF as images the agent can look at, optionally also saved as `.png` files. |
+| `create_layout` | Create a new layout from a report schema, blank or over a branded template; `theme: "office"` adds the stock Office theme. |
+| `insert_field` | Insert a field bound to a dataset column, in the body, a header or a footer. |
+| `insert_label` | Insert a label bound to a caption column. |
+| `insert_text` | Insert static text, such as the separator between two fields. |
+| `insert_page_number` | Insert "Page X / Y" (or just X). |
+| `insert_page_conditional_text` | Insert text that prints on the last page only, every page but the last, or the first page only. |
+| `insert_repeater_table` | Insert a line-items table that repeats per record, in the Business Central look by default. |
+| `insert_repeater_row` | Add a detail row under each line of an existing repeater (assembly components, serial numbers). |
+| `insert_picture` | Insert a picture bound to a dataset column, such as the company logo. |
+| `insert_table` | Insert a plain table, in the body, a header or a footer: address blocks, caption/value grids, totals blocks. |
+| `wrap_in_repeater` | Make existing content repeat per record, e.g. one page per customer in a statement. |
+| `remove_control` | Remove a content control by its id, optionally keeping its content. |
+| `set_cell_text` | Replace the plain text of a table cell. |
+| `set_text_format` | Restyle text already in the layout: bold, italic, underline, size, font, colour, styles, alignment. |
+| `set_layout_theme` | Change the layout's own theme colours and fonts; everything coloured through the theme follows. |
+| `clear_cell_text` | Remove the plain text from a table cell. |
+| `insert_subtotal_row` | Add a row after each group of a repeater, for subtotals or spacing. |
+| `insert_table_row` | Insert a row that prints once, such as a totals row inside the lines table. |
+| `set_column_widths` | Set a table's column widths. |
+| `insert_column` | Add a column at any position, bound or plain; the table keeps its width. |
+| `remove_column` | Remove a column. |
+| `merge_cells` | Merge adjacent cells of one row. |
+| `split_cells` | Split a merged cell back into single cells. |
+| `set_cell_format` | Draw cell borders (rules) in any colour and fill cells. |
+| `refresh_xml_part` | Update a layout to a changed report dataset, reporting bindings that no longer resolve and new fields. |
 
-### Response envelope
+The [`al-word-layout`](skills/al-word-layout/SKILL.md) skill documents every parameter.
 
-Every tool returns a uniform envelope:
+## Responses and errors
+
+Every tool returns the same envelope:
 
 ```json
 { "ok": true, "data": { "...": "tool-specific payload" } }
 ```
 
-Members that would be `null` are omitted rather than sent as `null`: a success has no `error` key, a
-failure has no `data` key, and an optional field inside `data` is simply absent.
+On failure, `ok` is false and `error` carries `{ code, message, hint }`. The `hint` always names the next
+step, such as which argument to fix or which tool to call first. Malformed calls (an unknown tool or
+argument, a wrong type, a relative path) get the same envelope. `render_preview_pages` adds one image
+per page after the envelope.
 
-One tool extends (never replaces) this shape: `render_preview_pages` returns the same JSON envelope as
-its result's **first text content block**, followed by one MCP **image content block** per rendered page
-— the only way a tool result can carry images over MCP. Its envelope JSON is serialized with the same
-options the SDK applies to every other tool, so parsers see an identical shape either way.
+The 24 mutating tools (`insert_field`, `insert_label`, `insert_text`, `insert_page_number`,
+`insert_page_conditional_text`, `insert_picture`, `insert_table`, `insert_repeater_table`,
+`insert_repeater_row`, `insert_subtotal_row`, `insert_table_row`, `wrap_in_repeater`, `remove_control`,
+`set_cell_text`, `set_text_format`, `set_layout_theme`, `clear_cell_text`, `set_column_widths`,
+`insert_column`, `remove_column`, `merge_cells`, `split_cells`, `set_cell_format`, `refresh_xml_part`)
+validate every edit before saving it:
+- An edit that would corrupt the file or break a table is refused (`edit_would_corrupt`,
+  `edit_would_break_table`), and the file on disk is left untouched.
+- A successful edit returns a fresh `quickValidation` summary.
+- Every save removes a link to an external Word template, which Business Central refuses to upload.
 
-On failure, `error` is populated with `{ code, message, hint }` — `hint` is always
-a non-empty, agent-actionable next step (which argument to fix and its valid values, or which
-inspection tool to call first). Nothing throws across the MCP boundary. The 24 mutating tools
-(`insert_field`, `insert_label`, `insert_text`, `insert_page_number`, `insert_page_conditional_text`, `insert_picture`, `insert_table`,
-`insert_repeater_table`, `insert_repeater_row`, `insert_subtotal_row`, `insert_table_row`,
-`wrap_in_repeater`, `remove_control`, `set_cell_text`, `set_text_format`, `set_layout_theme`, `clear_cell_text`, `set_column_widths`, `insert_column`,
-`remove_column`, `merge_cells`, `split_cells`, `set_cell_format`, `refresh_xml_part`) additionally run
-`OpenXmlValidator` *before* saving — a write that would introduce a **new** structural error is
-rejected (`edit_would_corrupt`) and the file on disk is left untouched. Every one of them is also
-checked by a grid-consistency guard that rejects (`edit_would_break_table`, file untouched) any edit
-leaving a row's cells inconsistent with its `w:tblGrid` — a corruption class `OpenXmlValidator`
-accepts silently. Every save also removes a link to an external attached template, which Business
-Central refuses to upload, and the summary says so. Every successful mutating response also carries a
-fresh post-edit `quickValidation` summary. (`create_layout` writes a new file instead: it checks the layout it built
-and returns `quickValidation` too, but a failure of that check is a server bug, reported as
-`internal_error`, never `edit_would_corrupt`.)
+## Preview and Business Central
 
-**Envelope boundary: malformed calls get the envelope too.** The SDK looks the tool up and binds the
-JSON arguments onto its typed parameters before any tool body runs. The server's call-tool filter wraps
-that step, so a call that never reaches a body still returns `isError: true` with the same
-`{ok:false,error:{code,message,hint}}` shape:
+`preview_layout` merges **sample data** (or a real dataset you export from BC, via `dataOverridesPath`)
+into a copy of the layout and converts it to PDF **offline**. It never runs the real Business Central
+report engine.
+- **What it is good for:** catching structural and binding mistakes on every edit.
+- **What can differ from BC:** captions, fonts and exact pagination.
+- **Data it can't reproduce:** sample data fills every field, and the preview ignores the Word add-in's
+  hide-if-empty controls.
 
-- **Unknown tool name:** `invalid_argument` naming the tool; the hint points at `tools/list`.
-- **Missing required argument:** `invalid_argument` naming it; the hint lists the tool's required
-  parameters.
-- **Wrong JSON type** (`"abc"` or `1.5` for an integer, `"true"` for a boolean, `null` for a number or
-  boolean): `invalid_argument` naming the parameter, the type it needs, and what the call sent. Inside
-  an object or array argument it names the member or item by its path (`columns[1].width`), or the
-  required member an object lacks.
-- **Unknown argument name:** refused with `invalid_argument` rather than ignored, naming the closest
-  real parameter (`layoutpart` → `layoutPart`; names are case-sensitive) and listing them all. An
-  ignored misspelling would silently fall back to the parameter's default. The same holds for the
-  members of an object argument and of the objects in an array (`format.size`, `columns[1].Width`).
-- **Object or array sent as a JSON string** (`"[1500, 6206]"` for `[1500, 6206]`): read as the value
-  it holds, since the string is unambiguous. A comma-separated list is not a JSON array and is refused,
-  with a hint that asks for one.
-- **Relative path:** every path parameter must be absolute; a relative one (or a drive- or
-  root-relative one like `C:Report.docx`) is refused with `invalid_argument` naming the parameter,
-  instead of resolving against the server's working directory.
-- **Explicit `null` for a string:** an optional enum-like string (`layoutPart`, `borders`, `borderStyle`,
-  `converter`, `level`) takes its documented default, exactly as if it were omitted; a required one
-  (`locationType`, `mode`) is refused with `invalid_argument`.
+**Final sign-off on a layout is always a Business Central sandbox render.**
 
-The input schemas say what an argument may hold before any call is made: every enumerated argument
-lists its values (`enum`) and every bounded number its range (`minimum`/`maximum`), including the
-members of `format` and of the table tools' column and cell objects. The server still reads an
-enumerated value case-insensitively.
-
-Only a request too malformed for the SDK to parse as a tool call at all (no tool `name`, or `arguments`
-that is not a JSON object) fails earlier, as a JSON-RPC error with no tool result; MCP client libraries
-do not produce that shape.
-
-## Mock preview: not a substitute for a sandbox render
-
-`preview_layout` merges **deterministic sample data** (or a real dataset via `dataOverridesPath` —
-both the layout's own data-store part shape and the report UI's *Send to → XML* export are accepted,
-and the export's `decimalformatter` columns are formatted the way BC itself renders them) into
-a working copy of the layout and converts it to PDF **entirely offline** — never through the real
-Business Central report engine. That's good enough to catch structural and binding mistakes on every
-edit, but captions, fonts, and exact pagination can differ from a genuine BC render. Every
-`preview_layout` response repeats this as a `disclaimer` string. A dataset printed for several
-documents previews only the first, and a `multiple-top-level-records` warning says so: BC renders the
-report body once per top-level record, the mock does not. Generated sample data fills every field and
-every repeating item, so the mock cannot show a field that is empty in real data (a purchase order's
-`VendAddr` block previews full and prints empty), and it ignores the BC add-in's hide-if-empty controls,
-which do hide content in BC.
-
-**Final sign-off on any layout is always a real Business Central sandbox render** (AL build → publish
-to dev sandbox → run the report), never this tool's PDF alone.
-
-**What has been validated against a real Business Central sandbox:** packs of layouts made with
-these tools were uploaded to real BC sandboxes and rendered by the real report engine, in three rounds
-on **BC 28** (Cronus AU) and one on **BC 29**. Rounds 1 and 2 (2026-08, BC 28.0 and 28.3) had five items, then seven, three
-of them from-scratch builds, and every item passed. Round 3 (2026-10) printed seventeen items covering
-what 2.0 writes, plus seven follow-up probes, and found four things the tools got wrong: a link to an
-external template that BC 28 newly refuses on upload, a template conversion that crashed BC's print, a
-detail row's formatting, and a work-description repeater shape BC did not print. Each is fixed in
-2.0.0 and printed correctly again. Round 3 also measured three behaviours the project had no evidence
-for: last-page-only field codes, a `storeItemID` naming no part, and the add-in's hide-if-empty controls.
-Round 4 (2026-11) printed all thirty-two items on BC 29: everything printed as it had on BC 28, all three
-page conditions worked, and its probes measured what a report theme changes and how the add-in's
-conditional controls behave. [`docs/FIDELITY-CHECKLIST.md`](docs/FIDELITY-CHECKLIST.md) records every round and what it measured.
-BC accepts what these tools author, bindings resolve, repeaters expand, and the mock preview's
-structure matched the real render on the dimensions checked. That is what it proves — and no more:
-two BC versions, one localization, the layouts in the pack. The mock preview remains a mock; the
-per-release fidelity procedure and its open manual dimensions live in the same checklist.
-
-## Public contract and versioning
-
-This project follows [semver](https://semver.org). From v1.0.0 on, the **public API is: tool names,
-tool parameters (names, types, required-ness), the `{ok, data, error}` envelope shape, and the error
-codes.** Removing or changing any of those is a breaking change and lands only in a major version;
-new tools, new optional parameters, new `data` fields, and new error codes are additive (minor).
-Error `message`/`hint` texts are not part of the contract — never parse them.
-
-- **Business Central versions:** validated against **BC 28**: 28.0 and 28.3 in rounds 1 and 2, a BC 28
-  sandbox in round 3 (see above). Word report layouts are
-  a long-stable BC format, so the tools are *expected* to work with any BC version that supports
-  Word layouts — reports of issues on other versions are welcome — but the compatibility commitment
-  extends only to versions a validation has actually covered.
-- **MCP SDK cadence:** the server pins an exact version of the official `ModelContextProtocol` C#
-  SDK (the host's project file names it) and upgrades it in **minor** releases, with any behavioral consequence called out in the
-  changelog. The envelope boundary above is pinned by a host-level test that runs the real server
-  pipeline over the SDK's own transport, so an upgrade that changes it fails the suite.
+Layouts made with these tools have been printed in **BC 28** and **BC 29** sandboxes (Cronus AU): BC
+accepts them, bindings resolve, repeaters expand, and the preview's structure matched the real render.
+[`docs/FIDELITY-CHECKLIST.md`](docs/FIDELITY-CHECKLIST.md) records every round.
 
 ## Not supported
 
-- **Hide-if-empty BC add-in conditional controls** (Hide Field if Zero, Hide Empty Table, Hide Empty
-  Table Row, layout comment) — no `set_hide_if_empty` tool yet. What BC 28 does with the two captured
-  ones is measured ([#123](https://github.com/TKapitan/bc-word-layout-mcp/issues/123)): inside a repeater, *Hide Table Row If Empty* hides the whole
-  repeated item when its cell is empty, and outside a repeater it does nothing; *Hide Table If Empty*
-  around a cell does nothing. BC 29 does the same, and the row variant acts only on a row of the repeated
-  item itself, not on a nested table's row. *Hide Field If Zero* and *Hide Table Column If Empty* work in
-  BC 29 as captured ([#162](https://github.com/TKapitan/bc-word-layout-mcp/issues/162)), but no tool writes
-  them yet; until then a hand edit in the captured shape works. Layout comments are uncaptured
-  ([#8](https://github.com/TKapitan/bc-word-layout-mcp/issues/8), [ADR-0005](docs/adr/0005-emit-only-observed-ooxml.md)).
-- **Repeaters in headers/footers** — nothing shows that BC renders a repeating section there, so
-  `insert_repeater_table` only creates one in the document body and `wrap_in_repeater` only wraps body
-  content; a pre-existing/hand-authored one is still detected by `validate_layout` with a warning
-  rather than silently accepted. (NESTED repeaters in the body are supported: `insert_repeater_row`
-  adds the standard detail row under each parent line, or insert the inner table into a cell of the
-  outer table's `dataRowIndex` row.)
-- **Real XLF caption translations** — not planned. With generated sample data, `preview_layout` fills
-  labels from the dataset's own label columns, falling back to humanized element names, so captions read
-  differently from a real BC render. Pass a real exported dataset via `dataOverridesPath` when caption
-  text matters: the dataset carries BC's own captions, and they then match the real render.
-- **Table-structure changes** — supported (`insert_column`, `remove_column`, `set_column_widths`,
-  `insert_table_row`, horizontal `merge_cells`/`split_cells` — all `gridSpan`-aware,
-  grid-column-addressed, guarded against desyncing a row from its `w:tblGrid`; rows skipping grid
-  columns via `w:gridBefore`/`w:gridAfter` are handled). Tables with **vertical merges** (`w:vMerge`,
-  as in Microsoft's BC 29 header/footer designs) are edited too, and each merge is kept whole: a row
-  inserted inside one continues it, `split_cells` splits every row of one, and `merge_cells` refuses to
-  cut through one ([issue #9](https://github.com/TKapitan/bc-word-layout-mcp/issues/9)). No tool
-  creates or removes a vertical merge.
-- **Cosmetic formatting beyond text, cells and the theme** (margins, page setup, defining styles) —
-  no dedicated tool. Text has the `format` object (bold, italic, underline, size, font, colour, character
-  style) on every tool that writes it, plus `set_text_format` to restyle text already in the layout, give
-  it a paragraph style the layout defines, or clear its direct formatting; colours may be hex or theme
-  colours; cells have the alignment arguments and `set_cell_format`'s rules and fills; `set_layout_theme`
-  sets the layout's own theme colours and fonts (not a report theme `.dotx`); and a blank `create_layout` ships
-  deterministic default typography (Calibri 11 pt via its scaffolded styles part), plus the Office theme
-  with `theme: "office"`. For the rest,
-  restyle via `create_layout`'s `templatePath` or hand-edit the OOXML directly, then run
-  `validate_layout` to confirm the edit didn't break structure or bindings. Restyling in **Word** is
-  safe for a layout this tool created — it declares `compatibilityMode` 15, so Word preserves the
-  repeating sections; a layout that declares a lower mode (an older build, or a `templatePath` shell
-  that brought one) loses them on save, which is what `validate_layout`'s `compatibility-mode` warning
-  is for.
-- **Generating the dataset schema itself** — deliberate, not a gap
-  ([ADR-0006](docs/adr/0006-schema-transplanted-never-synthesized.md)): `create_layout` and
-  `refresh_xml_part` take their schema from a BC-produced artifact (a compiler-generated layout, an
-  exported stock layout, or an exported schema `.xml`) and transplant its part content byte-for-byte,
-  so "the layout's XML part == the compiler's XML part" holds by construction. Reimplementing the AL
-  compiler's dataset-to-schema mapping (element-name derivation, `IncludeCaption` → `_Lbl` columns,
-  namespace construction) would reintroduce exactly the drift class the transplant rule eliminates.
-  Practical consequence: a brand-new layout starts with one AL build (the compiler creates the
-  referenced layout `.docx`, dataset part included) or one export from BC — the skill's §1 documents
-  the workflow.
-- **RDL layouts, Excel layouts** — out of scope entirely; this server is Word-only.
-- **Any BC-connected upload** of a layout to a tenant — no public API exists for this; it is UI-only in
-  Business Central, a deliberate scope decision rather than a gap to script around.
+- **The Word add-in's conditional controls** (Hide Table Row If Empty, Hide Field If Zero, Hide Table
+  Column If Empty, layout comments): no tool writes them yet. Their Business Central behaviour is
+  measured in [#123](https://github.com/TKapitan/bc-word-layout-mcp/issues/123) and
+  [#162](https://github.com/TKapitan/bc-word-layout-mcp/issues/162); until then, edit them by hand.
+- **Repeaters in headers and footers.** Nothing shows that BC prints them, so the tools create
+  repeaters only in the body.
+- **Margins, page setup, and defining new styles.** Start from a branded template (`create_layout`'s
+  `templatePath`), or edit in Word and run `validate_layout` afterwards.
+- **Report theme `.dotx` files:** `set_layout_theme` changes a layout's own theme only. A report theme
+  selected in BC replaces the layout's own theme when it prints.
+- **Creating a vertical cell merge.** Tables that already have merges can be edited.
+- **Generating the dataset schema.** It always comes from Business Central: a layout the AL compiler
+  generated, an exported layout, or an exported schema `.xml`
+  ([ADR-0006](docs/adr/0006-schema-transplanted-never-synthesized.md)). A new layout starts with one AL
+  build or one export.
+- **Translated captions in the preview.** Pass a real exported dataset for real captions.
+- **RDL and Excel layouts, and uploading a layout to Business Central.**
 
-## Building from source
+## Public contract and versioning
 
-Prerequisite: the **.NET 10 SDK** (and the nuget.org package source configured).
+[Semantic versioning](https://semver.org). The public API is the tool names, their parameters, the
+`{ok, data, error}` envelope and the error codes. Removing or changing any of them happens only in a
+major release; new tools, optional parameters, fields and error codes come in minor ones. Error
+`message` and `hint` texts can change at any time, so never parse them.
 
-```pwsh
-dotnet build     # warnings fail the build (TreatWarningsAsErrors + .NET analyzers)
-dotnet test
-```
+- **Business Central:** validated on BC 28 and BC 29. Word report layouts are a long-stable format, so
+  other versions are expected to work; reports are welcome.
+- **MCP SDK:** an exact version of the official C# SDK, upgraded in minor releases, with any change in
+  behaviour noted in the [changelog](CHANGELOG.md).
 
-The suite includes Word COM PDF-conversion tests and OOXML snapshot tests against the corpus of 10
-real BC layouts (`tests/corpus/` — see [`PROVENANCE.md`](tests/corpus/PROVENANCE.md)). The
-PDF-converter tests are dependency-agnostic: they pass whether or not Word/LibreOffice is installed
-(an unavailable converter is itself a tested, expected outcome, not a skip).
+## More
 
-### Publish a self-contained executable
-
-```pwsh
-dotnet publish src/BcWordLayout.McpHost -c Release -r win-x64 --self-contained
-```
-
-Produces `BcWordLayout.McpHost.exe` (~160 KB) in
-`src/BcWordLayout.McpHost/bin/Release/net10.0/win-x64/publish/` alongside the rest of a
-self-contained deployment (240 files, ~109 MB — the .NET 10 runtime plus every dependency, so the
-target machine needs no .NET installed; native debug symbols are stripped at publish). **Ship the
-whole `publish/` folder together**, not just the `.exe` — it depends on the sibling `.dll`s.
-`scripts/build-release-zips.ps1` builds the exact per-RID zips (+ checksums) a GitHub Release
-carries, and `python tools/release/verify_server.py -- <command>` smoke-tests any install channel
-(handshake + `tools/list`).
-
-### Pack the NuGet packages
-
-```pwsh
-dotnet pack src/BcWordLayout.McpHost -c Release
-```
-
-Produces the top-level `BcWordLayout.Mcp` package (with the embedded `.mcp/server.json` manifest
-NuGet.org renders as install config) plus one framework-dependent package per Windows RID — all of
-them must be pushed together on release. `PackagingMetadataTests` pins the manifests' versions to
-`Directory.Build.props`, so a version bump that misses one file fails the suite.
-
-### Manual smoke test
-
-The server speaks JSON-RPC over stdio (newline-delimited). Logs go to **stderr**; the protocol uses
-**stdout**.
-
-```pwsh
-dotnet run --project src/BcWordLayout.McpHost
-```
-
-Then send, one JSON object per line:
-
-```json
-{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"smoke","version":"1.0"}}}
-{"jsonrpc":"2.0","method":"notifications/initialized"}
-{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}
-```
-
-Or write the requests to a file of your own and pipe it (`Get-Content requests.jsonl | dotnet run
---project src/BcWordLayout.McpHost`), and try a real call:
-
-```json
-{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"get_layout_info","arguments":{"layoutPath":"C:\\path\\to\\bc-word-layout-mcp\\tests\\corpus\\SalesInvoiceForSubscriptionBilling.docx"}}}
-```
-
-## Project layout
-
-| Project | Role |
-|---|---|
-| `src/BcWordLayout.Domain` | Core: dataset models, `SchemaProvider` (schema parsing), `LayoutReader` (control inventory), `LayoutValidator` (quick validation), `LayoutEditor`/`SdtFactory`/`Location`+`LocationResolver` (edits), `TableStructureEditor`/`TableShell` (table structure and new-table shells), `CellTextEditor`/`TextFormatEditor`/`RunFormatter` (cell text and formatting), `LayoutBuilder` (`create_layout`), `LayoutRefresher` (`refresh_xml_part`). |
-| `src/BcWordLayout.Merge` | `SampleDataGenerator` (seeded, type-aware fakes), `MergeEngine` (binding fill, repeater expansion incl. nested/re-anchored XPaths, picture placeholders), `FullValidator` (the dry-run merge behind `validate_layout level=full`). |
-| `src/BcWordLayout.Render` | `IPdfConverter` + `WordComConverter` (primary) / `LibreOfficeConverter` (fallback) + `PdfConverterFactory` (auto-selection) + PDF output sanity checks. |
-| `src/BcWordLayout.McpHost` | The MCP stdio server (console app): the 30 tool definitions (`Tools/ReadTools.cs`, `Tools/EditTools.cs`, `Tools/TableTools.cs`, `Tools/ThemeTools.cs`, `Tools/LifecycleTools.cs`, sharing `Tools/ToolGuards.cs`), their structured arguments (`Tools/TableArguments.cs`, `Tools/TextFormatArgument.cs`, the enum lists in `Tools/AllowedValueAttributes.cs`), the `{ok,data,error}` envelope (`ToolContracts.cs`), the call filter that keeps malformed calls inside it (`ToolCallBoundary.cs`), and the schema correction that puts a list parameter's allowed values and range on its items (`ToolInputSchemas.cs`). |
-| `tests/BcWordLayout.Tests` | xUnit tests: the 13 real corpus layouts in `tests/corpus/` plus synthetic fixtures — reader/validator/merge/editor/refresher/converter coverage, snapshot tests, MCP host tool tests, packaging-manifest guards, and the fidelity harness. |
-
-## Contributing and security
-
-- [`CONTRIBUTING.md`](CONTRIBUTING.md) — dev setup, the design constraints PRs need to fit
-  ([`docs/adr/`](docs/adr/)), corpus rules, PR checklist.
-- [`SECURITY.md`](SECURITY.md) — private vulnerability reporting and the threat model.
-- [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md).
-
-## Further reading
-
-- [`skills/al-word-layout/SKILL.md`](skills/al-word-layout/SKILL.md) — the companion skill: intended
-  agent workflow, full tool reference, supported matrix, anti-patterns, and error handling.
-- [`skills/al-word-layout-design/SKILL.md`](skills/al-word-layout-design/SKILL.md) — the design
-  skill: the two archetype skeletons (trading document, list report), per-element BC conventions
-  (address blocks, caption placement, line-table alignment, totals, chrome, typography), and the
-  stock idioms the tools cannot build.
-- [`skills/al-word-layout-from-design/SKILL.md`](skills/al-word-layout-from-design/SKILL.md) — the
-  design-to-layout skill: inputs to request, the sample-text-to-field map and its rules, the binding
-  recipe for a styled design, mock-render traps, and the consultant handover.
-- [`skills/al-word-layout-composite/SKILL.md`](skills/al-word-layout-composite/SKILL.md) — the
-  composable-layout skill: body / header-footer / theme rules, the theme–body style contract, splitting
-  one design into the three parts, and what made a theme fail to apply.
-- [`docs/SOLUTION-DESIGN.md`](docs/SOLUTION-DESIGN.md) — architecture, tool surface, design risks.
-- [GitHub issues](https://github.com/TKapitan/bc-word-layout-mcp/issues) — the backlog: what is
-  deferred, why, and what each remaining item is blocked on. Labels classify each issue by type,
-  impact, and blockage — the taxonomy is defined in
-  [`docs/BRANCHING.md`](docs/BRANCHING.md#issue-classification).
-- [`docs/FIDELITY-CHECKLIST.md`](docs/FIDELITY-CHECKLIST.md) — per-release mock-preview fidelity
-  regression procedure, and the record of the BC-sandbox validation.
-- [`CHANGELOG.md`](CHANGELOG.md) — release notes.
+- [`CHANGELOG.md`](CHANGELOG.md): release notes.
+- [GitHub issues](https://github.com/TKapitan/bc-word-layout-mcp/issues): what is planned or deferred,
+  and why.
+- [`docs/SOLUTION-DESIGN.md`](docs/SOLUTION-DESIGN.md) and [`docs/adr/`](docs/adr/): architecture and
+  design decisions.
+- [`CONTRIBUTING.md`](CONTRIBUTING.md): building from source and contributing.
+- [`SECURITY.md`](SECURITY.md): reporting a vulnerability.
 
 ## License
 
-[MIT](LICENSE) © Tom Kapitan. Third-party components and the corpus layouts' provenance:
+[MIT](LICENSE) © Tom Kapitan. Third-party components and the provenance of the corpus layouts:
 [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md).
