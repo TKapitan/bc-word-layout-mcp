@@ -245,7 +245,7 @@ other tool is conversion-free and works everywhere the server runs.
 | `remove_control` | Remove a content control (field/label/repeater/picture/unbound) by its `w:id`, searching the body and every header/footer; `keepText=true` on a block-level repeater unwraps it and keeps its content. |
 | `set_cell_text` | Set (replace) the PLAIN TEXT of a table cell, addressed by table/row/column index — e.g. re-label a line-items column header. Rejects cells that hold a bound control. |
 | `set_text_format` | Restyle text that is ALREADY in the layout without changing it: a control by id, a table cell, a whole row, or one exact piece of text, with the same `format` object the insert tools take (bold, italic, underline, size, font, colour, character style), an optional alignment and paragraph style (`Heading1`), and `clearDirectFormatting` to let the styles decide. |
-| `set_layout_theme` | Change a layout's own theme: the colour each theme slot (`accent1`, `text2`…) resolves to, and the heading and body fonts. Everything coloured through a slot follows — the stock themable Blue invoice prints coral red until `accent1` is set to `0070C0` — and every cached colour of a changed slot is rewritten too. Needs a BC 29 target. |
+| `set_layout_theme` | Change a layout's own theme: the colour each theme slot (`accent1`, `text2`…) resolves to, and the heading and body fonts. Everything coloured through a slot follows — the stock themable Blue invoice prints coral red until `accent1` is set to `0070C0` — and every cached colour of a changed slot is rewritten too. Needs a BC 29 target. A report theme selected in BC replaces the layout's own theme at print time. |
 | `clear_cell_text` | Remove all PLAIN TEXT from a table cell, leaving a valid empty cell (the cell/column is preserved) — e.g. blank an unwanted column-header label. |
 | `insert_subtotal_row` | Append a STATIC per-group row at the end of an existing repeater's item — the stock BC shape for group subtotal (and spacer) rows: it renders once per PARENT row, after the nested detail rows, never per detail row. Its cells take the formatting of the row above them, as `insert_repeater_row`'s do. |
 | `insert_table_row` | Insert ONE STATIC (non-repeating) row into an existing table — the stock BC shape for the totals block INSIDE the line-items table (spacer cells, a spanned bound caption cell, a right-aligned bound amount cell). Cells bind FULL dataset paths; the row renders exactly once, never per data row. Its cells take the formatting of the row above them (below, at the top of a table), as `insert_repeater_row`'s do. |
@@ -382,11 +382,11 @@ Error `message`/`hint` texts are not part of the contract — never parse them.
   Table Row, layout comment) — no `set_hide_if_empty` tool yet. What BC 28 does with the two captured
   ones is measured ([#123](https://github.com/TKapitan/bc-word-layout-mcp/issues/123)): inside a repeater, *Hide Table Row If Empty* hides the whole
   repeated item when its cell is empty, and outside a repeater it does nothing; *Hide Table If Empty*
-  around a cell does nothing. BC 29 does the same. Microsoft's own layouts also place the row variant on a
-  nested table's row, which is being measured before a tool is built; until then a hand edit in the
-  captured shape works. Hide Field if Zero has been captured but not yet printed, and layout comments are
-  uncaptured ([#8](https://github.com/TKapitan/bc-word-layout-mcp/issues/8),
-  [ADR-0005](docs/adr/0005-emit-only-observed-ooxml.md)).
+  around a cell does nothing. BC 29 does the same, and the row variant acts only on a row of the repeated
+  item itself, not on a nested table's row. *Hide Field If Zero* and *Hide Table Column If Empty* work in
+  BC 29 as captured ([#8](https://github.com/TKapitan/bc-word-layout-mcp/issues/8)), but no tool writes
+  them yet; until then a hand edit in the captured shape works. Layout comments are uncaptured
+  ([ADR-0005](docs/adr/0005-emit-only-observed-ooxml.md)).
 - **Repeaters in headers/footers** — nothing shows that BC renders a repeating section there, so
   `insert_repeater_table` only creates one in the document body and `wrap_in_repeater` only wraps body
   content; a pre-existing/hand-authored one is still detected by `validate_layout` with a warning

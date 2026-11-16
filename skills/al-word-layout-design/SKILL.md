@@ -221,8 +221,10 @@ commission % [verified: P07, P16].
   layout's own theme part. Microsoft's themable layouts colour every accent through `accent1` this way
   [stock: the three themable captures]. Prefer a slot when the layout should take a theme's colour,
   and a hex value when the colour is fixed by the brand. A slot needs a layout with a theme part (a
-  blank `create_layout` build has none) and a BC 29 target. Whether a BC report theme re-colours
-  `accent1` is not yet known (#142); without one, BC prints the layout's own theme colour.
+  blank `create_layout` build has none) and a BC 29 target. A report theme selected in BC replaces
+  the layout's own theme at print time, so every slot, tint and theme font follows it; literal colours
+  and named fonts stay [verified: BC 29, Calm and Playful]. Without one, BC prints the layout's own
+  theme colour.
 - Anything beyond that (margins, page setup, a whole brand) has no tool: use a branded
   `templatePath` shell or hand-edit the OOXML and re-validate (al-word-layout §3). When the look
   already exists as a finished Word design with sample values, follow al-word-layout-from-design

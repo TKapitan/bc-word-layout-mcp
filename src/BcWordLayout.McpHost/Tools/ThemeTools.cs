@@ -24,9 +24,11 @@ public static class ThemeTools
                  + "the theme fonts (headings, and body text in layouts whose styles say minorHAnsi) takes the new "
                  + "fonts; text set in a named font keeps it. A layout with no theme part is refused: create_layout "
                  + "with theme 'office' gives a new layout one. Needs a BC 29 target, like the other themable "
-                 + "formatting (bc_version_unsupported below 29 or when the target is unknown). Whether a Business "
-                 + "Central report theme overrides a layout's own theme is not yet known (GitHub issue #142). Same "
-                 + "write/validate/save-or-reject safety as every editing tool.")]
+                 + "formatting (bc_version_unsupported below 29 or when the target is unknown). A report theme selected "
+                 + "in Business Central replaces the layout's own theme, colours and fonts, at print time "
+                 + "(sandbox-verified on BC 29): this tool decides how the layout prints with no report theme, and "
+                 + "the report theme decides it otherwise. Same write/validate/save-or-reject safety as every "
+                 + "editing tool.")]
     public static ToolResponse SetLayoutTheme(
         [Description("Absolute path to the .docx layout file.")] string layoutPath,
         [Description("Theme slots to set, each to six hex digits RRGGBB (a leading '#' is fine), e.g. "

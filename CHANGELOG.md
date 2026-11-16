@@ -29,8 +29,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     such reference resolves to; those values are rewritten too, tint or shade applied, so a renderer
     that reads only the cache prints the new colour as well. The result reports each slot's colour
     before and after, and how many references it rewrote.
-  - It edits the layout's own `word/theme/theme1.xml`, not a report theme `.dotx`. Whether a BC report
-    theme overrides a layout's own theme is still open (#142).
+  - It edits the layout's own `word/theme/theme1.xml`, not a report theme `.dotx`. A report theme
+    selected in BC replaces the layout's own theme, colours and fonts, at print time (sandbox-verified on
+    BC 29, #142), so the edit decides how the layout prints with no report theme.
   - Needs a BC 29 target (`themable-formatting`, like theme colours). A layout with no theme part is
     refused.
   - `create_layout` gains `theme: "office"`: the new layout gets the stock Office theme part (the one
@@ -123,11 +124,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   There is one finding per style id, giving how many paragraphs use it and in which parts. With
   `table-style-resolves` and `character-style-resolves`, all three kinds of style reference are now
   checked. No corpus layout trips it.
-- **Sandbox pack items P26–P32, for a BC 29 sandbox.** P26/P27 retest the add-in's *Hide Table Row If
-  Empty* (#123) in the two placements Microsoft's own layouts use, which round 3's whole-line result does
-  not explain. P28/P29 print the *Hide Field If Zero* and *Hide Table Column If Empty* shapes a contributor
-  captured (#8). P30–P32 ask what a report theme changes in a themable layout, its plain twin, and one
-  recoloured with `set_layout_theme` (#142, #150).
+- **Sandbox pack items P26–P32, for a BC 29 sandbox, and round 4's results** (`docs/FIDELITY-CHECKLIST.md`).
+  All thirty-two items printed on BC 29 as on BC 28. P30–P32 answered #142: a report theme replaces a
+  single-file layout's own theme (colours and fonts, tints included) and leaves literal colours and named
+  fonts alone. P26/P27 showed the *Hide Table Row If Empty* wrapper acting only on a row of the repeated
+  item itself (#123), and P28/P29 that the *Hide Field If Zero* and *Hide Table Column If Empty* shapes a
+  contributor captured work (#8).
 
 ### Changed
 

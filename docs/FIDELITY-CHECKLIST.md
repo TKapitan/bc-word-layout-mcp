@@ -42,7 +42,7 @@ harness below (Deliverable 2) repeats it in every artifact it writes.
 | Pagination / page breaks / "different first page" headers | **[Manual]** | Word/LibreOffice's pagination engine is not BC's report engine. Measured once (2026-08-01, a 2-page purchase order): same page count, same first-page→default header/footer switch at page 2, page break within ONE row. Re-measured 2026-08-02 (a 6-page report): header/footer parts repeat identically both sides; repeated table header rows (`w:tblHeader`) were a mock-only gap — Word fragmented the table at the merged copy's flattened row-SDT wrappers, so the mock lost the every-page header repetition BC renders — **fixed** by unwrapping row-level sdt shells in the render flatten ([#19](https://github.com/TKapitan/bc-word-layout-mcp/issues/19), `MergeEngine.UnwrapRowLevelSdts`; the layout itself was always correct). Still manual — one document is not a guarantee. Note that BC honours the Word first/default/even part model exactly, so a layout with `w:titlePg` renders its FIRST-page parts on page 1. |
 | Picture rendering (placeholder vs. real image) | **[Automated for Word path]** / **[Manual for LibreOffice + real image]** | `MergeEngineTests.Corpus_picture_controls_are_filled_with_a_valid_placeholder_png` asserts the placeholder PNG fill itself; `FidelityHarnessTests`/`PdfConverterTests` render it end-to-end via Word COM. The LibreOffice path is unverified — LibreOffice was never installed on the reference dev machine, so whether it accepts the placeholder image part's package-root/absolute relationship target is still open (see [#7](https://github.com/TKapitan/bc-word-layout-mcp/issues/7)). What a genuine (non-placeholder) picture looks like is manual either way — the mock always substitutes a placeholder, by design. |
 | Number/date/locale formatting | **[Automated determinism]** / **[Manual vs BC locale]** | `SampleDataGeneratorTests` locks down the generator's own deterministic, type-aware output run over run. Whether it matches BC's locale-aware formatting is manual, and it will not: the sandbox rendered `31. März 2025` / `1.800,00` from its own regional settings. With a real exported dataset the values come from BC itself — including raw-number columns: each `decimalformatter` attribute the export carries is applied with the export's own `formatRegion` culture ([#4](https://github.com/TKapitan/bc-word-layout-mcp/issues/4), fixed; `ReportDataSetConverter`, guarded by `SampleDataGeneratorTests`' export-shape tests), so `100` renders `100.00` as BC prints it. One caveat stays manual: the separator GLYPHS come from `formatRegion`, while a BC user whose personal regional settings differ from the report's format region may see different ones. |
-| Hide-if-empty conditional controls | **[Deferred]** | Not implemented in `MergeEngine`, and there is no `set_hide_if_empty` editing tool. Two corpus layouts carry the captured controls: SalespersonCommission (*Hide Empty Table Row*) and SubcontractorDispatchList (*Hide Empty Table*). Their mock previews ignore the wrapper and show the row or table regardless, so compare those two against a BC render with care. What BC treats as empty is the open question ([#123](https://github.com/TKapitan/bc-word-layout-mcp/issues/123)): round 3 found that BC 28 acts on neither wrapper around a row outside a repeater, whether its bound first child record is missing (P09/P10 on a quote with no lines) or its value is empty (P19). Inside a repeater, the row variant hides the whole repeated item (each invoice line with its rows) when the wrapped cell is a missing record or an empty value, and keeps it when the value is filled (P20–P22). The table variant around one cell does nothing, inside a repeater (P23/P24) or outside one (P10); around a whole table, the placement its placeholder text describes, it is untested. Microsoft's Quality Management reports put the row variant on a row of a table nested in the repeated item, a use the whole-item result would not survive; P26/P27 retest both of Microsoft's placements on BC 29. A contributor captured *Hide Field If Zero* and *Hide Table Column If Empty* (P28/P29 print them); layout comments are uncaptured ([#8](https://github.com/TKapitan/bc-word-layout-mcp/issues/8)). |
+| Hide-if-empty conditional controls | **[Deferred]** | Not implemented in `MergeEngine`, and there is no `set_hide_if_empty` editing tool. Two corpus layouts carry the captured controls: SalespersonCommission (*Hide Empty Table Row*) and SubcontractorDispatchList (*Hide Empty Table*). Their mock previews ignore the wrapper and show the row or table regardless, so compare those two against a BC render with care. What BC treats as empty is the open question ([#123](https://github.com/TKapitan/bc-word-layout-mcp/issues/123)): round 3 found that BC 28 acts on neither wrapper around a row outside a repeater, whether its bound first child record is missing (P09/P10 on a quote with no lines) or its value is empty (P19). Inside a repeater, the row variant hides the whole repeated item (each invoice line with its rows) when the wrapped cell is a missing record or an empty value, and keeps it when the value is filled (P20–P22). The table variant around one cell does nothing, inside a repeater (P23/P24) or outside one (P10); around a whole table, the placement its placeholder text describes, it is untested. BC 29 does the same (round 4). The row variant acts only on a row of the repeated item itself, whether it wraps the cell or sits inside the paragraph around the field (P27); on a row of a table nested in the item, Microsoft's Quality Management placement, it does nothing (P26). *Hide Field If Zero* hides a zero value (P28) and *Hide Table Column If Empty* removes a column whose values are all empty, leaving the other columns' widths as they were (P29); layout comments are uncaptured ([#8](https://github.com/TKapitan/bc-word-layout-mcp/issues/8)). |
 | Report limits / large datasets | **[Manual]** | `MergeOptions.MaxRowsPerRepeater` (default 100) bounds the MOCK preview's own row count for robustness — a safeguard against the mock blowing up, not a statement about BC's real limits. Actual BC report performance/limits at production data volumes are sandbox-only. |
 
 ## The sandbox pack (the prepared version of the manual procedure)
@@ -174,10 +174,10 @@ passed**; the filled comparison sheet lives with the round's pack output.
   `MergeEngine`'s flatten-for-render step now unwraps row-level sdt shells entirely
   (`UnwrapRowLevelSdts`).
 
-### Recorded result — 2026-11-16, BC sandbox (round 4: P01–P25 on a BC 29 sandbox)
+### Recorded result — 2026-11-16, BC sandbox (round 4: all thirty-two items on a BC 29 sandbox)
 
-Every item printed, and nothing differs from what BC 28 printed in round 3. Compared page by page with the
-round-3 prints, thirteen are pixel-identical (P02, P03, P06–P08, P11, P14–P16, P20, P21, P23, P24, and the
+Every item printed, and P01–P25 differ in nothing from what BC 28 printed in round 3. Compared page by page
+with the round-3 prints, thirteen are pixel-identical (P02, P03, P06–P08, P11, P14–P16, P20, P21, P23, P24, and the
 no-lines quote of P09/P10) and P04 and P19 differ by under 0.1%. The rest differ only in their data, not in what BC
 did with the layout: quote 1003 had grown from 40 to 52 lines during round 3 (P01, P05, P09, P10, P13, P17),
 the statement ran from 01/01/01, so every customer took two pages, each starting on a new page with its own
@@ -196,7 +196,27 @@ the row tools copied the row above's formatting. What round 4 adds:
   block repeaters (P12, P14), totals and subtotal rows (P15, P16), the `.dotx` template build (P17), and the
   work description held inline still printing nothing beside the built-in layout's (P18).
 
-P26–P32, the BC 29 probes, are not printed yet.
+- **A report theme replaces the layout's own theme** (P30–P32,
+  [#142](https://github.com/TKapitan/bc-word-layout-mcp/issues/142)). With no theme, the themable Blue invoice
+  printed its own `accent1`, coral red `F24F4F`, as Word does. With Calm it printed green `4D614C` and with
+  Playful pink `D46989`; its default text took the theme's `text1`, its header-band text its `background1`, and
+  its heading and body text the theme's fonts (Sitka; Bahnschrift). Tinted colours follow: the
+  `text2 lighter 40%` rule printed `8EA68D` (Calm) and `666666` (Playful), exactly what the tools' tint
+  arithmetic computes. The plain twin kept every literal `0070C0` and every run set in a named font (Segoe UI)
+  under both themes, while its text in the theme fonts changed (P31). After `set_layout_theme` set the layout's
+  own `accent1` to `0070C0` it printed blue with no theme, and exactly like P30 under Calm and Playful: the report
+  theme wins, cached colours included (P32, [#150](https://github.com/TKapitan/bc-word-layout-mcp/issues/150)).
+- **The hide-if-empty row variant acts only on a row of the repeated item itself** (P26, P27,
+  [#123](https://github.com/TKapitan/bc-word-layout-mcp/issues/123)). Wrapped inside the paragraph around the
+  field (Microsoft's CustomerItemSales placement), an empty value hid the whole invoice line, as the wrapper
+  around the cell did in P21 (P27). On a row of a table nested in the line (the Quality Management
+  placement), it hid nothing: every line printed with the nested row and its empty value (P26). Both showed the
+  row on the invoice whose line had a discount.
+- **The two controls captured on [#8](https://github.com/TKapitan/bc-word-layout-mcp/issues/8) work.**
+  *Hide Field If Zero* left its caption and hid a zero discount %, and printed 13 on the discounted line (P28).
+  *Hide Table Column If Empty* removed the whole new column, caption and values, from the invoice without
+  discounts, and printed it on the discounted one; the other columns kept their widths, so the lines table
+  ended short of the totals rows (P29).
 
 ### Recorded result — 2026-10-24/25, BC sandbox (round 3 and its re-run: twenty-four items on a BC 28 sandbox)
 
