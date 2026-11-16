@@ -384,9 +384,9 @@ Error `message`/`hint` texts are not part of the contract — never parse them.
   repeated item when its cell is empty, and outside a repeater it does nothing; *Hide Table If Empty*
   around a cell does nothing. BC 29 does the same, and the row variant acts only on a row of the repeated
   item itself, not on a nested table's row. *Hide Field If Zero* and *Hide Table Column If Empty* work in
-  BC 29 as captured ([#8](https://github.com/TKapitan/bc-word-layout-mcp/issues/8)), but no tool writes
+  BC 29 as captured ([#162](https://github.com/TKapitan/bc-word-layout-mcp/issues/162)), but no tool writes
   them yet; until then a hand edit in the captured shape works. Layout comments are uncaptured
-  ([ADR-0005](docs/adr/0005-emit-only-observed-ooxml.md)).
+  ([#8](https://github.com/TKapitan/bc-word-layout-mcp/issues/8), [ADR-0005](docs/adr/0005-emit-only-observed-ooxml.md)).
 - **Repeaters in headers/footers** — nothing shows that BC renders a repeating section there, so
   `insert_repeater_table` only creates one in the document body and `wrap_in_repeater` only wraps body
   content; a pre-existing/hand-authored one is still detected by `validate_layout` with a warning
